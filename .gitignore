@@ -1,0 +1,48 @@
+# ========================
+# Dependencias
+# ========================
+node_modules/
+
+# ========================
+# Archivos de build/output
+# ========================
+out/
+dist/
+build/
+
+# ========================
+# Archivos de base de datos y logs
+# ========================
+*.sqlite
+*.log
+
+# ========================
+# Configuración local y secretos
+# ========================
+.env
+
+# ========================
+# Archivos del sistema
+# ========================
+.DS_Store
+
+# ========================
+# IDEs y editores
+# ========================
+.vscode/
+
+# ========================
+# Binarios y paquetes grandes
+# ========================
+*.exe
+*.nupkg
+*.msi
+*.dmg
+*.AppImage
+
+# ========================
+# Otros temporales
+# ========================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

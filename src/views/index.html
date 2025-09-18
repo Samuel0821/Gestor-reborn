@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Menú Principal - GestorFX</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <style>
+    body { background: #f6f8fa; }
+    .main-title { font-size: 2.8rem; font-weight: 700; color: #1a237e; letter-spacing: 1px; }
+    .menu-title { font-size: 1.5rem; color: #263238; margin-bottom: 2rem; }
+    .menu-btns .btn { font-size: 1.1rem; padding: 1rem 0.5rem; border-radius: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.04); transition: transform 0.1s; }
+    .menu-btns .btn:hover { transform: scale(1.05); }
+    .dashboard-card { border-radius: 1.2rem; box-shadow: 0 2px 12px rgba(0,0,0,0.07); background: #fff; margin-bottom: 1.5rem; }
+    .dashboard-card h5 { font-size: 1.1rem; color: #37474f; margin-bottom: 0.5rem; }
+    .dashboard-card .display-6 { font-size: 2.2rem; color: #1976d2; font-weight: 600; }
+    .alert-danger { animation: shake 0.4s; }
+    @keyframes shake { 0% { transform: translateX(0); } 25% { transform: translateX(-8px); } 50% { transform: translateX(8px); } 75% { transform: translateX(-8px); } 100% { transform: translateX(0); } }
+    .fa-gear, .fa-users, .fa-boxes-stacked, .fa-receipt, .fa-file-invoice-dollar, .fa-chart-line { font-size: 1.5rem; }
+    .menu-btns .btn-success { background: #43a047; border: none; }
+    .menu-btns .btn-outline-success:hover { background: #43a047; color: #fff; }
+    .menu-btns .btn-outline-secondary:hover { background: #263238; color: #fff; }
+    .menu-btns .btn-outline-primary:hover { background: #1976d2; color: #fff; }
+    .low-stock-list li { margin-bottom: 0.3rem; }
+  </style>
+  <script defer src="../js/dashboard.js"></script>
+    <script>
+      if (!localStorage.getItem('logueado')) {
+        window.location.href = 'login.html';
+      }
+    </script>
+</head>
+<body class="bg-light">
+  <div class="container py-4">
+    <h1 class="main-title mb-2" id="main-title" tabindex="0" aria-label="Gestor Empresarial FX">GestorFX</h1>
+    <h2 class="menu-title" id="menu-title" tabindex="0" aria-label="Menú Principal">Menú Principal</h2>
+    <div class="row menu-btns mb-4">
+      <div class="col"><a href="clients.html" class="btn btn-outline-primary w-100" role="button" aria-label="Clientes" tabindex="0"><i class="fa fa-users me-2"></i>Clientes</a></div>
+      <div class="col"><a href="products.html" class="btn btn-outline-primary w-100" role="button" aria-label="Productos" tabindex="0"><i class="fa fa-boxes-stacked me-2"></i>Productos</a></div>
+      <div class="col"><a href="sales.html" class="btn btn-outline-primary w-100" role="button" aria-label="Ventas" tabindex="0"><i class="fa fa-receipt me-2"></i>Ventas</a></div>
+      <div class="col"><a href="quotes.html" class="btn btn-outline-primary w-100" role="button" aria-label="Cotizaciones" tabindex="0"><i class="fa fa-file-invoice-dollar me-2"></i>Cotizaciones</a></div>
+      <div class="col"><a href="reports.html" class="btn btn-outline-success w-100" role="button" aria-label="Reportes" tabindex="0"><i class="fa fa-chart-line me-2"></i>Reportes</a></div>
+      <div class="col"><a href="settings.html" class="btn btn-outline-secondary w-100" role="button" aria-label="Ajustes" tabindex="0"><i class="fa fa-gear me-2"></i>Ajustes</a></div>
+    </div>
+    <div class="row mb-3" id="dashboard-cards"></div>
+    <div id="low-stock-alerts"></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reportes - GestorFX</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+      body { background: #f6f8fa; }
+      h1 { font-size: 2.2rem; font-weight: 700; color: #1a237e; margin-bottom: 1.2rem; text-align: center; }
+      .card { border-radius: 1.2rem; box-shadow: 0 2px 12px rgba(0,0,0,0.07); background: #fff; }
+      .form-label { font-weight: 500; color: #37474f; }
+      .btn-success { background: #43a047; border: none; }
+      .btn-success:hover { background: #388e3c; }
+      .btn-secondary { background: #263238; border: none; }
+      .btn-secondary:hover { background: #37474f; }
+      .fa-chart-bar, .fa-arrow-left { font-size: 1.2rem; }
+      .fw-bold { font-weight: bold; margin-top: 15px; }
+    </style>
+            <script>
+                if (!localStorage.getItem('logueado')) {
+                    window.location.href = 'login.html';
+                }
+            </script>
+            <script>
+                if (!localStorage.getItem('logueado')) {
+                    window.location.href = 'login.html';
+                }
+            </script>
+</head>
+<body>
+    <div class="container py-4">
+        <h1 id="main-title" tabindex="0" aria-label="Reportes">Reportes</h1>
+        <a href="index.html" class="btn btn-secondary mb-3"><i class="fa fa-arrow-left me-2"></i>Volver</a>
+        <div class="card p-4 mb-4">
+            <form class="row g-3 report-form">
+                <div class="col-md-6">
+                    <label for="reportType" class="form-label">Tipo de reporte:</label>
+                    <select id="reportType" class="form-select" aria-label="Tipo de reporte" tabindex="0">
+                        <option value="daily">Diario</option>
+                        <option value="weekly">Semanal</option>
+                        <option value="monthly">Mensual</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="startDate" class="form-label">Fecha de inicio:</label>
+                    <input type="date" id="startDate" class="form-control" aria-label="Fecha de inicio" tabindex="0">
+                </div>
+                <div class="col-md-3">
+                    <label for="endDate" class="form-label">Fecha de fin:</label>
+                    <input type="date" id="endDate" class="form-control" aria-label="Fecha de fin" tabindex="0">
+                </div>
+                <div class="col-12">
+                    <button onclick="generateReport()" type="button" class="btn btn-success px-4 w-100" aria-label="Generar Reporte" tabindex="0"><i class="fa fa-chart-bar me-2"></i>Generar Reporte</button>
+                </div>
+            </form>
+        </div>
+        <div class="card p-4" id="report-container">
+            <!-- Aquí se renderizará el reporte -->
+        </div>
+    </div>
+    <script defer src="../js/report.js"></script>
+</body>
+</html>
+
