@@ -47,15 +47,28 @@
             <input id="product-code" class="form-control" required>
             <span id="code-error-message" class="text-danger small mt-1"></span>
         </div>
-        <div class="col-md-4"><label class="form-label">Nombre</label><input id="product-name" class="form-control" required></div>
+        <div class="col-md-4"><label class="form-label">Nombre</label>
+          <input id="product-name" class="form-control" required>
+        </div>
         <div class="col-md-4"><label class="form-label">Categoría</label>
           <select id="product-category" class="form-select"></select>
           <input id="product-category-new" class="form-control mt-2" placeholder="Nueva categoría (opcional)">
         </div>
-        <div class="col-md-3"><label class="form-label">Precio costo</label><input id="product-purchase-price" type="number" step="0.01" class="form-control"></div>
-        <div class="col-md-3"><label class="form-label">Precio venta</label><input id="product-sale-price" type="number" step="0.01" class="form-control" required></div>
-        <div class="col-md-3"><label class="form-label">Stock</label><input id="product-stock" type="number" class="form-control" value="0" required></div>
-        <div class="col-md-3"><label class="form-label">Stock mínimo</label><input id="product-min-stock" type="number" class="form-control" value="0" required></div>
+        <div class="col-md-3"><label class="form-label">Precio costo</label>
+          <input id="product-purchase-price" type="number" step="0.01" class="form-control">
+        </div>
+        <div class="col-md-3"><label class="form-label">Precio venta</label>
+          <input id="product-sale-price" type="number" step="0.01" class="form-control" required>
+        </div>
+        <div class="col-md-3"><label class="form-label">Precio especial</label>
+          <input id="product-special-price" type="number" step="0.01" class="form-control">
+      </div>
+        <div class="col-md-3"><label class="form-label">Stock</label>
+          <input id="product-stock" type="number" class="form-control" value="0" required>
+        </div>
+        <div class="col-md-3"><label class="form-label">Stock mínimo</label>
+          <input id="product-min-stock" type="number" class="form-control" value="0" required>
+        </div>
         <div class="col-12 d-flex gap-2">
           <button id="save-product" class="btn btn-primary px-4">Guardar</button>
           <button id="cancel-product" type="button" class="btn btn-secondary px-4" style="display:none">Cancelar</button>

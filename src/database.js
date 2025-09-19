@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS products (
   category_id INTEGER,
   purchase_price REAL,
   sale_price REAL NOT NULL,
+  special_price REAL NOT NULL DEFAULT 0,
   stock INTEGER NOT NULL DEFAULT 0,
   min_stock INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
@@ -256,8 +257,8 @@ function addProduct(p) {
   try {
     const catId = ensureCategoryId(p.category);
     db.prepare(`
-      INSERT INTO products (code, name, category, category_id, purchase_price, sale_price, stock, min_stock)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (code, name, category, category_id, purchase_price, sale_price, special_price, stock, min_stock)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       p.code,
       p.name,
@@ -265,6 +266,7 @@ function addProduct(p) {
       catId,
       p.purchase_price || 0,
       p.sale_price || 0,
+      p.special_price || 0,
       p.stock || 0,
       p.min_stock || 0
     );
@@ -279,7 +281,7 @@ function updateProduct(p) {
     const catId = ensureCategoryId(p.category);
     db.prepare(`
       UPDATE products
-      SET code=?, name=?, category=?, category_id=?, purchase_price=?, sale_price=?, stock=?, min_stock=?
+      SET code=?, name=?, category=?, category_id=?, purchase_price=?, sale_price=?, special_price=?, stock=?, min_stock=?
       WHERE id=?
     `).run(
       p.code,
@@ -288,6 +290,7 @@ function updateProduct(p) {
       catId,
       p.purchase_price || 0,
       p.sale_price || 0,
+      p.special_price || 0,
       p.stock || 0,
       p.min_stock || 0,
       p.id

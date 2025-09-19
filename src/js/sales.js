@@ -48,62 +48,85 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // --- Render items
   function renderSaleItems() {
-    saleItemsTbody.innerHTML = "";
-    let total = 0;
-    saleItems.forEach((it, i) => {
-      total += it.subtotal;
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${i + 1}</td>
-        <td>${it.product_code}</td>
-        <td>${it.product_name}</td>
-        <td>${it.quantity}</td>
-        <td>${formatCOP(it.price)}</td>
-        <td>${formatCOP(it.subtotal)}</td>
-        <td><button class="btn btn-sm btn-danger remove" data-i="${i}">Eliminar</button></td>
-      `;
-      saleItemsTbody.appendChild(tr);
+  saleItemsTbody.innerHTML = "";
+  let total = 0;
+  
+  saleItems.forEach((it, i) => {
+    total += it.subtotal;
+    const tr = document.createElement("tr");
+    
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td>${it.product_code}</td>
+      <td>${it.product_name}</td>
+      <td>${it.quantity}</td>
+      <td>
+        <select class="form-select form-select-sm price-selector">
+          <option value="sale" data-price="${it.sale_price}" ${it.price === it.sale_price ? 'selected' : ''}>${formatCOP(it.sale_price)}</option>
+          ${it.special_price > 0 ? `<option value="special" data-price="${it.special_price}" ${it.price === it.special_price ? 'selected' : ''}>${formatCOP(it.special_price)}</option>` : ''}
+        </select>
+      </td>
+      <td>${formatCOP(it.price * it.quantity)}</td>
+      <td><button class="btn btn-sm btn-danger remove" data-i="${i}">Eliminar</button></td>
+    `;
+    
+    saleItemsTbody.appendChild(tr);
+
+    // Agrega el event listener para cambiar el precio
+    tr.querySelector('.price-selector')?.addEventListener('change', (e) => {
+        const selectedOption = e.target.options[e.target.selectedIndex];
+        const newPrice = parseFloat(selectedOption.getAttribute('data-price'));
+        saleItems[i].price = newPrice;
+        saleItems[i].subtotal = newPrice * saleItems[i].quantity;
+        renderSaleItems();
     });
-    totalDiv.textContent = `TOTAL: ${formatCOP(total)}`;
-    saleItemsTbody
-      .querySelectorAll(".remove")
-      .forEach((b) =>
-        b.addEventListener("click", (e) => {
-          const i = Number(e.target.dataset.i);
-          saleItems.splice(i, 1);
-          renderSaleItems();
-        })
-      );
-  }
+  });
+
+  totalDiv.textContent = `TOTAL: ${formatCOP(total)}`;
+  saleItemsTbody
+    .querySelectorAll(".remove")
+    .forEach((b) =>
+      b.addEventListener("click", (e) => {
+        const i = Number(e.target.dataset.i);
+        saleItems.splice(i, 1);
+        renderSaleItems();
+      })
+    );
+}
 
   // --- Agregar producto
-  saleForm.addEventListener("submit", async (e) => {
+saleForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const prodId = Number(productSelect.value);
     const qty = Number(qtyInput.value) || 1;
     const prod = await window.api.getProductById(prodId);
     if (!prod) {
-      alert("Producto no encontrado");
-      return;
+        alert("Producto no encontrado");
+        return;
     }
     if (prod.stock < qty) {
-      alert("Stock insuficiente");
-      return;
+        alert("Stock insuficiente");
+        return;
     }
     if (prod.stock <= prod.min_stock) {
-      alert(`¡Advertencia! El producto '${prod.name}' está en stock mínimo (${prod.stock} unidades).`);
+        alert(`¡Advertencia! El producto '${prod.name}' está en stock mínimo (${prod.stock} unidades).`);
     }
-    const price = prod.sale_price;
+
+    const initialPrice = prod.sale_price;
+
     saleItems.push({
-      product_id: prod.id,
-      product_code: prod.code,
-      product_name: prod.name,
-      quantity: qty,
-      price,
-      subtotal: price * qty,
+        product_id: prod.id,
+        product_code: prod.code,
+        product_name: prod.name,
+        quantity: qty,
+        price: initialPrice, 
+        sale_price: prod.sale_price,
+        special_price: prod.special_price,
+        subtotal: initialPrice * qty,
     });
+    
     renderSaleItems();
-  });
+});
 
   // --- Finalizar venta
   finalizeBtn.addEventListener("click", async () => {
