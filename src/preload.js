@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("api", {
   approveQuote: (quoteId) => ipcRenderer.invoke("approve-quote", quoteId),
   exportInventoryPDF: () => ipcRenderer.invoke("export-inventory-pdf"),
   exportInventoryExcel: () => ipcRenderer.invoke("export-inventory-excel"),
+
   // clients
   getClients: () => ipcRenderer.invoke("get-clients"),
   getClientById: (id) => ipcRenderer.invoke("get-client-by-id", id),
@@ -28,8 +29,10 @@ contextBridge.exposeInMainWorld("api", {
   deleteSale: (id) => ipcRenderer.invoke("delete-sale", id),
   deleteSaleItem: (id) => ipcRenderer.invoke("delete-sale-item", id),
   getLastInvoiceNumber: () => ipcRenderer.invoke("get-last-invoice-number"),
-  setInvoiceNumber: (id, invoiceNumber) => ipcRenderer.invoke("set-invoice-number", { id, invoiceNumber }),
-  exportInvoicePDF: (id, includeIva) => ipcRenderer.invoke("export-invoice-pdf", { id, includeIva }),
+  setInvoiceNumber: (id, invoiceNumber) =>
+    ipcRenderer.invoke("set-invoice-number", { id, invoiceNumber }),
+  exportInvoicePDF: (id, includeIva) =>
+    ipcRenderer.invoke("export-invoice-pdf", { id, includeIva }),
 
   // quotes
   createQuote: (data) => ipcRenderer.invoke("create-quote", data),
@@ -38,8 +41,10 @@ contextBridge.exposeInMainWorld("api", {
   getQuoteItems: (id) => ipcRenderer.invoke("get-quote-items", id),
   deleteQuote: (id) => ipcRenderer.invoke("delete-quote", id),
   getLastQuoteNumber: () => ipcRenderer.invoke("get-last-quote-number"),
-  setQuoteNumber: (id, quoteNumber) => ipcRenderer.invoke("set-quote-number", { id, quoteNumber }),
-  exportQuotePDF: (id, quote_number, includeIva = false) => ipcRenderer.invoke("export-quote-pdf", { id, quote_number, includeIva }),
+  setQuoteNumber: (id, quoteNumber) =>
+    ipcRenderer.invoke("set-quote-number", { id, quoteNumber }),
+  exportQuotePDF: (id, quote_number, includeIva = false) =>
+    ipcRenderer.invoke("export-quote-pdf", { id, quote_number, includeIva }),
 
   // settings
   getCompanySettings: () => ipcRenderer.invoke("get-company-settings"),
@@ -50,7 +55,11 @@ contextBridge.exposeInMainWorld("api", {
 
   // reset
   resetDatabase: () => ipcRenderer.invoke("reset-database"),
+
   // reports
   getSalesReport: (params) => ipcRenderer.invoke("get-sales-report", params),
 
+  // --- IMPRESIÓN ---
+  getPrinters: () => ipcRenderer.invoke("get-printers"),
+  printInvoice: (htmlContent) => ipcRenderer.invoke("print-invoice", htmlContent)
 });

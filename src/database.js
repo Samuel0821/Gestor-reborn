@@ -15,12 +15,10 @@ if (isPackaged) {
   // Ruta de la base de datos en la carpeta de datos del usuario
   const userData = require('electron').app.getPath('userData');
   dbPath = path.join(userData, "database.sqlite");
-
   // Si no existe, copiar desde el paquete empaquetado
   if (!fs.existsSync(dbPath)) {
     // La base de datos empaquetada se encuentra en process.resourcesPath en la raíz del paquete
     const packagedDb = path.join(process.resourcesPath, "database.sqlite");
-    
     // Si la base de datos empaquetada existe, la copiamos.
     if (fs.existsSync(packagedDb)) {
       fs.copyFileSync(packagedDb, dbPath);
@@ -167,9 +165,11 @@ function nextConsecutive(prefix, column, table) {
 function getClients() {
   return db.prepare("SELECT * FROM clients ORDER BY name").all();
 }
+
 function getClientById(id) {
   return db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
 }
+
 function saveClient(client) {
   try {
     db.prepare(`INSERT INTO clients (name, id_card_or_nit, address, email, phone) VALUES (?, ?, ?, ?, ?)`)
@@ -179,6 +179,7 @@ function saveClient(client) {
     return { success: false, message: String(err) };
   }
 }
+
 function updateClient(client) {
   try {
     db.prepare(`UPDATE clients SET name=?, id_card_or_nit=?, address=?, email=?, phone=? WHERE id=?`)
@@ -188,6 +189,7 @@ function updateClient(client) {
     return { success: false, message: String(err) };
   }
 }
+
 function deleteClient(id) {
   try {
     db.prepare("DELETE FROM clients WHERE id=?").run(id);
@@ -203,6 +205,7 @@ function deleteClient(id) {
 function getCategories() {
   return db.prepare("SELECT * FROM categories ORDER BY name").all();
 }
+
 function addCategory(name) {
   try {
     db.prepare("INSERT INTO categories (name) VALUES (?)").run(name);
@@ -211,6 +214,7 @@ function addCategory(name) {
     return { success: false, message: String(err) };
   }
 }
+
 function updateCategory(id, name) {
   try {
     db.prepare("UPDATE categories SET name=? WHERE id=?").run(name, id);
@@ -219,6 +223,7 @@ function updateCategory(id, name) {
     return { success: false, message: String(err) };
   }
 }
+
 function deleteCategory(id) {
   try {
     db.prepare("DELETE FROM categories WHERE id=?").run(id);
@@ -376,13 +381,16 @@ function getSales() {
 function getSaleById(id) {
   return db.prepare("SELECT * FROM sales WHERE id = ?").get(id);
 }
+
 function getSaleItems(saleId) {
   return db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(saleId);
 }
+
 function getLastInvoiceNumber() {
   const row = db.prepare("SELECT invoice_number FROM sales WHERE invoice_number IS NOT NULL ORDER BY id DESC LIMIT 1").get();
   return row ? row.invoice_number : null;
 }
+
 function setInvoiceNumber(id, invoiceNumber) {
   db.prepare("UPDATE sales SET invoice_number = ? WHERE id = ?").run(invoiceNumber, id);
 }
@@ -425,7 +433,6 @@ function createQuote({ client_id = null, items = [] }) {
   const insertQuote = db.prepare("INSERT INTO quotes (client_id, total_amount) VALUES (?, ?)");
   const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
   const getProduct = db.prepare("SELECT id, code, name, sale_price FROM products WHERE id = ?");
-
   const trx = db.transaction((client_id, items) => {
     const q = insertQuote.run(client_id || null, 0);
     const quoteId = q.lastInsertRowid;
@@ -440,7 +447,6 @@ function createQuote({ client_id = null, items = [] }) {
       insertItem.run(quoteId, it.product_id, prodName, prodCode, it.quantity, price, subtotal);
     }
     db.prepare("UPDATE quotes SET total_amount = ? WHERE id = ?").run(total, quoteId);
-
     const last = getLastQuoteNumber();
     let next;
     if (!last) next = `COT-${padNumber(1)}`;
@@ -450,10 +456,8 @@ function createQuote({ client_id = null, items = [] }) {
       next = `COT-${padNumber(lastNum + 1)}`;
     }
     db.prepare("UPDATE quotes SET quote_number = ? WHERE id = ?").run(next, quoteId);
-
     return quoteId;
   });
-
   try {
     const id = trx(client_id || null, items);
     return { success: true, message: "Cotización registrada", id };
@@ -470,11 +474,14 @@ function getQuotes() {
 }
 
 function getQuoteById(id) { return db.prepare("SELECT * FROM quotes WHERE id = ?").get(id); }
+
 function getQuoteItems(quoteId) { return db.prepare("SELECT * FROM quote_items WHERE quote_id = ?").all(quoteId); }
+
 function getLastQuoteNumber() {
   const row = db.prepare("SELECT quote_number FROM quotes WHERE quote_number IS NOT NULL ORDER BY id DESC LIMIT 1").get();
   return row ? row.quote_number : null;
 }
+
 function setQuoteNumber(id, quoteNumber) { db.prepare("UPDATE quotes SET quote_number = ? WHERE id = ?").run(quoteNumber, id); }
 
 function deleteQuote(id) {
@@ -545,7 +552,6 @@ function getInventory() {
 function getSalesReport({ startDate, endDate, reportType = "daily" }) {
   try {
     let groupByClause, dateLabel;
-
     if (reportType === "weekly") {
       groupByClause = "strftime('%Y-%W', sale_date)";
       dateLabel = "strftime('%Y Semana %W', sale_date)";
@@ -557,10 +563,9 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
       groupByClause = "date(sale_date)";
       dateLabel = "date(sale_date)";
     }
-
     // ventas agrupadas
     const salesStmt = db.prepare(`
-      SELECT 
+      SELECT
         ${groupByClause} as period,
         ${dateLabel} as period_label,
         SUM(total_amount) as total_amount,
@@ -570,15 +575,12 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
       GROUP BY ${groupByClause}
       ORDER BY ${groupByClause} DESC
     `);
-
     const rows = salesStmt.all(startDate, endDate);
-
     const itemsStmt = db.prepare(`
       SELECT product_name, quantity, subtotal
       FROM sale_items
       WHERE sale_id = ?
     `);
-
     const detailedSales = rows.map(r => {
       const saleIds = r.sale_ids.split(",").map(id => parseInt(id));
       let items = [];
@@ -592,15 +594,14 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
         items
       };
     });
-
     const totalGeneral = detailedSales.reduce((acc, s) => acc + s.total_amount, 0);
-
     return { sales: detailedSales, totalGeneral };
   } catch (err) {
     console.error("Error en getSalesReport:", err);
     return { sales: [], totalGeneral: 0 };
   }
 }
+
 module.exports = {
   // clientes
   getClients, getClientById, saveClient, updateClient, deleteClient,
@@ -617,7 +618,7 @@ module.exports = {
   // dashboard
   getDashboardData,
   // company
-  getCompanySettings, updateCompanySettings,saveCompanySettings,
+  getCompanySettings, updateCompanySettings, saveCompanySettings,
   // inventario
   getInventory,
   // reportes

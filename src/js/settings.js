@@ -9,6 +9,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const logoPreview = document.getElementById('logo-preview');
   const status = document.getElementById('save-status');
 
+  // NUEVAS VARIABLES para la configuración de impresión
+    const printSettingsForm = document.getElementById('print-settings-form');
+    const printerSelect = document.getElementById('printer-select');
+    const paperSizeSelect = document.getElementById('paper-size');
+
   async function loadSettings() {
     try {
       const s = await window.api.getCompanySettings();
@@ -54,5 +59,34 @@ document.addEventListener('DOMContentLoaded', () => {
     await loadSettings();
   });
 
+  // NUEVA LÓGICA DE AJUSTES DE IMPRESIÓN
+    async function loadPrintSettings() {
+        try {
+            const printers = await window.api.getPrinters(); // Llamada a la API de Electron
+            printerSelect.innerHTML = printers.map(p => `<option value="${p}">${p}</option>`).join('');
+            
+            // Cargar la configuración guardada del localStorage
+            const savedPrinter = localStorage.getItem('printer');
+            const savedPaperSize = localStorage.getItem('paperSize');
+
+            if (savedPrinter) {
+                printerSelect.value = savedPrinter;
+            }
+            if (savedPaperSize) {
+                paperSizeSelect.value = savedPaperSize;
+            }
+        } catch (err) {
+            console.error("Error al cargar la configuración de impresión:", err);
+        }
+    }
+
+    printSettingsForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        localStorage.setItem('printer', printerSelect.value);
+        localStorage.setItem('paperSize', paperSizeSelect.value);
+        alert('Configuración de impresión guardada.');
+    });
+
   loadSettings();
+  loadPrintSettings();
 });

@@ -33,10 +33,11 @@
 </head>
 <body class="bg-light">
   <div class="container py-4">
-    <h1>Ajustes de la Empresa</h1>
+    <h1>Ajustes</h1>
     <a href="index.html" class="btn btn-secondary mb-3"><i class="fa fa-arrow-left me-2"></i>Volver</a>
 
     <div class="card p-4">
+      <h5 class="card-title">Ajustes de Empresa</h5>
       <form id="settings-form">
         <div class="mb-3"><label class="form-label">Nombre</label><input id="company-name" class="form-control"></div>
         <div class="mb-3"><label class="form-label">NIT / Cédula</label><input id="company-id-card-or-nit" class="form-control"></div>
@@ -48,6 +49,24 @@
         <div id="save-status" class="mt-2"></div>
       </form>
     </div>
+    <div class="card p-4 mt-4">
+        <h5 class="card-title">Configuración de Impresión</h5>
+        <form id="print-settings-form">
+            <div class="mb-3">
+                <label for="printer-select" class="form-label">Seleccionar Impresora</label>
+                <select class="form-select" id="printer-select"></select>
+            </div>
+            <div class="mb-3">
+                <label for="paper-size" class="form-label">Tamaño del Papel</label>
+                <select class="form-select" id="paper-size">
+                    <option value="A4">A4</option>
+                    <option value="Letter">Carta</option>
+                    <option value="80mm">Papel de Rollo (80mm)</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Guardar Configuración de Impresión</button>
+        </form>
+  </div>
   </div>
 </body>
 </html>
