@@ -15,13 +15,14 @@ document.addEventListener('DOMContentLoaded', () => {
       alertDiv = document.createElement('div');
       alertDiv.id = 'inventory-alert';
       alertDiv.className = 'mt-3';
-      document.querySelector('.card.p-3').before(alertDiv);
+      document.querySelector('.card').before(alertDiv); // 🔥 corregido
     }
     alertDiv.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">
       <i class="fa fa-info-circle me-2"></i>${message}
       <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     </div>`;
   }
+
   async function loadProducts() {
     products = await window.api.getProducts();
     renderTable(products);
@@ -39,8 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
         <td>${p.stock} ${stockAlert}</td>
         <td>${p.min_stock || 0}</td>
         <td>
-            <button class="btn btn-sm btn-primary edit" data-id="${p.id}" title="Editar"><i class="fa fa-edit"></i> Editar</button>
-            <button class="btn btn-sm btn-danger del" data-id="${p.id}" title="Eliminar"><i class="fa fa-trash"></i> Eliminar</button>
+          <button class="btn btn-sm btn-primary edit" data-id="${p.id}" title="Editar"><i class="fa fa-edit"></i> Editar</button>
+          <button class="btn btn-sm btn-danger del" data-id="${p.id}" title="Eliminar"><i class="fa fa-trash"></i> Eliminar</button>
         </td>
       `;
       table.appendChild(tr);
@@ -60,9 +61,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!confirm('¿Eliminar producto?')) return;
         await window.api.deleteProduct(p.id);
         await loadProducts();
+        await loadCategories();
       });
     });
   }
+
   const form = document.getElementById('product-form');
   const minStockInput = document.getElementById('product-min-stock');
   const idInput = document.getElementById('product-id');
@@ -76,22 +79,24 @@ document.addEventListener('DOMContentLoaded', () => {
   const cancelBtn = document.getElementById('cancel-product');
   const table = document.getElementById('products-table');
   const search = document.getElementById('search-product');
+  const codeErrorMessageSpan = document.getElementById('code-error-message');
 
   let products = [];
 
   async function loadCategories() {
-    const cats = await window.api.getCategories();
-    categorySelect.innerHTML = '<option value="">(Sin categoría)</option>';
-    cats.forEach(c => {
-      const o = document.createElement('option');
-      o.value = c;
-      o.textContent = c;
-      categorySelect.appendChild(o);
-    });
-  }
+  const cats = await window.api.getCategories();
+  categorySelect.innerHTML = '<option value="">(Sin categoría)</option>';
+  cats.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.name;        // ✅ usa el campo name
+    o.textContent = c.name;  // ✅ muestra el nombre
+    categorySelect.appendChild(o);
+  });
+}
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    codeErrorMessageSpan.textContent = ''; // Limpia el mensaje de error antes de enviar
     const category = categoryNew.value.trim() || categorySelect.value || null;
     const payload = {
       id: idInput.value ? Number(idInput.value) : undefined,
@@ -103,18 +108,37 @@ document.addEventListener('DOMContentLoaded', () => {
       stock: parseInt(stockInput.value, 10) || 0,
       min_stock: parseInt(minStockInput.value, 10) || 0
     };
-    if (!payload.code || !payload.name) { alert('Código y nombre obligatorios'); return; }
+    if (!payload.code || !payload.name) {
+      alert('Código y nombre obligatorios');
+      return;
+    }
 
     if (payload.id) {
-      await window.api.updateProduct(payload);
+      const res = await window.api.updateProduct(payload);
+      if (!res.success) {
+        if (res.message.includes("UNIQUE constraint failed: products.code")) {
+            codeErrorMessageSpan.textContent = 'El código ya existe';
+            return;
+        }
+        alert(res.message);
+        return;
+      }
       cancelBtn.style.display = 'none';
     } else {
       const res = await window.api.addProduct(payload);
-      if (!res.success) { alert(res.message); return; }
+      if (!res.success) {
+        if (res.message.includes("UNIQUE constraint failed: products.code")) {
+          codeErrorMessageSpan.textContent = 'El código ya existe';
+          return;
+        }
+        alert(res.message);
+        return;
+      }
     }
     form.reset();
     idInput.value = '';
     await loadProducts();
+    await loadCategories();
   });
 
   cancelBtn.addEventListener('click', () => { form.reset(); idInput.value=''; cancelBtn.style.display='none'; });
@@ -125,6 +149,6 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTable(products.filter(p => p.name.toLowerCase().includes(q)));
   });
 
-
   loadProducts();
+  loadCategories();
 });

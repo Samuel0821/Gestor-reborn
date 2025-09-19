@@ -1,4 +1,3 @@
-
 const Database = require("better-sqlite3");
 const path = require("node:path");
 const fs = require("fs");
@@ -8,26 +7,30 @@ let dbPath;
 let isPackaged = false;
 try {
   isPackaged = require('electron').app.isPackaged;
-} catch (e) {}
+} catch (e) {
+  // Manejo de error si no se está en un entorno de Electron (por ejemplo, en un script de prueba)
+}
 
 if (isPackaged) {
-  // Carpeta de usuario para la base de datos
+  // Ruta de la base de datos en la carpeta de datos del usuario
   const userData = require('electron').app.getPath('userData');
   dbPath = path.join(userData, "database.sqlite");
-  // Si no existe, copiar desde el paquete
+
+  // Si no existe, copiar desde el paquete empaquetado
   if (!fs.existsSync(dbPath)) {
-    const packagedDb = path.join(process.resourcesPath, "app.asar.unpacked", "database.sqlite");
+    // La base de datos empaquetada se encuentra en process.resourcesPath en la raíz del paquete
+    const packagedDb = path.join(process.resourcesPath, "database.sqlite");
+    
+    // Si la base de datos empaquetada existe, la copiamos.
     if (fs.existsSync(packagedDb)) {
       fs.copyFileSync(packagedDb, dbPath);
-    } else {
-      // fallback: copiar desde el origen del código
-      const devDb = path.join(__dirname, "../database.sqlite");
-      if (fs.existsSync(devDb)) fs.copyFileSync(devDb, dbPath);
     }
   }
 } else {
+  // Modo de desarrollo
   dbPath = path.join(__dirname, "../database.sqlite");
 }
+
 const db = new Database(dbPath);
 
 // activar foreign keys
@@ -42,6 +45,9 @@ try {
     db.prepare("ALTER TABLE products ADD COLUMN min_stock INTEGER NOT NULL DEFAULT 0").run();
   }
 } catch (e) { /* ignorar errores si ya existe */ }
+
+// ---------------------
+// TABLAS
 // ---------------------
 db.prepare(`
 CREATE TABLE IF NOT EXISTS clients (
@@ -54,15 +60,23 @@ CREATE TABLE IF NOT EXISTS clients (
 )`).run();
 
 db.prepare(`
+CREATE TABLE IF NOT EXISTS categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE
+)`).run();
+
+db.prepare(`
 CREATE TABLE IF NOT EXISTS products (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   category TEXT,
+  category_id INTEGER,
   purchase_price REAL,
   sale_price REAL NOT NULL,
   stock INTEGER NOT NULL DEFAULT 0,
-  min_stock INTEGER NOT NULL DEFAULT 0
+  min_stock INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 )`).run();
 
 db.prepare(`
@@ -136,7 +150,6 @@ function padNumber(n, len = 3) {
 }
 
 function nextConsecutive(prefix, column, table) {
-  // busca última fila con prefix-column y devuelve prefix-XXX incrementado
   const row = db.prepare(`SELECT ${column} as num FROM ${table} WHERE ${column} IS NOT NULL ORDER BY id DESC LIMIT 1`).get();
   if (!row || !row.num) {
     return `${prefix}-${padNumber(1)}`;
@@ -184,32 +197,107 @@ function deleteClient(id) {
 }
 
 // ---------------------
+// CATEGORÍAS
+// ---------------------
+function getCategories() {
+  return db.prepare("SELECT * FROM categories ORDER BY name").all();
+}
+function addCategory(name) {
+  try {
+    db.prepare("INSERT INTO categories (name) VALUES (?)").run(name);
+    return { success: true, message: "Categoría agregada" };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+function updateCategory(id, name) {
+  try {
+    db.prepare("UPDATE categories SET name=? WHERE id=?").run(name, id);
+    return { success: true, message: "Categoría actualizada" };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+function deleteCategory(id) {
+  try {
+    db.prepare("DELETE FROM categories WHERE id=?").run(id);
+    return { success: true, message: "Categoría eliminada" };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+// ---------------------
 // PRODUCTOS
 // ---------------------
 function getProducts() {
-  return db.prepare("SELECT * FROM products ORDER BY name").all();
+  return db.prepare(`
+    SELECT p.*, c.name as category_name
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.id
+    ORDER BY p.name
+  `).all();
 }
+
 function getProductById(id) {
   return db.prepare("SELECT * FROM products WHERE id = ?").get(id);
 }
+
+// 🔹 Helper: asegura que exista la categoría y devuelve su id
+function ensureCategoryId(categoryName) {
+  if (!categoryName) return null;
+  let row = db.prepare("SELECT id FROM categories WHERE name=?").get(categoryName);
+  if (row) return row.id;
+  const res = db.prepare("INSERT INTO categories (name) VALUES (?)").run(categoryName);
+  return res.lastInsertRowid;
+}
+
 function addProduct(p) {
   try {
-    db.prepare(`INSERT INTO products (code, name, category, purchase_price, sale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(p.code, p.name, p.category || null, p.purchase_price || 0, p.sale_price || 0, p.stock || 0, p.min_stock || 0);
+    const catId = ensureCategoryId(p.category);
+    db.prepare(`
+      INSERT INTO products (code, name, category, category_id, purchase_price, sale_price, stock, min_stock)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      p.code,
+      p.name,
+      p.category || null,
+      catId,
+      p.purchase_price || 0,
+      p.sale_price || 0,
+      p.stock || 0,
+      p.min_stock || 0
+    );
     return { success: true, message: "Producto registrado" };
   } catch (err) {
     return { success: false, message: String(err) };
   }
 }
+
 function updateProduct(p) {
   try {
-    db.prepare(`UPDATE products SET code=?, name=?, category=?, purchase_price=?, sale_price=?, stock=?, min_stock=? WHERE id=?`)
-      .run(p.code, p.name, p.category || null, p.purchase_price || 0, p.sale_price || 0, p.stock || 0, p.min_stock || 0, p.id);
+    const catId = ensureCategoryId(p.category);
+    db.prepare(`
+      UPDATE products
+      SET code=?, name=?, category=?, category_id=?, purchase_price=?, sale_price=?, stock=?, min_stock=?
+      WHERE id=?
+    `).run(
+      p.code,
+      p.name,
+      p.category || null,
+      catId,
+      p.purchase_price || 0,
+      p.sale_price || 0,
+      p.stock || 0,
+      p.min_stock || 0,
+      p.id
+    );
     return { success: true, message: "Producto actualizado" };
   } catch (err) {
     return { success: false, message: String(err) };
   }
 }
+
 function deleteProduct(id) {
   try {
     db.prepare("DELETE FROM products WHERE id=?").run(id);
@@ -218,9 +306,7 @@ function deleteProduct(id) {
     return { success: false, message: String(err) };
   }
 }
-function getCategories() {
-  return db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category <> ''").all().map(r => r.category);
-}
+
 
 // ---------------------
 // VENTAS
@@ -256,7 +342,6 @@ function createSale({ client_id = null, items = [] }) {
     }
     db.prepare("UPDATE sales SET total_amount = ? WHERE id = ?").run(total, saleId);
 
-    // generar invoice number automático tipo FACT-001
     const last = getLastInvoiceNumber();
     let next;
     if (!last) next = `FACT-${padNumber(1)}`;
@@ -353,7 +438,6 @@ function createQuote({ client_id = null, items = [] }) {
     }
     db.prepare("UPDATE quotes SET total_amount = ? WHERE id = ?").run(total, quoteId);
 
-    // asignar número consecutivo a la cotización
     const last = getLastQuoteNumber();
     let next;
     if (!last) next = `COT-${padNumber(1)}`;
@@ -417,79 +501,122 @@ function getDashboardData() {
 function getCompanySettings() {
   return db.prepare("SELECT * FROM company_settings WHERE id = 1").get();
 }
-function saveCompanySettings(data) {
+
+function updateCompanySettings(s) {
   try {
-    db.prepare(`UPDATE company_settings SET company_name=?, company_id_card_or_nit=?, company_address=?, company_email=?, company_phone=?, logo_path=? WHERE id = 1`)
-      .run(data.company_name, data.company_id_card_or_nit, data.company_address, data.company_email, data.company_phone, data.logo_path || null);
-    return { success: true, message: "Ajustes guardados correctamente" };
+    db.prepare(`
+      UPDATE company_settings SET
+        company_name = ?,
+        company_id_card_or_nit = ?,
+        company_address = ?,
+        company_email = ?,
+        company_phone = ?,
+        logo_path = ?
+      WHERE id = 1
+    `).run(
+      s.company_name || null,
+      s.company_id_card_or_nit || null,
+      s.company_address || null,
+      s.company_email || null,
+      s.company_phone || null,
+      s.logo_path || null
+    );
+    return { success: true, message: "Datos de la empresa actualizados correctamente" };
   } catch (err) {
     return { success: false, message: String(err) };
   }
 }
 
-// ---------------------
-// REPORTES DE VENTAS
-// ---------------------
-function getSalesReport(startDate, endDate) {
-  const sales = db.prepare(`
-    SELECT id, client_id, sale_date, total_amount, invoice_number
-    FROM sales
-    WHERE DATE(sale_date) BETWEEN DATE(?) AND DATE(?)
-    ORDER BY sale_date ASC
-  `).all(startDate, endDate);
-
-  const itemsStmt = db.prepare(`
-    SELECT product_name, product_code, quantity, price, subtotal
-    FROM sale_items WHERE sale_id = ?
-  `);
-
-  for (const s of sales) {
-    s.items = itemsStmt.all(s.id);
-  }
-
-  const totalGeneral = sales.reduce((acc, s) => acc + s.total_amount, 0);
-
-  return { sales, totalGeneral };
+// Función adicional para compatibilidad con llamadas previas
+function saveCompanySettings(s) {
+  return updateCompanySettings(s);
 }
 
 // ---------------------
-// RESET DB (solo datos, para pruebas)
+// EXPORTAR
 // ---------------------
-function resetDatabase() {
-  const trx = db.transaction(() => {
-    db.prepare("DELETE FROM sale_items").run();
-    db.prepare("DELETE FROM sales").run();
-    db.prepare("DELETE FROM quote_items").run();
-    db.prepare("DELETE FROM quotes").run();
-    db.prepare("DELETE FROM clients").run();
-    db.prepare("DELETE FROM products").run();
-    db.prepare("UPDATE company_settings SET company_name=NULL, company_id_card_or_nit=NULL, company_address=NULL, company_email=NULL, company_phone=NULL, logo_path=NULL WHERE id = 1").run();
-    db.prepare("VACUUM").run();
-  });
+function getInventory() {
+  return db.prepare("SELECT * FROM products ORDER BY name").all();
+}
+
+function getSalesReport({ startDate, endDate, reportType = "daily" }) {
   try {
-    trx();
-    return { success: true, message: "Base de datos reiniciada" };
+    let groupByClause, dateLabel;
+
+    if (reportType === "weekly") {
+      groupByClause = "strftime('%Y-%W', sale_date)";
+      dateLabel = "strftime('%Y Semana %W', sale_date)";
+    } else if (reportType === "monthly") {
+      groupByClause = "strftime('%Y-%m', sale_date)";
+      dateLabel = "strftime('%Y-%m', sale_date)";
+    } else {
+      // daily (default)
+      groupByClause = "date(sale_date)";
+      dateLabel = "date(sale_date)";
+    }
+
+    // ventas agrupadas
+    const salesStmt = db.prepare(`
+      SELECT 
+        ${groupByClause} as period,
+        ${dateLabel} as period_label,
+        SUM(total_amount) as total_amount,
+        GROUP_CONCAT(id) as sale_ids
+      FROM sales
+      WHERE date(sale_date) >= date(?) AND date(sale_date) <= date(?)
+      GROUP BY ${groupByClause}
+      ORDER BY ${groupByClause} DESC
+    `);
+
+    const rows = salesStmt.all(startDate, endDate);
+
+    const itemsStmt = db.prepare(`
+      SELECT product_name, quantity, subtotal
+      FROM sale_items
+      WHERE sale_id = ?
+    `);
+
+    const detailedSales = rows.map(r => {
+      const saleIds = r.sale_ids.split(",").map(id => parseInt(id));
+      let items = [];
+      for (const sid of saleIds) {
+        items = items.concat(itemsStmt.all(sid));
+      }
+      return {
+        invoice_number: `(${reportType.toUpperCase()}) ${r.period_label}`,
+        sale_date: r.period_label,
+        total_amount: r.total_amount,
+        items
+      };
+    });
+
+    const totalGeneral = detailedSales.reduce((acc, s) => acc + s.total_amount, 0);
+
+    return { sales: detailedSales, totalGeneral };
   } catch (err) {
-    return { success: false, message: String(err) };
+    console.error("Error en getSalesReport:", err);
+    return { sales: [], totalGeneral: 0 };
   }
 }
-
-
 module.exports = {
-  // clients
+  // clientes
   getClients, getClientById, saveClient, updateClient, deleteClient,
-  // products
-  getProducts, getProductById, addProduct, updateProduct, deleteProduct, getCategories,
-  // sales
-  createSale, getSales, getSaleById, getSaleItems, deleteSale, deleteSaleItem, getLastInvoiceNumber, setInvoiceNumber,
-  // quotes
-  createQuote, getQuotes, getQuoteById, getQuoteItems, deleteQuote, getLastQuoteNumber, setQuoteNumber,
+  // categorias
+  getCategories, addCategory, updateCategory, deleteCategory,
+  // productos
+  getProducts, getProductById, addProduct, updateProduct, deleteProduct,
+  // ventas
+  createSale, getSales, getSaleById, getSaleItems, deleteSale, deleteSaleItem,
+  getLastInvoiceNumber, setInvoiceNumber,
+  // cotizaciones
+  createQuote, getQuotes, getQuoteById, getQuoteItems, deleteQuote,
+  getLastQuoteNumber, setQuoteNumber,
   // dashboard
   getDashboardData,
-  // settings
-  getCompanySettings, saveCompanySettings,
-  // reset
-  resetDatabase,
-  //reporte
+  // company
+  getCompanySettings, updateCompanySettings,saveCompanySettings,
+  // inventario
+  getInventory,
+  // reportes
   getSalesReport
 };

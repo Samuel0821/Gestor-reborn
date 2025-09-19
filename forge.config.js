@@ -4,6 +4,9 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
+    extraResource: [ // <-- Esta es la línea que agregué.
+      "./database.sqlite" // <-- Esto le dice a Electron Forge que incluya el archivo de la base de datos.
+    ]
   },
   rebuildConfig: {},
   makers: [

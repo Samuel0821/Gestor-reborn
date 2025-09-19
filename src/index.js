@@ -434,26 +434,18 @@ ipcMain.handle("get-product-by-id", async (event, id) => db.getProductById(id));
 ipcMain.handle("update-product", async (event, product) => db.updateProduct(product));
 ipcMain.handle("delete-product", async (event, id) => db.deleteProduct(id));
 
+// ---------- IPC: CATEGORÍAS ----------
+ipcMain.handle("get-categories", async () => db.getCategories());
+
 ipcMain.handle("get-dashboard-data", async () => db.getDashboardData());
 
 // ---------- IPC: REPORTE DE VENTAS ----------
-ipcMain.handle("get-sales-report", async (event, { startDate, endDate } = {}) => {
+ipcMain.handle("get-sales-report", async (event, { startDate, endDate, reportType } = {}) => {
   try {
-    if (typeof db.getSalesReport === "function") {
-      return db.getSalesReport(startDate, endDate);
-    } else {
-      // fallback: construir manualmente
-      const sales = (db.getSales() || []).filter(s => {
-        if (!startDate || !endDate) return true;
-        return s.sale_date >= startDate && s.sale_date <= endDate;
-      });
-      for (const s of sales) {
-        s.items = db.getSaleItems(s.id) || [];
-      }
-      const totalGeneral = sales.reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0);
-      return { sales, totalGeneral };
-    }
+    const reportData = db.getSalesReport({ startDate, endDate, reportType });
+    return reportData;
   } catch (err) {
+    console.error("Error en get-sales-report:", err);
     return { sales: [], totalGeneral: 0, error: String(err) };
   }
 });

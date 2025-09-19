@@ -18,21 +18,19 @@
       .fa-chart-bar, .fa-arrow-left { font-size: 1.2rem; }
       .fw-bold { font-weight: bold; margin-top: 15px; }
     </style>
-            <script>
-                if (!localStorage.getItem('logueado')) {
-                    window.location.href = 'login.html';
-                }
-            </script>
-            <script>
-                if (!localStorage.getItem('logueado')) {
-                    window.location.href = 'login.html';
-                }
-            </script>
+    <script>
+        if (!localStorage.getItem('logueado')) {
+            window.location.href = 'login.html';
+        }
+    </script>
 </head>
 <body>
     <div class="container py-4">
         <h1 id="main-title" tabindex="0" aria-label="Reportes">Reportes</h1>
-        <a href="index.html" class="btn btn-secondary mb-3"><i class="fa fa-arrow-left me-2"></i>Volver</a>
+        <a href="index.html" class="btn btn-secondary mb-3">
+            <i class="fa fa-arrow-left me-2"></i>Volver
+        </a>
+
         <div class="card p-4 mb-4">
             <form class="row g-3 report-form">
                 <div class="col-md-6">
@@ -52,15 +50,34 @@
                     <input type="date" id="endDate" class="form-control" aria-label="Fecha de fin" tabindex="0">
                 </div>
                 <div class="col-12">
-                    <button onclick="generateReport()" type="button" class="btn btn-success px-4 w-100" aria-label="Generar Reporte" tabindex="0"><i class="fa fa-chart-bar me-2"></i>Generar Reporte</button>
+                    <button id="btn-generate-report" type="button" class="btn btn-success px-4 w-100" aria-label="Generar Reporte" tabindex="0">
+                        <i class="fa fa-chart-bar me-2"></i>Generar Reporte
+                    </button>
                 </div>
             </form>
         </div>
+
         <div class="card p-4" id="report-container">
             <!-- Aquí se renderizará el reporte -->
         </div>
     </div>
+
+    <!-- CORREGIDO: enlazar el JS correcto -->
     <script defer src="../js/report.js"></script>
+    <script>
+        // Asignamos el listener al botón
+        document.addEventListener("DOMContentLoaded", () => {
+            const btn = document.getElementById("btn-generate-report");
+            if (btn) {
+                btn.addEventListener("click", () => {
+                    if (typeof generateReport === "function") {
+                        generateReport();
+                    } else {
+                        console.error("generateReport no está definido. Verifica reports.js");
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 </html>
-
