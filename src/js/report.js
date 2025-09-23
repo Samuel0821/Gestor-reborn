@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const endDateInput = document.getElementById('endDate');
     const container = document.getElementById("report-container");
 
+    let currentSalesReport = []; // <-- guardamos los datos globalmente
+
     function formatCOP(value) {
         const num = Number(value) || 0;
         return new Intl.NumberFormat("es-CO", {
@@ -32,8 +34,9 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadReport(startDate, endDate, reportType) {
         try {
             const report = await window.api.getSalesReport({ startDate, endDate, reportType });
+            currentSalesReport = report.sales || [];
 
-            if (!report.sales || report.sales.length === 0) {
+            if (currentSalesReport.length === 0) {
                 container.innerHTML = `
                     <h5>Ventas (${reportType}) del ${startDate} al ${endDate}</h5>
                     <div class="text-center p-3">
@@ -44,7 +47,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Construcción de la tabla
             let tableHtml = `
                 <h5>Ventas (${reportType}) del ${startDate} al ${endDate}</h5>
                 <table class="table table-striped table-bordered">
@@ -59,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <tbody>
             `;
 
-            report.sales.forEach(s => {
+            currentSalesReport.forEach(s => {
                 let itemsHtml = `
                     <ul class="mb-0">
                         ${s.items.map(it => `<li>${it.product_name} x${it.quantity} = ${formatCOP(it.subtotal)}</li>`).join("")}
@@ -85,13 +87,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
             container.innerHTML = tableHtml;
             showAlert('Reporte generado correctamente.', 'success');
+
+            // Crear botón Exportar PDF si no existe
+            let exportBtn = document.getElementById("btn-export-pdf");
+            if (!exportBtn) {
+                const btnDiv = document.createElement("div");
+                btnDiv.className = "text-end mt-3";
+                btnDiv.innerHTML = `
+                    <button id="btn-export-pdf" class="btn btn-success">
+                        <i class="fa fa-file-pdf me-2"></i>Exportar PDF
+                    </button>
+                `;
+                container.appendChild(btnDiv);
+                exportBtn = document.getElementById("btn-export-pdf");
+
+                exportBtn.addEventListener("click", async () => {
+                    if (currentSalesReport.length === 0) {
+                        showAlert("Primero genera un reporte antes de exportar.", "warning");
+                        return;
+                    }
+
+                    try {
+                        const companyInfo = await window.api.getCompanySettings();
+                        const result = await window.api.exportSalesReportPDF({
+                            salesReport: currentSalesReport,
+                            companyInfo,
+                            filename: `Reporte_Ventas_${new Date().toISOString().slice(0,10)}.pdf`
+                        });
+                        if (result.success) {
+                            showAlert("Reporte exportado correctamente: " + result.filePath, "success");
+                        } else {
+                            showAlert("Error al exportar PDF: " + result.message, "danger");
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        showAlert("Ocurrió un error al exportar PDF.", "danger");
+                    }
+                });
+            }
+
         } catch (err) {
             console.error("Error al cargar el reporte:", err);
             showAlert("Ocurrió un error al generar el reporte.", 'danger');
         }
     }
 
-    // Globalizamos funciones de forma segura
     window.showAlert = showAlert;
     window.loadReport = loadReport;
 

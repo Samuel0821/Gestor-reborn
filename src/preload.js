@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld("api", {
   approveQuote: (quoteId) => ipcRenderer.invoke("approve-quote", quoteId),
   exportInventoryPDF: () => ipcRenderer.invoke("export-inventory-pdf"),
   exportInventoryExcel: () => ipcRenderer.invoke("export-inventory-excel"),
+  exportSalesReportPDF: (salesReport, companyInfo, filename) =>
+  ipcRenderer.invoke("export-sales-report-pdf", { salesReport, companyInfo, filename }),
 
   // clients
   getClients: () => ipcRenderer.invoke("get-clients"),
@@ -34,6 +36,11 @@ contextBridge.exposeInMainWorld("api", {
   exportInvoicePDF: (id, includeIva) =>
     ipcRenderer.invoke("export-invoice-pdf", { id, includeIva }),
 
+  // credits ⚠️ <-- AGREGAR ESTO
+getCredits: (searchTerm = "") => ipcRenderer.invoke("get-credits", searchTerm),
+addCreditPayment: (saleId, amount) => ipcRenderer.invoke("add-credit-payment", saleId, amount),
+markCreditAsPaid: (saleId) => ipcRenderer.invoke("mark-credit-as-paid", saleId),
+
   // quotes
   createQuote: (data) => ipcRenderer.invoke("create-quote", data),
   getQuotes: () => ipcRenderer.invoke("get-quotes"),
@@ -48,7 +55,7 @@ contextBridge.exposeInMainWorld("api", {
 
   // settings
   getCompanySettings: () => ipcRenderer.invoke("get-company-settings"),
-  saveCompanySettings: (data) => ipcRenderer.invoke("save-company-settings", data),
+  updateCompanySettings: (data) => ipcRenderer.invoke("update-company-settings", data),
 
   // dashboard
   getDashboardData: () => ipcRenderer.invoke("get-dashboard-data"),
@@ -59,7 +66,9 @@ contextBridge.exposeInMainWorld("api", {
   // reports
   getSalesReport: (params) => ipcRenderer.invoke("get-sales-report", params),
 
-  // --- IMPRESIÓN ---
+  //Impresión
   getPrinters: () => ipcRenderer.invoke("get-printers"),
-  printInvoice: (htmlContent) => ipcRenderer.invoke("print-invoice", htmlContent)
+  printInvoice: (data) => ipcRenderer.invoke("print-invoice", data),
+  previewInvoice: (data) => ipcRenderer.invoke("preview-invoice", data),
+  getCompanyLogo: () => ipcRenderer.invoke("get-company-logo")
 });

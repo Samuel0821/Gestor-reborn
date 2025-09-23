@@ -44,8 +44,9 @@
                 </div>
                 <div class="row">
                     <div class="col-6 mb-3">
-                        <label for="quote-product" class="form-label">Producto</label>
-                        <select class="form-select" id="quote-product"></select>
+                        <label for="quote-product-input" class="form-label">Producto</label>
+                        <input type="text" class="form-control" id="quote-product-input" list="quote-products-list" placeholder="Escribe el nombre del producto">
+                        <datalist id="quote-products-list"></datalist>
                     </div>
                     <div class="col-4 mb-3">
                         <label for="quote-quantity" class="form-label">Cantidad</label>
@@ -73,8 +74,7 @@
                             <th>Acciones</th>
                         </tr>
                     </thead>
-                    <tbody id="quote-items">
-                        </tbody>
+                    <tbody id="quote-items"></tbody>
                     <tfoot>
                         <tr>
                             <td colspan="5" class="text-end"><strong>TOTAL:</strong></td>

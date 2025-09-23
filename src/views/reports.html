@@ -15,7 +15,7 @@
       .btn-success:hover { background: #388e3c; }
       .btn-secondary { background: #263238; border: none; }
       .btn-secondary:hover { background: #37474f; }
-      .fa-chart-bar, .fa-arrow-left { font-size: 1.2rem; }
+      .fa-chart-bar, .fa-arrow-left, .fa-file-pdf { font-size: 1.2rem; }
       .fw-bold { font-weight: bold; margin-top: 15px; }
     </style>
     <script>
@@ -62,10 +62,8 @@
         </div>
     </div>
 
-    <!-- CORREGIDO: enlazar el JS correcto -->
     <script defer src="../js/report.js"></script>
     <script>
-        // Asignamos el listener al botón
         document.addEventListener("DOMContentLoaded", () => {
             const btn = document.getElementById("btn-generate-report");
             if (btn) {
@@ -73,7 +71,7 @@
                     if (typeof generateReport === "function") {
                         generateReport();
                     } else {
-                        console.error("generateReport no está definido. Verifica reports.js");
+                        console.error("generateReport no está definido. Verifica report.js");
                     }
                 });
             }

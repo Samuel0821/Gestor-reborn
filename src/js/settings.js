@@ -52,40 +52,35 @@ document.addEventListener('DOMContentLoaded', () => {
       company_phone: phoneInput.value.trim(),
       logo_path: logoPath
     };
-    const res = await window.api.saveCompanySettings(payload);
+    const res = await window.api.updateCompanySettings(payload);
     status.textContent = res.message || (res.success ? 'Guardado' : 'Error');
     status.className = res.success ? 'text-success' : 'text-danger';
     setTimeout(() => { status.textContent=''; status.className=''; }, 3000);
     await loadSettings();
   });
 
-  // NUEVA LÓGICA DE AJUSTES DE IMPRESIÓN
-    async function loadPrintSettings() {
-        try {
-            const printers = await window.api.getPrinters(); // Llamada a la API de Electron
-            printerSelect.innerHTML = printers.map(p => `<option value="${p}">${p}</option>`).join('');
-            
-            // Cargar la configuración guardada del localStorage
-            const savedPrinter = localStorage.getItem('printer');
-            const savedPaperSize = localStorage.getItem('paperSize');
+  async function loadPrintSettings() {
+    try {
+        const printers = await window.api.getPrinters(); // Llamada a la API de Electron
+        
+        printerSelect.innerHTML = printers
+            .map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`)
+            .join('');
+        
+        // Cargar la configuración guardada del localStorage
+        const savedPrinter = localStorage.getItem('printer');
+        const savedPaperSize = localStorage.getItem('paperSize');
 
-            if (savedPrinter) {
-                printerSelect.value = savedPrinter;
-            }
-            if (savedPaperSize) {
-                paperSizeSelect.value = savedPaperSize;
-            }
-        } catch (err) {
-            console.error("Error al cargar la configuración de impresión:", err);
+        if (savedPrinter) {
+            printerSelect.value = savedPrinter;
         }
+        if (savedPaperSize) {
+            paperSizeSelect.value = savedPaperSize;
+        }
+    } catch (err) {
+        console.error("Error al cargar la configuración de impresión:", err);
     }
-
-    printSettingsForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        localStorage.setItem('printer', printerSelect.value);
-        localStorage.setItem('paperSize', paperSizeSelect.value);
-        alert('Configuración de impresión guardada.');
-    });
+}
 
   loadSettings();
   loadPrintSettings();

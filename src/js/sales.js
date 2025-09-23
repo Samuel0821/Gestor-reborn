@@ -1,6 +1,7 @@
 console.log('sales.js cargado');
 
 let saleItems = [];
+let allProducts = [];
 
 function formatCOP(value) {
   return new Intl.NumberFormat("es-CO", {
@@ -11,7 +12,11 @@ function formatCOP(value) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const productSelect = document.getElementById("sale-product");
+  // -----------------------------
+  // Referencias a elementos
+  // -----------------------------
+  const productInput = document.getElementById("sale-product-input");
+  const productDatalist = document.getElementById("products-list");
   const qtyInput = document.getElementById("sale-quantity");
   const saleForm = document.getElementById("sale-form");
   const saleItemsTbody = document.getElementById("sale-items");
@@ -19,22 +24,27 @@ document.addEventListener("DOMContentLoaded", async () => {
   const finalizeBtn = document.getElementById("finalize-sale");
   const salesList = document.getElementById("sales-list");
   const clientSelect = document.getElementById("sale-client");
+  const saleTypeSelect = document.getElementById("sale-type");
+  const creditsList = document.getElementById("credits-list");
+  const creditSearchInput = document.getElementById("credit-search-input");
+  const creditSearchBtn = document.getElementById("credit-search-btn");
 
-  // --- Cargar productos
+  // -----------------------------
+  // Funciones de carga
+  // -----------------------------
   async function loadProducts() {
-    const products = await window.api.getProducts();
-    productSelect.innerHTML = "";
-    products.forEach((p) => {
+    allProducts = await window.api.getProducts();
+    productDatalist.innerHTML = "";
+    allProducts.forEach((p) => {
       const opt = document.createElement("option");
-      opt.value = p.id;
-      opt.textContent = `${p.name} (${p.code}) - Stock ${p.stock}`;
+      opt.value = `${p.name} (${p.code}) - Stock ${p.stock}`;
+      opt.dataset.id = p.id;
       opt.dataset.price = p.sale_price;
       opt.dataset.stock = p.stock;
-      productSelect.appendChild(opt);
+      productDatalist.appendChild(opt);
     });
   }
 
-  // --- Cargar clientes
   async function loadClients() {
     const clients = await window.api.getClients();
     clientSelect.innerHTML = '<option value="">-- Sin cliente --</option>';
@@ -46,7 +56,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // --- Render items
+  // -----------------------------
+  // Renderizar items
+  // -----------------------------
   function renderSaleItems() {
     saleItemsTbody.innerHTML = "";
     let total = 0;
@@ -93,12 +105,26 @@ document.addEventListener("DOMContentLoaded", async () => {
       );
   }
 
-  // --- Agregar producto
+  // -----------------------------
+  // Agregar producto a la venta
+  // -----------------------------
   saleForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const prodId = Number(productSelect.value);
+
+    const selectedProductText = productInput.value;
+    const selectedProductOption = Array.from(productDatalist.options).find(
+      (opt) => opt.value === selectedProductText
+    );
+
+    if (!selectedProductOption) {
+      alert("Producto no válido. Selecciona uno de la lista.");
+      return;
+    }
+
+    const prodId = Number(selectedProductOption.dataset.id);
     const qty = Number(qtyInput.value) || 1;
-    const prod = await window.api.getProductById(prodId);
+    const prod = allProducts.find((p) => p.id === prodId);
+
     if (!prod) {
       alert("Producto no encontrado");
       return;
@@ -125,207 +151,380 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
 
     renderSaleItems();
+    productInput.value = "";
   });
 
-  // --- Finalizar venta
+  // -----------------------------
+  // Finalizar venta
+  // -----------------------------
   finalizeBtn.addEventListener("click", async () => {
     if (saleItems.length === 0) {
-      alert("No hay items");
+      alert("No hay items en la venta.");
       return;
     }
     const clientId = clientSelect.value ? Number(clientSelect.value) : null;
-    const res = await window.api.createSale({ client_id: clientId, items: saleItems });
+    const saleType = saleTypeSelect.value;
+    const totalAmount = saleItems.reduce((sum, item) => sum + item.subtotal, 0);
+
+    if (saleType === 'credit' && !clientId) {
+      alert("Para una venta a crédito, debes seleccionar un cliente.");
+      return;
+    }
+
+    const paidAmount = (saleType === 'credit') ? 0 : totalAmount;
+    const outstandingBalance = (saleType === 'credit') ? totalAmount : 0;
+    const saleData = {
+      client_id: clientId,
+      items: saleItems,
+      total_amount: totalAmount,
+      paid_amount: paidAmount,
+      outstanding_balance: outstandingBalance,
+      sale_type: saleType
+    };
+
+    const res = await window.api.createSale(saleData);
     if (!res.success) {
       alert(res.message);
       return;
     }
-    alert(res.message || "Venta creada");
+    alert(res.message || "Venta registrada exitosamente.");
+
     saleItems = [];
     renderSaleItems();
+    productInput.value = "";
+    qtyInput.value = "1";
+    clientSelect.value = "";
+    saleTypeSelect.value = "cash";
+
     await loadSales();
     await loadProducts();
+    await loadCredits(); // Cargar créditos actualizados
   });
 
-  // --- Cargar ventas
+  // -----------------------------
+  // Cargar ventas
+  // -----------------------------
   async function loadSales() {
     const sales = await window.api.getSales();
     if (!sales || sales.length === 0) {
-      salesList.innerHTML =
-        '<div class="alert alert-secondary">No hay ventas</div>';
+      salesList.innerHTML = '<div class="alert alert-secondary">No hay ventas</div>';
       return;
     }
-    salesList.innerHTML = sales
-      .map((s) => {
-        const itemsHtml = (s.items || [])
-          .map(
-            (it) =>
-              `<li>${it.product_name} x ${it.quantity} = ${formatCOP(
-                it.subtotal
-              )}</li>`
-          )
-          .join("");
-        return `
-          <div class="card mb-2 p-2">
-            <div>
-              <strong>${s.invoice_number || `FACT-${String(s.id).padStart(3,"0")}`}</strong>
-              — ${s.sale_date} — ${formatCOP(s.total_amount)}
-              <div class="float-end">
-                <button class="btn btn-sm btn-primary export-invoice" data-id="${s.id}">Descargar Factura</button>
-                <button class="btn btn-sm btn-success ms-1 print-sale" data-id="${s.id}">Imprimir Factura</button>
-                <button class="btn btn-sm btn-danger ms-1 delete-sale" data-id="${s.id}">Eliminar Factura</button>
-              </div>
+    salesList.innerHTML = sales.map((s) => {
+      const itemsHtml = (s.items || []).map(it => `<li>${it.product_name} x ${it.quantity} = ${formatCOP(it.subtotal)}</li>`).join("");
+      return `
+        <div class="card mb-2 p-2">
+          <div>
+            <strong>${s.invoice_number || `FACT-${String(s.id).padStart(3,"0")}`}</strong>
+            — ${s.sale_date} — ${formatCOP(s.total_amount)}
+            <div class="float-end">
+              <button class="btn btn-sm btn-primary export-invoice" data-id="${s.id}">Descargar Factura</button>
+              <button class="btn btn-sm btn-success ms-1 print-sale" data-id="${s.id}">Imprimir Factura</button>
+              <button class="btn btn-sm btn-danger ms-1 delete-sale" data-id="${s.id}">Eliminar Factura</button>
             </div>
-            <ul>${itemsHtml}</ul>
           </div>
-        `;
+          <ul>${itemsHtml}</ul>
+        </div>
+      `;
+    }).join("");
+
+    // --- Eventos: eliminar, exportar, imprimir
+    salesList.querySelectorAll(".delete-sale").forEach((b) =>
+      b.addEventListener("click", async (e) => {
+        if (!confirm("Eliminar venta?")) return;
+        await window.api.deleteSale(Number(e.target.dataset.id));
+        await loadSales();
       })
-      .join("");
+    );
 
-    // --- Eliminar factura
-    salesList
-      .querySelectorAll(".delete-sale")
-      .forEach((b) =>
-        b.addEventListener("click", async (e) => {
-          if (!confirm("Eliminar venta?")) return;
-          await window.api.deleteSale(Number(e.target.dataset.id));
-          await loadSales();
-        })
-      );
+    salesList.querySelectorAll(".export-invoice").forEach((b) =>
+      b.addEventListener("click", async (e) => {
+        const id = Number(e.target.dataset.id);
+        const withIva = confirm("¿Incluir IVA 19% en la factura? Aceptar = Sí, Cancelar = No");
+        const res = await window.api.exportInvoicePDF(id, withIva);
+        alert(res.message || JSON.stringify(res));
+      })
+    );
 
-    // --- Exportar factura PDF
-    salesList
-      .querySelectorAll(".export-invoice")
-      .forEach((b) =>
-        b.addEventListener("click", async (e) => {
-          const id = Number(e.target.dataset.id);
-          const withIva = confirm(
-            "¿Incluir IVA 19% en la factura? Aceptar = Sí, Cancelar = No"
-          );
-          const res = await window.api.exportInvoicePDF(id, withIva);
-          alert(res.message || JSON.stringify(res));
-        })
-      );
+      // -----------------------------
+      // Imprimir factura
+      // -----------------------------
+      function generateInvoiceHtml(sale, items, company, logoBase64, client, printers) {
+        return `
+          <html>
+            <head>
+              <meta charset="UTF-8">
+              <style>
+                body { font-family: Arial, sans-serif; font-size: 12px; margin: 15px; }
+                h2 { text-align: center; }
+                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                td, th { border: 1px solid #ccc; padding: 4px; text-align: left; }
+                .total { text-align: right; font-weight: bold; }
 
-    // --- Imprimir factura
-    salesList
-      .querySelectorAll(".print-sale")
-      .forEach((b) =>
-        b.addEventListener("click", async (e) => {
-          const id = Number(e.target.dataset.id);
-          const sale = await window.api.getSaleById(id);
-          const items = await window.api.getSaleItems(id);
+                .print-options-panel {
+                  position: fixed;
+                  bottom: 20px;
+                  right: 20px;
+                  background-color: white;
+                  padding: 15px;
+                  border: 1px solid #ccc;
+                  border-radius: 8px;
+                  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                  display: flex;
+                  flex-direction: column;
+                  gap: 10px;
+                  z-index: 9999;
+                }
 
-          if (!sale || !items) {
-            alert("No se encontró la información de la venta");
-            return;
-          }
+                @media print {
+                  .print-options-panel { display: none; }
+                }
+              </style>
+            </head>
+            <body>
+              <div class="print-options-panel">
+                <label>Selecciona impresora:</label>
+                <select id="printerSelect">
+                  ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
+                </select>
+                <label>Tamaño de papel:</label>
+                <select id="paperSizeSelect">
+                  <option value="A4">A4</option>
+                  <option value="80mm">80mm (Ticket)</option>
+                  <option value="Letter">Carta</option>
+                  <option value="Legal">Oficio</option>
+                </select>
+                <label><input type="checkbox" id="includeIva"> Incluir IVA 19%</label>
+                <button id="printButton">Imprimir</button>
+                <button id="closePreview">Cerrar</button>
 
-          // 1. Obtener impresoras disponibles
-          const printers = await window.api.getPrinters();
-          if (!printers || printers.length === 0) {
-            alert("No se encontraron impresoras disponibles");
-            return;
-          }
+                <script>
+                  function formatCOP(value) {
+                    return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
+                  }
 
-          // Crear selector de impresoras y tamaño
-          const container = document.createElement("div");
-          container.style.position = "fixed";
-          container.style.top = "0";
-          container.style.left = "0";
-          container.style.width = "100%";
-          container.style.height = "100%";
-          container.style.background = "rgba(0,0,0,0.5)";
-          container.style.display = "flex";
-          container.style.alignItems = "center";
-          container.style.justifyContent = "center";
-          container.style.zIndex = "9999";
+                  document.getElementById("printButton").addEventListener("click", async () => {
+                    const printer = document.getElementById("printerSelect").value;
+                    const paperSize = document.getElementById("paperSizeSelect").value;
+                    const includeIva = document.getElementById("includeIva").checked;
 
-          const modal = document.createElement("div");
-          modal.classList.add("bg-white", "p-3", "rounded");
-          modal.style.minWidth = "300px";
-          modal.innerHTML = `
-            <h5>Imprimir factura</h5>
-            <label class="form-label mt-2">Selecciona impresora:</label>
-            <select class="form-select" id="printerSelect">
-              ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
-            </select>
-            <label class="form-label mt-3">Tamaño de papel:</label>
-            <select class="form-select" id="paperSizeSelect">
-              <option value="A4">A4</option>
-              <option value="80mm">80mm</option>
-            </select>
-            <div class="text-end mt-3">
-              <button class="btn btn-secondary me-2" id="cancelPrint">Cancelar</button>
-              <button class="btn btn-success" id="confirmPrint">Imprimir</button>
-            </div>
-          `;
-          container.appendChild(modal);
-          document.body.appendChild(container);
+                    let total = ${sale.total_amount};
+                    let ivaText = "";
+                    if (includeIva) {
+                      const iva = Math.round(total * 0.19);
+                      total += iva;
+                      ivaText = "<p>IVA (19%): " + formatCOP(iva) + "</p>";
+                    }
 
-          // Eventos botones
-          modal.querySelector("#cancelPrint").addEventListener("click", () => {
-            document.body.removeChild(container);
-          });
+                    const facturaHtml = document.getElementById("factura").innerHTML 
+                                      + ivaText 
+                                      + "<p class='total'>TOTAL: " + formatCOP(total) + "</p>"
+                                      + "<p style='text-align:center'>Gracias por su compra</p>";
 
-          modal.querySelector("#confirmPrint").addEventListener("click", async () => {
-            const printer = modal.querySelector("#printerSelect").value;
-            const paperSize = modal.querySelector("#paperSizeSelect").value;
+                    const result = await window.api.printInvoice({ printer, paperSize, htmlContent: facturaHtml });
+                    if (result.success) alert(result.message);
+                    else alert("Error: " + result.message);
+                  });
 
-            const htmlContent = `
-              <html>
-                <head>
-                  <meta charset="UTF-8">
-                  <style>
-                    body { font-family: Arial, sans-serif; font-size: 12px; }
-                    h2 { text-align: center; }
-                    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-                    td, th { border: 1px solid #ccc; padding: 4px; text-align: left; }
-                    .total { text-align: right; font-weight: bold; }
-                  </style>
-                </head>
-                <body>
-                  <h2>Factura ${sale.invoice_number || `FACT-${sale.id}`}</h2>
-                  <p>Fecha: ${sale.sale_date}</p>
-                  <p>Cliente: ${sale.client_name || "N/A"}</p>
-                  <table>
-                    <thead>
+                  document.getElementById("closePreview").addEventListener("click", () => window.close());
+                </script>
+              </div>
+
+              <div id="factura">
+                <div style="text-align:center; margin-bottom:15px;">
+                  ${logoBase64 ? `<img src="${logoBase64}" style="max-height:80px;"><br>` : ""}
+                  <h2>${company.company_name || ""}</h2>
+                  <p>NIT: ${company.company_id_card_or_nit || ""}</p>
+                  <p>${company.company_address || ""}</p>
+                  <p>Tel: ${company.company_phone || ""} — ${company.company_email || ""}</p>
+                </div>
+
+                <h2>Factura ${sale.invoice_number || `FACT-${sale.id}`}</h2>
+                <p>Fecha: ${sale.sale_date}</p>
+                <p>Cliente: ${client ? client.name : "N/A"}</p>
+                <p>NIT/Cédula: ${client ? client.id_card_or_nit : "N/A"}</p>
+                <p>Dirección: ${client ? client.address : "N/A"}</p>
+                <p>Teléfono: ${client ? client.phone : "N/A"}</p>
+
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Código</th>
+                      <th>Producto</th>
+                      <th>Cant</th>
+                      <th>Precio</th>
+                      <th>Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${items.map(it => `
                       <tr>
-                        <th>Producto</th>
-                        <th>Cant</th>
-                        <th>Precio</th>
-                        <th>Subtotal</th>
+                        <td>${it.product_code || ""}</td>
+                        <td>${it.product_name}</td>
+                        <td>${it.quantity}</td>
+                        <td>${formatCOP(it.price)}</td>
+                        <td>${formatCOP(it.subtotal)}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      ${items.map(it => `
-                        <tr>
-                          <td>${it.product_name}</td>
-                          <td>${it.quantity}</td>
-                          <td>${formatCOP(it.price)}</td>
-                          <td>${formatCOP(it.subtotal)}</td>
-                        </tr>
-                      `).join("")}
-                    </tbody>
-                  </table>
-                  <p class="total">TOTAL: ${formatCOP(sale.total_amount)}</p>
-                </body>
-              </html>
-            `;
+                    `).join("")}
+                  </tbody>
+                </table>
+                <p class="total">TOTAL: ${formatCOP(sale.total_amount)}</p>
+              </div>
+            </body>
+          </html>
+        `;
+      }
 
-            const result = await window.api.printInvoice({
-              printer,
-              paperSize,
-              htmlContent,
-            });
+      salesList.querySelectorAll(".print-sale").forEach((b) => {
+  b.addEventListener("click", async (e) => {
+    const id = Number(e.target.dataset.id);
+    const sale = await window.api.getSaleById(id);
+    const items = await window.api.getSaleItems(id);
+    const company = await window.api.getCompanySettings();
+    const logoBase64 = await window.api.getCompanyLogo();
+    const client = sale.client_id ? await window.api.getClientById(sale.client_id) : null;
 
-            alert(result.message || "Factura enviada a imprimir");
-            document.body.removeChild(container);
-          });
-        })
-      );
+    if (!sale || !items) {
+      alert("No se encontró la información de la venta");
+      return;
+    }
+
+    const printers = await window.api.getPrinters();
+    if (!printers || printers.length === 0) {
+      alert("No se encontraron impresoras disponibles");
+      return;
+    }
+
+    const htmlContent = generateInvoiceHtml(sale, items, company, logoBase64, client, printers);
+    await window.api.previewInvoice({ content: htmlContent });
+  });
+});
+
   }
 
+
+  // -----------------------------
+  // Cargar créditos
+  // -----------------------------
+  async function loadCredits(searchTerm = "") {
+    const credits = await window.api.getCredits(searchTerm);
+    creditsList.innerHTML = "";
+
+    if (!credits || credits.length === 0) {
+      creditsList.innerHTML = `<div class="alert alert-secondary">No hay créditos pendientes.</div>`;
+      return;
+    }
+
+    credits.forEach(c => {
+      const creditCard = document.createElement("div");
+      creditCard.classList.add("card", "mb-2", "p-2", "credit-card");
+      creditCard.innerHTML = `
+        <div>
+          <strong>Factura #${c.invoice_number || c.id}</strong> — Cliente: ${c.client_name}
+        </div>
+        <div>
+          Total: ${formatCOP(c.total_amount)} | Abonos: ${formatCOP(c.paid_amount)} | Saldo: <span class="fw-bold text-danger">${formatCOP(c.outstanding_balance)}</span>
+        </div>
+        <div class="mt-2">
+          <button class="btn btn-sm btn-info view-credit-details" data-id="${c.id}">Ver Detalle</button>
+        </div>
+      `;
+      creditsList.appendChild(creditCard);
+    });
+
+    creditsList.querySelectorAll(".view-credit-details").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        const saleId = Number(e.target.dataset.id);
+        showCreditDetails(saleId);
+      });
+    });
+  }
+
+  // -----------------------------
+  // Buscar créditos
+  // -----------------------------
+  creditSearchBtn.addEventListener("click", () => {
+    const searchTerm = creditSearchInput.value;
+    loadCredits(searchTerm);
+  });
+
+  // -----------------------------
+  // Modal de detalles de crédito
+  // -----------------------------
+  async function showCreditDetails(saleId) {
+    const sale = await window.api.getSaleById(saleId);
+    if (!sale) {
+      alert("Crédito no encontrado.");
+      return;
+    }
+
+    // Obtener cliente si existe
+    let client = null;
+    if (sale.client_id) {
+      client = await window.api.getClientById(sale.client_id);
+    }
+    const clientName = client ? client.name : "Sin cliente";
+
+    const modalHtml = `
+      <div class="modal fade" id="creditDetailsModal" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Detalles de Crédito - Factura #${sale.invoice_number || sale.id}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p><strong>Cliente:</strong> ${clientName}</p>
+              <p><strong>Total de la Venta:</strong> ${formatCOP(sale.total_amount)}</p>
+              <p><strong>Total Abonado:</strong> <span id="modal-paid-amount">${formatCOP(sale.paid_amount)}</span></p>
+              <p><strong>Saldo Pendiente:</strong> <span id="modal-outstanding-balance" class="fw-bold text-danger">${formatCOP(sale.outstanding_balance)}</span></p>
+
+              <h6 class="mt-4">Registrar Abono</h6>
+              <div class="input-group">
+                <input type="number" class="form-control" id="abono-amount" placeholder="Monto del abono">
+                <button class="btn btn-primary" type="button" id="add-abono-btn">Abonar</button>
+              </div>
+              <button class="btn btn-success w-100 mt-3" id="mark-paid-btn">Marcar como Crédito Pagado</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const existingModal = document.getElementById("creditDetailsModal");
+    if (existingModal) existingModal.remove();
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const modal = new bootstrap.Modal(document.getElementById('creditDetailsModal'));
+    modal.show();
+
+    document.getElementById("add-abono-btn").addEventListener("click", async () => {
+      const abonoAmount = Number(document.getElementById("abono-amount").value);
+      if (abonoAmount <= 0 || abonoAmount > sale.outstanding_balance) {
+        alert("Monto de abono inválido o superior al saldo pendiente.");
+        return;
+      }
+
+      const res = await window.api.addCreditPayment(saleId, abonoAmount);
+      alert(res.message);
+      modal.hide();
+      await loadCredits();
+    });
+
+    document.getElementById("mark-paid-btn").addEventListener("click", async () => {
+      const res = await window.api.markCreditAsPaid(saleId);
+      alert(res.message);
+      modal.hide();
+      await loadCredits();
+    });
+  }
+
+  // -----------------------------
+  // Inicialización al cargar la página
+  // -----------------------------
   await loadProducts();
   await loadClients();
   await loadSales();
+  await loadCredits();
 });
+
+

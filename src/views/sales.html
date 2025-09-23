@@ -1,10 +1,15 @@
-<!doctype html>
+<!doctype html> 
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <title>Ventas - GestorFX</title>
+  
+  <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- FontAwesome -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+
   <style>
     body { background: #f6f8fa; }
     h1 { font-size: 2.2rem; font-weight: 700; color: #1a237e; margin-bottom: 1.2rem; }
@@ -25,11 +30,17 @@
     .del { background: #e53935; color: #fff; border: none; }
     .del:hover { background: #b71c1c; }
   </style>
-    <script>
-      if (!localStorage.getItem('logueado')) {
-        window.location.href = 'login.html';
-      }
-    </script>
+
+  <script>
+    if (!localStorage.getItem('logueado')) {
+      window.location.href = 'login.html';
+    }
+  </script>
+
+  <!-- Bootstrap JS Bundle (con Popper) -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Tu script -->
   <script defer src="../js/sales.js"></script>
 </head>
 <body class="bg-light">
@@ -41,32 +52,62 @@
     <div class="card p-4 mb-4">
       <h5 class="mb-3">Venta rápida</h5>
       <form id="sale-form" class="row g-3">
-        <!-- Selección de producto -->
-        <div class="col-md-6"><label class="form-label">Producto</label><select id="sale-product" class="form-select"></select></div>
-        <div class="col-md-3"><label class="form-label">Cantidad</label><input id="sale-quantity" type="number" class="form-control" min="1" value="1"></div>
-        <div class="col-md-3 d-flex align-items-end"><button class="btn btn-primary w-100">Agregar</button></div>
-      </form>
-    </div>
 
-    <!-- Selección de cliente (opcional) -->
+         <!-- Selección de cliente (opcional) -->
     <div class="card p-4 mb-4">
       <h5 class="mb-3">Cliente (opcional)</h5>
-      <select id="sale-client" class="form-select"><option value="">-- Venta sin cliente --</option></select>
+      <select id="sale-client" class="form-select">
+        <option value="">-- Venta sin cliente --</option>
+      </select>
+    </div>
+    
+        <div class="col-md-6">
+          <label class="form-label">Producto</label>
+          <input list="products-list" id="sale-product-input" class="form-control" placeholder="Buscar producto...">
+          <datalist id="products-list"></datalist>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Cantidad</label>
+          <input id="sale-quantity" type="number" class="form-control" min="1" value="1">
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+          <button class="btn btn-primary w-100">Agregar</button>
+        </div>
+      </form>
     </div>
 
     <!-- Items de la venta -->
     <div class="card p-4 mb-4">
       <h5 class="mb-3">Items de la venta</h5>
       <table class="table table-striped">
-        <thead><tr><th>Ítem</th><th>Código</th><th>Producto</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th>Acciones</th></tr></thead>
+        <thead>
+          <tr><th>Ítem</th><th>Código</th><th>Producto</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th>Acciones</th></tr>
+        </thead>
         <tbody id="sale-items"></tbody>
       </table>
       <div class="text-end fw-bold" id="sale-total">TOTAL: $0</div>
-      <div class="mt-2"><button id="finalize-sale" class="btn btn-success px-4">Finalizar Venta</button></div>
+      <div class="col-12 mt-3">
+        <label for="sale-type" class="form-label">Tipo de Venta</label>
+        <select id="sale-type" class="form-select">
+          <option value="cash">Contado</option>
+          <option value="credit">Crédito</option>
+        </select>
+      </div>
+      <div class="mt-2">
+        <button id="finalize-sale" class="btn btn-success px-4">Finalizar Venta</button>
+      </div>
     </div>
 
     <!-- Historial de ventas -->
     <div class="card p-4 mb-4">
+      <div class="card p-4 mb-4">
+        <h5 class="mb-3">Gestión de Créditos</h5>
+        <div class="input-group mb-3">
+          <input type="text" class="form-control" id="credit-search-input" placeholder="Buscar por cliente...">
+          <button class="btn btn-outline-secondary" type="button" id="credit-search-btn">Buscar</button>
+        </div>
+        <div id="credits-list"></div>
+      </div>
       <h5 class="mb-3">Historial de ventas</h5>
       <div id="sales-list"></div>
     </div>

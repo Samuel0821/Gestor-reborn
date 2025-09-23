@@ -1,6 +1,3 @@
-// login.js
-// Lógica de login y ventana de inicio de día
-
 document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('login-form');
   const errorMsg = document.getElementById('login-error');
