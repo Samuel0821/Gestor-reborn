@@ -65,6 +65,7 @@ markCreditAsPaid: (saleId) => ipcRenderer.invoke("mark-credit-as-paid", saleId),
 
   // reports
   getSalesReport: (params) => ipcRenderer.invoke("get-sales-report", params),
+  exportSalesReportPDF: (params) => ipcRenderer.invoke("export-sales-report-pdf", params),
 
   //Impresión
   getPrinters: () => ipcRenderer.invoke("get-printers"),

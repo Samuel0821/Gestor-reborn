@@ -1,10 +1,12 @@
+// reports.js
+
 document.addEventListener('DOMContentLoaded', () => {
     const reportTypeSelect = document.getElementById('reportType');
     const startDateInput = document.getElementById('startDate');
     const endDateInput = document.getElementById('endDate');
     const container = document.getElementById("report-container");
 
-    let currentSalesReport = []; // <-- guardamos los datos globalmente
+    let currentSalesReport = [];
 
     function formatCOP(value) {
         const num = Number(value) || 0;
@@ -35,6 +37,12 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const report = await window.api.getSalesReport({ startDate, endDate, reportType });
             currentSalesReport = report.sales || [];
+            
+            // Elimina el botón de exportar PDF si ya existe
+            const existingBtnDiv = document.getElementById("export-btn-container");
+            if (existingBtnDiv) {
+                existingBtnDiv.remove();
+            }
 
             if (currentSalesReport.length === 0) {
                 container.innerHTML = `
@@ -60,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </thead>
                     <tbody>
             `;
-
+            
             currentSalesReport.forEach(s => {
                 let itemsHtml = `
                     <ul class="mb-0">
@@ -88,43 +96,36 @@ document.addEventListener('DOMContentLoaded', () => {
             container.innerHTML = tableHtml;
             showAlert('Reporte generado correctamente.', 'success');
 
-            // Crear botón Exportar PDF si no existe
-            let exportBtn = document.getElementById("btn-export-pdf");
-            if (!exportBtn) {
-                const btnDiv = document.createElement("div");
-                btnDiv.className = "text-end mt-3";
-                btnDiv.innerHTML = `
-                    <button id="btn-export-pdf" class="btn btn-success">
-                        <i class="fa fa-file-pdf me-2"></i>Exportar PDF
-                    </button>
-                `;
-                container.appendChild(btnDiv);
-                exportBtn = document.getElementById("btn-export-pdf");
+            // Crear el botón de exportar PDF solo si hay datos
+            const btnDiv = document.createElement("div");
+            btnDiv.id = "export-btn-container";
+            btnDiv.className = "text-end mt-3";
+            btnDiv.innerHTML = `
+                <button id="btn-export-pdf" class="btn btn-success">
+                    <i class="fa fa-file-pdf me-2"></i>Exportar PDF
+                </button>
+            `;
+            container.appendChild(btnDiv);
 
-                exportBtn.addEventListener("click", async () => {
-                    if (currentSalesReport.length === 0) {
-                        showAlert("Primero genera un reporte antes de exportar.", "warning");
-                        return;
+            const exportBtn = document.getElementById("btn-export-pdf");
+            exportBtn.addEventListener("click", async () => {
+                try {
+                    const companyInfo = await window.api.getCompanySettings();
+                    const result = await window.api.exportSalesReportPDF({
+                        salesReport: currentSalesReport,
+                        companyInfo,
+                        filename: `Reporte_Ventas_${new Date().toISOString().slice(0, 10)}.pdf`
+                    });
+                    if (result.success) {
+                        showAlert("Reporte exportado correctamente: " + result.filePath, "success");
+                    } else {
+                        showAlert("Error al exportar PDF: " + result.message, "danger");
                     }
-
-                    try {
-                        const companyInfo = await window.api.getCompanySettings();
-                        const result = await window.api.exportSalesReportPDF({
-                            salesReport: currentSalesReport,
-                            companyInfo,
-                            filename: `Reporte_Ventas_${new Date().toISOString().slice(0,10)}.pdf`
-                        });
-                        if (result.success) {
-                            showAlert("Reporte exportado correctamente: " + result.filePath, "success");
-                        } else {
-                            showAlert("Error al exportar PDF: " + result.message, "danger");
-                        }
-                    } catch (err) {
-                        console.error(err);
-                        showAlert("Ocurrió un error al exportar PDF.", "danger");
-                    }
-                });
-            }
+                } catch (err) {
+                    console.error(err);
+                    showAlert("Ocurrió un error al exportar PDF.", "danger");
+                }
+            });
 
         } catch (err) {
             console.error("Error al cargar el reporte:", err);
