@@ -667,10 +667,18 @@ function saveCompanySettings(s) {
 }
 
 // ---------------------
-// EXPORTAR
+// INVENTARIO Y REPORTES
 // ---------------------
+// Función para obtener el valor total del inventario
+function getInventoryTotalValue() {
+  const result = db.prepare("SELECT SUM(stock * purchase_price) as total FROM products").get();
+  return result.total || 0;
+}
+
 function getInventory() {
-  return db.prepare("SELECT * FROM products ORDER BY name").all();
+  const products = db.prepare("SELECT * FROM products ORDER BY name").all();
+  const totalValue = getInventoryTotalValue();
+  return { products, totalValue };
 }
 
 // generar reportes de ventas (diario, semanal, mensual)
@@ -702,7 +710,7 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
     const rows = salesStmt.all(start, end);
 
     const itemsStmt = db.prepare(`
-      SELECT product_name, quantity, subtotal
+      SELECT product_name, quantity, price, subtotal
       FROM sale_items
       WHERE sale_id = ?
     `);
@@ -751,7 +759,7 @@ module.exports = {
   // company
   getCompanySettings, updateCompanySettings, saveCompanySettings,
   // inventario
-  getInventory,
+  getInventory, getInventoryTotalValue,
   // reportes
   getSalesReport
 };

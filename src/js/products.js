@@ -9,6 +9,15 @@ document.addEventListener('DOMContentLoaded', () => {
         showAlert(res.success ? "success" : "danger", res.message);
     });
 
+    function formatCOP(value) {
+        const num = Number(value) || 0;
+        return new Intl.NumberFormat("es-CO", {
+            style: "currency",
+            currency: "COP",
+            minimumFractionDigits: 0,
+        }).format(Math.round(num));
+    }
+
     function showAlert(type, message) {
         let alertDiv = document.getElementById('inventory-alert');
         if (!alertDiv) {
@@ -24,8 +33,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function loadProducts() {
-        products = await window.api.getProducts();
+    // La función ahora devuelve un objeto con la lista de productos y el valor total
+        const { products: fetchedProducts, totalInventoryValue } = await window.api.getInventory();
+        products = fetchedProducts;
         renderTable(products);
+        
+        // Muestra el valor del inventario en la UI
+        const totalValueElement = document.getElementById('total-inventory-value');
+        if (totalValueElement) {
+            totalValueElement.textContent = formatCOP(totalInventoryValue);
+        }
     }
 
     function renderTable(list) {

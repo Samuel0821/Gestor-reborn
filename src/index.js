@@ -170,7 +170,18 @@
 
       // Reportes e Inventario
         ipcMain.handle("get-sales-report", (event, params) => db.getSalesReport(params));
-        ipcMain.handle("get-inventory", () => db.getInventory());
+        
+        ipcMain.handle("get-inventory", async () => {
+                try {
+                    const products = db.getProducts();
+                    const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.sale_price)), 0);
+                    return { products, totalInventoryValue };
+                } catch (err) {
+                    console.error("Error al obtener el inventario:", err);
+                    return { products: [], totalInventoryValue: 0 };
+                }
+            });
+
         ipcMain.handle("get-low-stock-products", async () => {
             try {
                 const products = db.getProducts();
@@ -182,7 +193,7 @@
         });
 
         // ---------- Exportar reporte de ventas a PDF ----------
-        ipcMain.handle("export-sales-report-pdf", async (event, { salesReport, companyInfo, filename }) => {
+          ipcMain.handle("export-sales-report-pdf", async (event, { salesReport, companyInfo, filename }) => {
             try {
                 const salesArray = Array.isArray(salesReport) ? salesReport : [];
                 if (!salesArray.length) {
@@ -199,24 +210,25 @@
                 const stream = fs.createWriteStream(filePath);
                 doc.pipe(stream);
 
-                // Encabezado del PDF
-                renderPdfHeader(doc, companyInfo, "Reporte de Venta");
+                renderPdfHeader(doc, companyInfo, "Reporte de Ventas");
 
                 let y = doc.y + 10;
-                const startY = y; 
+                const startY = y;
 
-                // Títulos de las columnas de la tabla
-                doc.fontSize(10).font("Helvetica-Bold");
-                doc.text("# Factura", 40, y, { width: 60 });
-                doc.text("Fecha", 100, y, { width: 80 });
-                doc.text("Nombre Producto", 190, y, { width: 150 });
-                doc.text("Cantidad", 340, y, { width: 50, align: "right" });
+                // Títulos de las columnas (EN NEGRITA)
+                doc.fontSize(11).font("Helvetica-Bold");
+                doc.text("Fecha", 40, y, { width: 60 });
+                doc.text("# Factura", 100, y, { width: 80 });
+                doc.text("Nombre Producto", 180, y, { width: 170 });
+                doc.text("Cantidad", 350, y, { width: 50, align: "right" });
                 doc.text("Valor Unidad", 400, y, { width: 70, align: "right" });
                 doc.text("Subtotal", 490, y, { width: 60, align: "right" });
                 y += 18;
-                
+
                 // Línea divisoria debajo de los títulos
                 doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+                
+                // Cambiar la fuente a normal para los datos del reporte
                 doc.font("Helvetica").fontSize(9);
                 y += 10;
 
@@ -224,17 +236,18 @@
                 for (const sale of salesArray) {
                     const invoiceNumber = sale.invoice_number || "-";
                     const saleDate = sale.sale_date ? sale.sale_date.split(' ')[0] : "-";
-                    
+                    const saleTotal = sale.total_amount || 0;
+
                     for (const item of sale.items) {
                         // Verificar salto de página antes de cada fila de ítem
                         if (y > doc.page.height - doc.page.margins.bottom - 40) {
                             doc.addPage();
                             y = startY;
                             doc.fontSize(10).font("Helvetica-Bold");
-                            doc.text("# Factura", 40, y, { width: 60 });
-                            doc.text("Fecha", 100, y, { width: 80 });
-                            doc.text("Nombre Producto", 190, y, { width: 150 });
-                            doc.text("Cantidad", 340, y, { width: 50, align: "right" });
+                            doc.text("Fecha", 40, y, { width: 60 });
+                            doc.text("# Factura", 100, y, { width: 80 });
+                            doc.text("Nombre Producto", 180, y, { width: 170 });
+                            doc.text("Cantidad", 350, y, { width: 50, align: "right" });
                             doc.text("Valor Unidad", 400, y, { width: 70, align: "right" });
                             doc.text("Subtotal", 490, y, { width: 60, align: "right" });
                             y += 18;
@@ -242,20 +255,27 @@
                             doc.font("Helvetica").fontSize(9);
                             y += 10;
                         }
-
-                        doc.text(invoiceNumber, 40, y, { width: 60 });
-                        doc.text(saleDate, 100, y, { width: 80 });
-                        doc.text(item.product_name, 190, y, { width: 150 });
-                        doc.text(String(item.quantity), 340, y, { width: 50, align: "right" });
-                        // Aquí se ha corregido para mostrar el precio unitario correctamente
-                        doc.text(formatCOP(item.price), 400, y, { width: 70, align: "right" });
+                        
+                        const productHeight = doc.heightOfString(item.product_name, { width: 170 });
+                        
+                        doc.text(saleDate, 40, y, { width: 60 });
+                        doc.text(invoiceNumber, 100, y, { width: 80 });
+                        doc.text(item.product_name, 180, y, { width: 170 });
+                        doc.text(String(item.quantity), 350, y, { width: 50, align: "right" });
+                        doc.text(formatCOP(item.price), 400, y, { width: 70, align: "right" }); 
                         doc.text(formatCOP(item.subtotal), 490, y, { width: 60, align: "right" });
-                        y += 15;
+                        
+                        y += productHeight + 5;
                     }
-                    y += 5;
+                    // Agregar el total de la venta después de cada venta
+                    doc.font("Helvetica-Bold").text("Total de venta:", 350, y, { width: 130, align: "right" });
+                    doc.text(formatCOP(saleTotal), 490, y, { width: 60, align: "right" });
+                    
+                    // Volver a la fuente normal para el resto del contenido
+                    doc.font("Helvetica");
+                    y += 15; // Espacio entre ventas
                 }
 
-                // Separar el Total General en una nueva línea y alinearlo a la derecha
                 doc.moveDown(1);
                 doc.font("Helvetica-Bold").fontSize(12);
                 const totalGeneral = salesArray.reduce((acc, s) => acc + (s.total_amount || 0), 0);
@@ -366,92 +386,113 @@
               });
 
 
-      // Exportación de PDF
+      // Exportación de PDF descarga factura
       ipcMain.handle("export-invoice-pdf", async (event, { id, includeIva = false } = {}) => {
-          try {
-              const sale = db.getSaleById(id);
-              if (!sale) return { success: false, message: "Venta no encontrada" };
-              const items = db.getSaleItems(id) || [];
-              const company = db.getCompanySettings() || {};
-              const client = sale.client_id ? db.getClientById(sale.client_id) : null;
+        try {
+            const sale = db.getSaleById(id);
+            if (!sale) return { success: false, message: "Venta no encontrada" };
+            const items = db.getSaleItems(id) || [];
+            const company = db.getCompanySettings() || {};
+            const client = sale.client_id ? db.getClientById(sale.client_id) : null;
 
-              const { filePath, canceled } = await dialog.showSaveDialog({
-                  defaultPath: `Factura-${sale.invoice_number || String(id).padStart(3, "0")}.pdf`,
-                  filters: [{ name: "PDF", extensions: ["pdf"] }],
-              });
-              if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
+            const { filePath, canceled } = await dialog.showSaveDialog({
+                defaultPath: `Factura-${sale.invoice_number || String(id).padStart(3, "0")}.pdf`,
+                filters: [{ name: "PDF", extensions: ["pdf"] }],
+            });
+            if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
 
-              const doc = new PDFDocument({ margin: 40, size: "A4" });
-              const stream = fs.createWriteStream(filePath);
-              doc.pipe(stream);
+            const doc = new PDFDocument({ margin: 40, size: "A4" });
+            const stream = fs.createWriteStream(filePath);
+            doc.pipe(stream);
 
-              renderPdfHeader(doc, company, `Factura ${sale.invoice_number || String(id).padStart(3, "0")}`);
+            renderPdfHeader(doc, company, `Factura ${sale.invoice_number || String(id).padStart(3, "0")}`);
 
-              if (client) {
-                  doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 40, doc.y + 10);
-                  doc.font("Helvetica").fontSize(10);
-                  doc.text(`Nombre: ${client.name || ""}`);
-                  doc.text(`NIT/Cédula: ${client.id_card_or_nit || ""}`);
-                  doc.text(`Dirección: ${client.address || ""}`);
-                  doc.text(`Email: ${client.email || ""}`);
-                  doc.text(`Teléfono: ${client.phone || ""}`);
-                  doc.moveDown(1);
-              }
+            if (client) {
+                doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 40, doc.y + 10);
+                doc.font("Helvetica").fontSize(10);
+                doc.text(`Nombre: ${client.name || ""}`);
+                doc.text(`NIT/Cédula: ${client.id_card_or_nit || ""}`);
+                doc.text(`Dirección: ${client.address || ""}`);
+                doc.text(`Email: ${client.email || ""}`);
+                doc.text(`Teléfono: ${client.phone || ""}`);
+                doc.moveDown(1);
+            }
 
-              let y = doc.y + 10;
-              doc.fontSize(11).font("Helvetica-Bold");
-              doc.text("#", 40, y, { width: 20 });
-              doc.text("Código", 60, y, { width: 60 });
-              doc.text("Nombre", 120, y, { width: 180 });
-              doc.text("Precio", 320, y, { width: 70, align: "right" });
-              doc.text("Cant.", 400, y, { width: 50, align: "right" });
-              doc.text("Subtotal", 460, y, { width: 80, align: "right" });
-              y += 18;
-              doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+            let y = doc.y + 10;
+            doc.fontSize(11).font("Helvetica-Bold");
+            doc.text("#", 40, y, { width: 20 });
+            doc.text("Código", 60, y, { width: 60 });
+            doc.text("Nombre", 120, y, { width: 180 });
+            doc.text("Precio", 320, y, { width: 70, align: "right" });
+            doc.text("Cant.", 400, y, { width: 50, align: "right" });
+            doc.text("Subtotal", 460, y, { width: 80, align: "right" });
+            y += 18;
+            doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
 
-              doc.font("Helvetica").fontSize(10);
-              let idx = 1;
-              for (const it of items) {
-                  doc.text(String(idx), 40, y, { width: 20 });
-                  doc.text(it.product_code || "-", 60, y, { width: 60 });
-                  doc.text(it.product_name || "-", 120, y, { width: 180 });
-                  doc.text(formatCOP(it.price), 320, y, { width: 70, align: "right" });
-                  doc.text(String(it.quantity), 400, y, { width: 50, align: "right" });
-                  doc.text(formatCOP(it.subtotal), 460, y, { width: 80, align: "right" });
-                  y += 18;
-                  if (y > 700) { doc.addPage(); y = 40; }
-              }
+            doc.font("Helvetica").fontSize(10);
+            let idx = 1;
+            for (const it of items) {
+                // Verificar salto de página
+                const nextY = y + doc.heightOfString(it.product_name || "-", { width: 180 }) + 5;
+                if (nextY > 700) {
+                    doc.addPage();
+                    y = 40;
+                    doc.fontSize(11).font("Helvetica-Bold");
+                    doc.text("#", 40, y, { width: 20 });
+                    doc.text("Código", 60, y, { width: 60 });
+                    doc.text("Nombre", 120, y, { width: 180 });
+                    doc.text("Precio", 320, y, { width: 70, align: "right" });
+                    doc.text("Cant.", 400, y, { width: 50, align: "right" });
+                    doc.text("Subtotal", 460, y, { width: 80, align: "right" });
+                    y += 18;
+                    doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+                    doc.font("Helvetica").fontSize(10);
+                    y += 10;
+                }
 
-              const subtotal = items.reduce((acc, it) => acc + (Number(it.subtotal) || Number(it.price) * Number(it.quantity) || 0), 0);
-              const iva = includeIva ? Math.round(subtotal * 0.19) : 0;
-              const total = subtotal + iva;
+                const productHeight = doc.heightOfString(it.product_name || "-", { width: 180 });
+                
+                doc.text(String(idx), 40, y, { width: 20 });
+                doc.text(it.product_code || "-", 60, y, { width: 60 });
+                doc.text(it.product_name || "-", 120, y, { width: 180 });
+                doc.text(formatCOP(it.price), 320, y, { width: 70, align: "right" });
+                doc.text(String(it.quantity), 400, y, { width: 50, align: "right" });
+                doc.text(formatCOP(it.subtotal), 460, y, { width: 80, align: "right" });
+                
+                y += productHeight + 5;
+                idx++;
+            }
 
-              doc.moveDown(1);
-              if (includeIva) {
-                  doc.fontSize(10).text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 6);
-                  doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 22);
-                  doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 42);
-              } else {
-                  doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 10);
-              }
+            const subtotal = items.reduce((acc, it) => acc + (Number(it.subtotal) || Number(it.price) * Number(it.quantity) || 0), 0);
+            const iva = includeIva ? Math.round(subtotal * 0.19) : 0;
+            const total = subtotal + iva;
 
-              doc.end();
-              await new Promise((res, rej) => {
-                  stream.on("finish", res);
-                  stream.on("error", rej);
-              });
+            doc.moveDown(1);
+            if (includeIva) {
+                doc.fontSize(10).text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 6);
+                doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 22);
+                doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 42);
+            } else {
+                doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 10);
+            }
 
-              return { success: true, message: "Factura exportada en PDF correctamente", filePath };
-          } catch (err) {
-              let msg = "Error al exportar factura PDF: ";
-              if (err && (err.code === "EBUSY" || err.code === "ELOCKED")) {
-                  msg += "El archivo está abierto o bloqueado. Por favor ciérralo antes de exportar.";
-              } else {
-                  msg += err && err.message ? err.message : String(err);
-              }
-              return { success: false, message: msg };
-          }
-      });
+            doc.end();
+            await new Promise((res, rej) => {
+                stream.on("finish", res);
+                stream.on("error", rej);
+            });
+
+            return { success: true, message: "Factura exportada en PDF correctamente", filePath };
+        } catch (err) {
+            let msg = "Error al exportar factura PDF: ";
+            if (err && (err.code === "EBUSY" || err.code === "ELOCKED")) {
+                msg += "El archivo está abierto o bloqueado. Por favor ciérralo antes de exportar.";
+            } else {
+                msg += err && err.message ? err.message : String(err);
+            }
+            return { success: false, message: msg };
+        }
+    });
 
       ipcMain.handle("export-quote-pdf", async (event, { id, includeIva = false } = {}) => {
           try {
@@ -550,95 +591,118 @@
       });
 
       ipcMain.handle("export-inventory-pdf", async () => {
-          try {
-              const products = db.getProducts() || [];
-              const company = db.getCompanySettings() || {};
+                try {
+                    const products = db.getProducts() || [];
+                    const company = db.getCompanySettings() || {};
+                    const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.sale_price)), 0);
 
-              const { filePath, canceled } = await dialog.showSaveDialog({
-                  title: "Guardar reporte PDF",
-                  defaultPath: "inventario.pdf",
-                  filters: [{ name: "PDF", extensions: ["pdf"] }],
-              });
-              if (canceled || !filePath) return { success: false, message: "No se seleccionó archivo" };
+                    const { filePath, canceled } = await dialog.showSaveDialog({
+                        title: "Guardar reporte PDF",
+                        defaultPath: "inventario.pdf",
+                        filters: [{ name: "PDF", extensions: ["pdf"] }],
+                    });
+                    if (canceled || !filePath) return { success: false, message: "No se seleccionó archivo" };
 
-              const doc = new PDFDocument({ margin: 40, size: "A4" });
-              const stream = fs.createWriteStream(filePath);
-              doc.pipe(stream);
+                    const doc = new PDFDocument({ margin: 40, size: "A4" });
+                    const stream = fs.createWriteStream(filePath);
+                    doc.pipe(stream);
 
-              renderPdfHeader(doc, company, "Reporte de Inventario");
+                    renderPdfHeader(doc, company, "Reporte de Inventario");
 
-              let y = doc.y + 10;
-              doc.fontSize(11).font("Helvetica-Bold");
-              doc.text("Código", 40, y, { width: 60 });
-              doc.text("Nombre", 110, y, { width: 140 });
-              doc.text("Categoría", 260, y, { width: 80 });
-              doc.text("Costo", 350, y, { width: 60, align: "right" });
-              doc.text("Venta", 420, y, { width: 60, align: "right" });
-              doc.text("Stock", 490, y, { width: 40, align: "right" });
-              y += 18;
-              doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+                    let y = doc.y + 10;
+                    doc.fontSize(11).font("Helvetica-Bold");
+                    doc.text("Código", 40, y, { width: 60 });
+                    doc.text("Nombre", 110, y, { width: 160 });
+                    doc.text("Categoría", 280, y, { width: 100 });
+                    doc.text("Costo", 390, y, { width: 60, align: "right" });
+                    doc.text("Venta", 460, y, { width: 60, align: "right" });
+                    doc.text("Stock", 530, y, { width: 40, align: "right" });
+                    y += 18;
+                    doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
 
-              doc.font("Helvetica").fontSize(10);
-              for (const p of products) {
-                  doc.text(p.code || "", 40, y, { width: 60 });
-                  doc.text(p.name || "", 110, y, { width: 140 });
-                  doc.text(p.category || "", 260, y, { width: 80 });
-                  doc.text(formatCOP(p.purchase_price || 0), 350, y, { width: 60, align: "right" });
-                  doc.text(formatCOP(p.sale_price || 0), 420, y, { width: 60, align: "right" });
-                  doc.text(String(p.stock || 0), 490, y, { width: 40, align: "right" });
-                  y += 16;
-                  if (y > 700) { doc.addPage(); y = 40; }
-              }
+                    doc.font("Helvetica").fontSize(10);
+                    for (const p of products) {
+                        doc.text(p.code || "", 40, y, { width: 60 });
+                        doc.text(p.name || "", 110, y, { width: 160 });
+                        doc.text(p.category || "", 280, y, { width: 100 });
+                        doc.text(formatCOP(p.purchase_price || 0), 390, y, { width: 60, align: "right" });
+                        doc.text(formatCOP(p.sale_price || 0), 460, y, { width: 60, align: "right" });
+                        doc.text(String(p.stock || 0), 530, y, { width: 40, align: "right" });
+                        y += 28;
+                        if (y > 700) { doc.addPage(); y = 40; }
+                    }
 
-              doc.end();
-              await new Promise((res, rej) => {
-                  stream.on("finish", res);
-                  stream.on("error", rej);
-              });
+                    // --- Agregar el valor total del inventario al PDF ---
+                    doc.moveDown(2);
+                    doc.font("Helvetica-Bold").fontSize(12);
+                    doc.text("Valor Total del Inventario (Precio Venta):", 40, doc.y, { align: "right" });
+                    doc.font("Helvetica").fontSize(12).text(formatCOP(totalInventoryValue), { align: "right" });
 
-              return { success: true, filePath };
-          } catch (err) {
-              return { success: false, message: "Error al exportar inventario: " + (err.message || String(err)) };
-          }
-      });
+                    doc.end();
+                    await new Promise((res, rej) => {
+                        stream.on("finish", res);
+                        stream.on("error", rej);
+                    });
+
+                    return { success: true, filePath };
+                } catch (err) {
+                    return { success: false, message: "Error al exportar inventario: " + (err.message || String(err)) };
+                }
+            });
 
       ipcMain.handle("export-inventory-excel", async () => {
-          try {
-              const products = db.getProducts() || [];
+        try {
+            const products = db.getProducts() || [];
+            const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.sale_price)), 0);
 
-              const { filePath, canceled } = await dialog.showSaveDialog({
-                  title: "Guardar reporte Excel",
-                  defaultPath: "inventario.xlsx",
-                  filters: [{ name: "Excel Files", extensions: ["xlsx"] }],
-              });
-              if (canceled || !filePath) return { success: false, message: "No se seleccionó archivo" };
+            const { filePath, canceled } = await dialog.showSaveDialog({
+                title: "Guardar reporte Excel",
+                defaultPath: "inventario.xlsx",
+                filters: [{ name: "Excel Files", extensions: ["xlsx"] }],
+            });
+            if (canceled || !filePath) return { success: false, message: "No se seleccionó archivo" };
 
-              const workbook = new ExcelJS.Workbook();
-              const worksheet = workbook.addWorksheet("Inventario");
-              worksheet.columns = [
-                  { header: "Código", key: "code", width: 15 },
-                  { header: "Nombre", key: "name", width: 30 },
-                  { header: "Categoría", key: "category", width: 20 },
-                  { header: "Precio costo", key: "purchase_price", width: 15 },
-                  { header: "Precio venta", key: "sale_price", width: 15 },
-                  { header: "Stock", key: "stock", width: 10 },
-              ];
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet("Inventario");
+            worksheet.columns = [
+                { header: "Código", key: "code", width: 15 },
+                { header: "Nombre", key: "name", width: 30 },
+                { header: "Categoría", key: "category", width: 20 },
+                { header: "Precio costo", key: "purchase_price", width: 15 },
+                { header: "Precio venta", key: "sale_price", width: 15 },
+                { header: "Stock", key: "stock", width: 10 },
+            ];
 
-              products.forEach(p => {
-                  worksheet.addRow({
-                      code: p.code || "",
-                      name: p.name || "",
-                      category: p.category || "",
-                      purchase_price: p.purchase_price || 0,
-                      sale_price: p.sale_price || 0,
-                      stock: p.stock || 0,
-                  });
-              });
+            products.forEach(p => {
+                worksheet.addRow({
+                    code: p.code || "",
+                    name: p.name || "",
+                    category: p.category || "",
+                    purchase_price: p.purchase_price || 0,
+                    sale_price: p.sale_price || 0,
+                    stock: p.stock || 0,
+                });
+            });
 
-              await workbook.xlsx.writeFile(filePath);
-              return { success: true, filePath };
-          } catch (err) {
-              return { success: false, message: "Error al exportar inventario Excel: " + (err.message || String(err)) };
-          }
-      });
+            // --- Agregar el valor total del inventario al Excel ---
+            worksheet.addRow({}); // Fila vacía para separación
+            const totalRow = worksheet.addRow({
+                name: "VALOR TOTAL DEL INVENTARIO (PRECIO VENTA)",
+                sale_price: totalInventoryValue
+            });
+
+            // Aplicar formato en negrita a la fila del total
+            totalRow.font = { bold: true };
+            totalRow.getCell('B').font = { bold: true };
+            totalRow.getCell('E').font = { bold: true };
+
+            // Aplicar formato de moneda a la celda del total
+            totalRow.getCell('E').numFmt = `"_(\"$\"* #,##0_);_(\"$\"* (#,##0);_(\"$\"* \"-\"??_);_(@_)"`;
+
+            await workbook.xlsx.writeFile(filePath);
+            return { success: true, filePath };
+        } catch (err) {
+            return { success: false, message: "Error al exportar inventario Excel: " + (err.message || String(err)) };
+        }
+    });
   }

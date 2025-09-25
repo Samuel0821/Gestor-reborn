@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("api", {
   updateProduct: (data) => ipcRenderer.invoke("update-product", data),
   deleteProduct: (id) => ipcRenderer.invoke("delete-product", id),
   getCategories: () => ipcRenderer.invoke("get-categories"),
+  getInventory: () => ipcRenderer.invoke("get-inventory"),
 
   // sales
   createSale: (data) => ipcRenderer.invoke("create-sale", data),
