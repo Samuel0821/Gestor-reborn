@@ -78,6 +78,18 @@ CREATE TABLE IF NOT EXISTS products (
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 )`).run();
 
+// Añadir la tabla de variantes de productos
+db.prepare(`
+CREATE TABLE IF NOT EXISTS product_variants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  sale_price REAL NOT NULL,
+  conversion_factor REAL NOT NULL,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+)`).run();
+
+
 db.prepare(`
 CREATE TABLE IF NOT EXISTS sales (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -240,12 +252,18 @@ function deleteCategory(id) {
 // PRODUCTOS
 // ---------------------
 function getProducts() {
-  return db.prepare(`
+  const products = db.prepare(`
     SELECT p.*, c.name as category_name
     FROM products p
     LEFT JOIN categories c ON p.category_id = c.id
     ORDER BY p.name
   `).all();
+  // Obtener variantes para cada producto
+  const getVariants = db.prepare("SELECT * FROM product_variants WHERE product_id = ? ORDER BY name");
+  for (const p of products) {
+      p.variants = getVariants.all(p.id);
+  }
+  return products;
 }
 
 function getProductById(id) {
@@ -264,21 +282,35 @@ function ensureCategoryId(categoryName) {
 function addProduct(p) {
   try {
     const catId = ensureCategoryId(p.category);
-    db.prepare(`
-      INSERT INTO products (code, name, category, category_id, purchase_price, sale_price, special_price, stock, min_stock)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      p.code,
-      p.name,
-      p.category || null,
-      catId,
-      p.purchase_price || 0,
-      p.sale_price || 0,
-      p.special_price || 0,
-      p.stock || 0,
-      p.min_stock || 0
-    );
-    return { success: true, message: "Producto registrado" };
+    // Usamos una transacción para asegurar que el producto y sus variantes se guarden juntos
+    const result = db.transaction(() => {
+        const productRes = db.prepare(`
+            INSERT INTO products (code, name, category, category_id, purchase_price, sale_price, special_price, stock, min_stock)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            p.code,
+            p.name,
+            p.category || null,
+            catId,
+            p.purchase_price || 0,
+            p.sale_price || 0,
+            p.special_price || 0,
+            p.stock || 0,
+            p.min_stock || 0
+        );
+        const productId = productRes.lastInsertRowid;
+        if (p.variants && p.variants.length > 0) {
+            const insertVariant = db.prepare(`
+                INSERT INTO product_variants (product_id, name, sale_price, conversion_factor)
+                VALUES (?, ?, ?, ?)
+            `);
+            for (const v of p.variants) {
+                insertVariant.run(productId, v.name, v.sale_price, v.conversion_factor);
+            }
+        }
+        return productId;
+    })();
+    return { success: true, message: "Producto registrado", id: result };
   } catch (err) {
     return { success: false, message: String(err) };
   }
@@ -287,22 +319,35 @@ function addProduct(p) {
 function updateProduct(p) {
   try {
     const catId = ensureCategoryId(p.category);
-    db.prepare(`
-      UPDATE products
-      SET code=?, name=?, category=?, category_id=?, purchase_price=?, sale_price=?, special_price=?, stock=?, min_stock=?
-      WHERE id=?
-    `).run(
-      p.code,
-      p.name,
-      p.category || null,
-      catId,
-      p.purchase_price || 0,
-      p.sale_price || 0,
-      p.special_price || 0,
-      p.stock || 0,
-      p.min_stock || 0,
-      p.id
-    );
+    db.transaction(() => {
+        db.prepare(`
+            UPDATE products
+            SET code=?, name=?, category=?, category_id=?, purchase_price=?, sale_price=?, special_price=?, stock=?, min_stock=?
+            WHERE id=?
+        `).run(
+            p.code,
+            p.name,
+            p.category || null,
+            catId,
+            p.purchase_price || 0,
+            p.sale_price || 0,
+            p.special_price || 0,
+            p.stock || 0,
+            p.min_stock || 0,
+            p.id
+        );
+        // Borrar variantes antiguas e insertar nuevas
+        db.prepare("DELETE FROM product_variants WHERE product_id=?").run(p.id);
+        if (p.variants && p.variants.length > 0) {
+            const insertVariant = db.prepare(`
+                INSERT INTO product_variants (product_id, name, sale_price, conversion_factor)
+                VALUES (?, ?, ?, ?)
+            `);
+            for (const v of p.variants) {
+                insertVariant.run(p.id, v.name, v.sale_price, v.conversion_factor);
+            }
+        }
+    })();
     return { success: true, message: "Producto actualizado" };
   } catch (err) {
     return { success: false, message: String(err) };
@@ -323,84 +368,115 @@ function deleteProduct(id) {
 // VENTAS
 // ---------------------
 function createSale({ client_id = null, items = [], sale_type = "cash", paid_amount = 0, outstanding_balance = 0 }) {
-  const insertSale = db.prepare(`
-    INSERT INTO sales (
-      client_id, total_amount, sale_date, sale_type, paid_amount, outstanding_balance
-    ) VALUES (?, ?, ?, ?, ?, ?)
-  `);
-  const insertItem = db.prepare("INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
-  const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
-  const getProduct = db.prepare("SELECT id, code, name, stock, sale_price, special_price FROM products WHERE id = ?");
+    const insertSale = db.prepare(`
+        INSERT INTO sales (
+            client_id, total_amount, sale_date, sale_type, paid_amount, outstanding_balance
+        ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const insertItem = db.prepare("INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
+    const getProduct = db.prepare("SELECT id, code, name, stock FROM products WHERE id = ?");
+    const getVariant = db.prepare("SELECT * FROM product_variants WHERE id = ?");
 
-  const trx = db.transaction((client_id, items) => {
-    // 🔹 Fecha/hora actual en LOCAL (YYYY-MM-DD HH:mm:ss, formato 24 horas)
-    const now = new Date();
-    const formattedDate =
-      now.getFullYear() + "-" +
-      String(now.getMonth() + 1).padStart(2, "0") + "-" +
-      String(now.getDate()).padStart(2, "0") + " " +
-      String(now.getHours()).padStart(2, "0") + ":" +
-      String(now.getMinutes()).padStart(2, "0") + ":" +
-      String(now.getSeconds()).padStart(2, "0");
+    const trx = db.transaction((client_id, items) => {
+        const now = new Date();
+        const formattedDate =
+            now.getFullYear() + "-" +
+            String(now.getMonth() + 1).padStart(2, "0") + "-" +
+            String(now.getDate()).padStart(2, "0") + " " +
+            String(now.getHours()).padStart(2, "0") + ":" +
+            String(now.getMinutes()).padStart(2, "0") + ":" +
+            String(now.getSeconds()).padStart(2, "0");
 
-    let total = 0;
-    for (const it of items) {
-      const prod = getProduct.get(it.product_id);
-      if (!prod) throw new Error(`Producto con id=${it.product_id} no existe`);
-      if (prod.stock < it.quantity) throw new Error(`Stock insuficiente para ${prod.name}`);
-      const price = it.price != null ? it.price : prod.sale_price;
-      const subtotal = price * it.quantity;
-      total += subtotal;
+        let total = 0;
+        for (const it of items) {
+            let price, stockToDecrement;
+
+            // Obtener el producto principal para su stock
+            const prod = getProduct.get(it.product_id);
+            if (!prod) throw new Error(`Producto con id=${it.product_id} no existe`);
+
+            // Obtener la variante (si existe) para el precio y el factor
+            if (it.variant_id) {
+                const variant = getVariant.get(it.variant_id);
+                if (!variant) throw new Error(`Variante con id=${it.variant_id} no existe`);
+                
+                price = it.price != null ? it.price : variant.sale_price;
+                stockToDecrement = it.quantity * variant.conversion_factor;
+            } else {
+                // Si no hay variante, es la unidad base del producto
+                price = it.price != null ? it.price : prod.sale_price;
+                stockToDecrement = it.quantity;
+            }
+            
+            if (prod.stock < stockToDecrement) throw new Error(`Stock insuficiente para ${prod.name}`);
+
+            const subtotal = price * it.quantity;
+            total += subtotal;
+        }
+
+        const finalPaid = (sale_type === 'credit') ? paid_amount : total;
+        const finalOutstanding = (sale_type === 'credit') ? outstanding_balance : 0;
+        const saleRes = insertSale.run(
+            client_id || null, 
+            total, 
+            formattedDate, 
+            sale_type, 
+            finalPaid, 
+            finalOutstanding
+        );
+        const saleId = saleRes.lastInsertRowid;
+
+        for (const it of items) {
+            let prodName, prodCode;
+            const prod = getProduct.get(it.product_id);
+            if (!prod) {
+                prodName = "Producto eliminado";
+                prodCode = "";
+            } else {
+                prodName = prod.name;
+                prodCode = prod.code;
+            }
+            
+            // Usamos el nombre y precio del item original enviado desde el front-end
+            insertItem.run(
+                saleId,
+                it.product_id,
+                it.product_name, // Usar el nombre de la variante/unidad
+                prodCode,
+                it.quantity,
+                it.price, // Usar el precio de la variante/unidad
+                it.subtotal
+            );
+
+            // Actualizar el stock con el factor de conversión
+            if (it.variant_id) {
+                const variant = getVariant.get(it.variant_id);
+                if (variant) updateStock.run(it.quantity * variant.conversion_factor, it.product_id);
+            } else {
+                updateStock.run(it.quantity, it.product_id);
+            }
+        }
+
+        const last = getLastInvoiceNumber();
+        let next;
+        if (!last) next = `FACT-${padNumber(1)}`;
+        else {
+            const m = last.match(/-(\d+)$/);
+            const lastNum = m ? parseInt(m[1], 10) : 0;
+            next = `FACT-${padNumber(lastNum + 1)}`;
+        }
+        db.prepare("UPDATE sales SET invoice_number = ? WHERE id = ?").run(next, saleId);
+
+        return saleId;
+    });
+
+    try {
+        const id = trx(client_id, items);
+        return { success: true, message: "Venta registrada", id };
+    } catch (err) {
+        return { success: false, message: String(err) };
     }
-
-    // Si es crédito, los abonos y el saldo se manejan con los nuevos campos
-    const finalPaid = (sale_type === 'credit') ? paid_amount : total;
-    const finalOutstanding = (sale_type === 'credit') ? outstanding_balance : 0;
-
-    const saleRes = insertSale.run(
-      client_id || null, 
-      total, 
-      formattedDate, 
-      sale_type, 
-      finalPaid, 
-      finalOutstanding
-    );
-    const saleId = saleRes.lastInsertRowid;
-
-    for (const it of items) {
-      const prod = getProduct.get(it.product_id);
-      insertItem.run(
-        saleId,
-        prod.id,
-        prod.name,
-        prod.code,
-        it.quantity,
-        it.price,
-        it.subtotal
-      );
-      updateStock.run(it.quantity, prod.id);
-    }
-
-    // Generar el número de factura
-    const last = getLastInvoiceNumber();
-    let next;
-    if (!last) next = `FACT-${padNumber(1)}`;
-    else {
-      const m = last.match(/-(\d+)$/);
-      const lastNum = m ? parseInt(m[1], 10) : 0;
-      next = `FACT-${padNumber(lastNum + 1)}`;
-    }
-    db.prepare("UPDATE sales SET invoice_number = ? WHERE id = ?").run(next, saleId);
-
-    return saleId;
-  });
-
-  try {
-    const id = trx(client_id, items);
-    return { success: true, message: "Venta registrada", id };
-  } catch (err) {
-    return { success: false, message: String(err) };
-  }
 }
 
 function getSales() {

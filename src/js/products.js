@@ -33,12 +33,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function loadProducts() {
-    // La función ahora devuelve un objeto con la lista de productos y el valor total
         const { products: fetchedProducts, totalInventoryValue } = await window.api.getInventory();
         products = fetchedProducts;
         renderTable(products);
         
-        // Muestra el valor del inventario en la UI
         const totalValueElement = document.getElementById('total-inventory-value');
         if (totalValueElement) {
             totalValueElement.textContent = formatCOP(totalInventoryValue);
@@ -53,7 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tr.innerHTML = `
                 <td>${p.code}</td>
                 <td>${p.name}</td>
-                <td>${p.sale_price}</td>
+                <td>${formatCOP(p.sale_price)}</td>
                 <td>${p.stock} ${stockAlert}</td>
                 <td>${p.min_stock || 0}</td>
                 <td>
@@ -73,6 +71,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('product-special-price').value = p.special_price || 0;
                 stockInput.value = p.stock || 0;
                 minStockInput.value = p.min_stock || 0;
+                
+                // --- LÓGICA DE EDICIÓN DE VARIANTES ---
+                variantsContainer.innerHTML = '';
+                if (p.variants && p.variants.length > 0) {
+                    p.variants.forEach(v => {
+                        addVariantField(v.name, v.sale_price);
+                    });
+                }
+                // --- FIN LÓGICA DE EDICIÓN DE VARIANTES ---
+
                 cancelBtn.style.display = 'inline-block';
             });
             tr.querySelector('.del').addEventListener('click', async () => {
@@ -83,6 +91,52 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
     }
+
+    // --- NUEVAS FUNCIONES PARA MANEJAR VARIANTES ---
+    const variantsContainer = document.getElementById('variants-container');
+    const addVariantBtn = document.getElementById('add-variant-btn');
+
+    addVariantBtn.addEventListener('click', () => {
+        addVariantField();
+    });
+
+    function addVariantField(variantName = '', variantPrice = '', conversionFactor = '') {
+        const variantRow = document.createElement('div');
+        variantRow.classList.add('row', 'g-3', 'mb-2', 'variant-row');
+        variantRow.innerHTML = `
+            <div class="col-md-4">
+                <input type="text" class="form-control variant-name" placeholder="Nombre (Ej: 1/2 saco)" value="${variantName}">
+            </div>
+            <div class="col-md-3">
+                <input type="number" step="0.01" class="form-control variant-price" placeholder="Precio" value="${variantPrice}">
+            </div>
+            <div class="col-md-3">
+                <input type="number" step="0.01" class="form-control variant-factor" placeholder="Factor (ej: 0.5)" value="${conversionFactor}">
+            </div>
+            <div class="col-md-2 d-flex align-items-center">
+                <button type="button" class="btn btn-danger btn-sm remove-variant-btn">Eliminar</button>
+            </div>
+        `;
+        variantsContainer.appendChild(variantRow);
+
+        variantRow.querySelector('.remove-variant-btn').addEventListener('click', () => {
+            variantRow.remove();
+        });
+    }
+
+    function getVariants() {
+        const variants = [];
+        document.querySelectorAll('.variant-row').forEach(row => {
+            const name = row.querySelector('.variant-name').value.trim();
+            const price = parseFloat(row.querySelector('.variant-price').value);
+            const factor = parseFloat(row.querySelector('.variant-factor').value);
+            if (name && !isNaN(price) && !isNaN(factor)) {
+                variants.push({ name, sale_price: price, conversion_factor: factor });
+            }
+        });
+        return variants;
+    }
+    // --- FIN DE NUEVAS FUNCIONES ---
 
     const form = document.getElementById('product-form');
     const minStockInput = document.getElementById('product-min-stock');
@@ -117,6 +171,8 @@ document.addEventListener('DOMContentLoaded', () => {
         codeErrorMessageSpan.textContent = '';
         const category = categoryNew.value.trim() || categorySelect.value || null;
         const specialPrice = document.getElementById('product-special-price').value;
+        const variants = getVariants(); // Obtenemos las variantes del formulario
+
         const payload = {
             id: idInput.value ? Number(idInput.value) : undefined,
             code: codeInput.value.trim(),
@@ -126,12 +182,15 @@ document.addEventListener('DOMContentLoaded', () => {
             sale_price: parseFloat(saleInput.value) || 0,
             special_price: parseFloat(specialPrice) || 0,
             stock: parseInt(stockInput.value, 10) || 0,
-            min_stock: parseInt(minStockInput.value, 10) || 0
+            min_stock: parseInt(minStockInput.value, 10) || 0,
+            variants // Agregamos el array de variantes al payload
         };
+        
         if (!payload.code || !payload.name) {
             alert('Código y nombre obligatorios');
             return;
         }
+
         if (payload.id) {
             const res = await window.api.updateProduct(payload);
             if (!res.success) {
@@ -156,11 +215,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         form.reset();
         idInput.value = '';
+        variantsContainer.innerHTML = ''; // Limpiamos los campos de variantes al guardar
         await loadProducts();
         await loadCategories();
     });
 
-    cancelBtn.addEventListener('click', () => { form.reset(); idInput.value=''; cancelBtn.style.display='none'; });
+    cancelBtn.addEventListener('click', () => { form.reset(); idInput.value=''; cancelBtn.style.display='none'; variantsContainer.innerHTML = ''; });
     minStockInput.value = '';
     search.addEventListener('input', () => {
         const q = search.value.toLowerCase();

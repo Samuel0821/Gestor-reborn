@@ -1,102 +1,127 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <title>Productos - GestorFX</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-  <style>
-    body { background: #f6f8fa; }
-    h1 { font-size: 2.2rem; font-weight: 700; color: #1a237e; margin-bottom: 1.2rem; }
-    .card { border-radius: 1.2rem; box-shadow: 0 2px 12px rgba(0,0,0,0.07); background: #fff; }
-    .form-label { font-weight: 500; color: #37474f; }
-    .btn-primary { background: #1976d2; border: none; }
-    .btn-primary:hover { background: #1565c0; }
-    .btn-secondary { background: #263238; border: none; }
-    .btn-secondary:hover { background: #37474f; }
-    .btn-success { background: #43a047; border: none; }
-    .btn-danger { background: #e53935; border: none; }
-    .table th, .table td { vertical-align: middle; }
-    .badge.bg-danger { font-size: 0.95rem; padding: 0.4em 0.7em; }
-    .table-striped > tbody > tr:nth-of-type(odd) { background-color: #f3f6fa; }
-    .table-striped > tbody > tr:hover { background: #e3eafc; }
-    .fa-file-excel, .fa-file-pdf { font-size: 1.2rem; }
-    .edit { background: #1976d2; color: #fff; border: none; }
-    .edit:hover { background: #1565c0; }
-    .del { background: #e53935; color: #fff; border: none; }
-    .del:hover { background: #b71c1c; }
-  </style>
-  <script defer src="../js/products.js"></script>
+    <meta charset="utf-8">
+    <title>Productos - GestorFX</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        body { background: #f6f8fa; }
+        h1 { font-size: 2.2rem; font-weight: 700; color: #1a237e; margin-bottom: 1.2rem; }
+        .card { border-radius: 1.2rem; box-shadow: 0 2px 12px rgba(0,0,0,0.07); background: #fff; }
+        .form-label { font-weight: 500; color: #37474f; }
+        .btn-primary { background: #1976d2; border: none; }
+        .btn-primary:hover { background: #1565c0; }
+        .btn-secondary { background: #263238; border: none; }
+        .btn-secondary:hover { background: #37474f; }
+        .btn-success { background: #43a047; border: none; }
+        .btn-danger { background: #e53935; border: none; }
+        .table th, .table td { vertical-align: middle; }
+        .badge.bg-danger { font-size: 0.95rem; padding: 0.4em 0.7em; }
+        .table-striped > tbody > tr:nth-of-type(odd) { background-color: #f3f6fa; }
+        .table-striped > tbody > tr:hover { background: #e3eafc; }
+        .fa-file-excel, .fa-file-pdf { font-size: 1.2rem; }
+        .edit { background: #1976d2; color: #fff; border: none; }
+        .edit:hover { background: #1565c0; }
+        .del { background: #e53935; color: #fff; border: none; }
+        .del:hover { background: #b71c1c; }
+    </style>
+    <script defer src="../js/products.js"></script>
     <script>
-      if (!localStorage.getItem('logueado')) {
-        window.location.href = 'login.html';
-      }
+        if (!localStorage.getItem('logueado')) {
+            window.location.href = 'login.html';
+        }
     </script>
 </head>
 <body class="bg-light">
-  <div class="container py-4">
-    <h1>Productos</h1>
-    <a href="index.html" class="btn btn-secondary mb-3"><i class="fa fa-arrow-left me-2"></i>Volver</a>
+    <div class="container py-4">
+        <h1>Productos</h1>
+        <a href="index.html" class="btn btn-secondary mb-3"><i class="fa fa-arrow-left me-2"></i>Volver</a>
 
-    <div class="card p-4 mb-4">
-      <h5 class="mb-3">Registrar / Editar Producto</h5>
-      <form id="product-form" class="row g-3">
-        <input type="hidden" id="product-id">
-        <div class="col-md-4">
-            <label class="form-label">Código</label>
-            <input id="product-code" class="form-control" required>
-            <span id="code-error-message" class="text-danger small mt-1"></span>
-        </div>
-        <div class="col-md-4"><label class="form-label">Nombre</label>
-          <input id="product-name" class="form-control" required>
-        </div>
-        <div class="col-md-4"><label class="form-label">Categoría</label>
-          <select id="product-category" class="form-select"></select>
-          <input id="product-category-new" class="form-control mt-2" placeholder="Nueva categoría (opcional)">
-        </div>
-        <div class="col-md-3"><label class="form-label">Precio costo</label>
-          <input id="product-purchase-price" type="number" step="0.01" class="form-control">
-        </div>
-        <div class="col-md-3"><label class="form-label">Precio venta</label>
-          <input id="product-sale-price" type="number" step="0.01" class="form-control" required>
-        </div>
-        <div class="col-md-3"><label class="form-label">Precio especial</label>
-          <input id="product-special-price" type="number" step="0.01" class="form-control">
-      </div>
-        <div class="col-md-3"><label class="form-label">Stock</label>
-          <input id="product-stock" type="number" class="form-control" value="0" required>
-        </div>
-        <div class="col-md-3"><label class="form-label">Stock mínimo</label>
-          <input id="product-min-stock" type="number" class="form-control" value="0" required>
-        </div>
-        <div class="col-12 d-flex gap-2">
-          <button id="save-product" class="btn btn-primary px-4">Guardar</button>
-          <button id="cancel-product" type="button" class="btn btn-secondary px-4" style="display:none">Cancelar</button>
-        </div>
-      </form>
-    </div>
+        <div class="card p-4 mb-4">
+            <h5 class="mb-3">Registrar / Editar Producto</h5>
+            <form id="product-form" class="row g-3">
+                <input type="hidden" id="product-id">
+                <div class="col-md-4">
+                    <label class="form-label">Código</label>
+                    <input id="product-code" class="form-control" required>
+                    <span id="code-error-message" class="text-danger small mt-1"></span>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Nombre</label>
+                    <input id="product-name" class="form-control" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Categoría</label>
+                    <select id="product-category" class="form-select"></select>
+                    <input id="product-category-new" class="form-control mt-2" placeholder="Nueva categoría (opcional)">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Precio costo</label>
+                    <input id="product-purchase-price" type="number" step="0.01" class="form-control">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Precio venta</label>
+                    <input id="product-sale-price" type="number" step="0.01" class="form-control" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Precio especial</label>
+                    <input id="product-special-price" type="number" step="0.01" class="form-control">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Stock</label>
+                    <input id="product-stock" type="number" class="form-control" value="0" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Stock mínimo</label>
+                    <input id="product-min-stock" type="number" class="form-control" value="0" required>
+                </div>
 
-    <div class="card p-4">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <div>
-          <h5 class="mb-0">Inventario</h5>
-          <p class="card-text mb-0">Valor Inventario: <strong id="total-inventory-value">...</strong></p>
+                <div class="col-12 mt-4">
+                    <h6 class="mb-3">Unidades de Venta (Variantes)</h6>
+                    <div id="variants-container">
+                        </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="add-variant-btn">
+                        <i class="fa fa-plus me-1"></i>Añadir Variante
+                    </button>
+                </div>
+                <div class="col-12 d-flex gap-2">
+                    <button id="save-product" class="btn btn-primary px-4">Guardar</button>
+                    <button id="cancel-product" type="button" class="btn btn-secondary px-4" style="display:none">Cancelar</button>
+                </div>
+            </form>
         </div>
-        <div class="d-flex gap-2">
-          <button id="exportExcelBtn" class="btn btn-success btn-sm mx-1" aria-label="Exportar a Excel" title="Exportar a Excel">
-            <i class="fas fa-file-excel"></i> Exportar Excel
-          </button>
-          <button id="exportPdfBtn" class="btn btn-danger btn-sm mx-1" aria-label="Exportar a PDF" title="Exportar a PDF">
-            <i class="fas fa-file-pdf"></i> Exportar PDF
-          </button>
-          <input id="search-product" class="form-control" style="width: 250px;" placeholder="Buscar por nombre...">
+
+        <div class="card p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h5 class="mb-0">Inventario</h5>
+                    <p class="card-text mb-0">Valor Inventario: <strong id="total-inventory-value">...</strong></p>
+                </div>
+                <div class="d-flex gap-2">
+                    <button id="exportExcelBtn" class="btn btn-success btn-sm mx-1" aria-label="Exportar a Excel" title="Exportar a Excel">
+                        <i class="fas fa-file-excel"></i> Exportar Excel
+                    </button>
+                    <button id="exportPdfBtn" class="btn btn-danger btn-sm mx-1" aria-label="Exportar a PDF" title="Exportar a PDF">
+                        <i class="fas fa-file-pdf"></i> Exportar PDF
+                    </button>
+                    <input id="search-product" class="form-control" style="width: 250px;" placeholder="Buscar por nombre...">
+                </div>
+            </div>
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Nombre</th>
+                        <th>Precio venta</th>
+                        <th>Stock</th>
+                        <th>Stock mínimo</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="products-table"></tbody>
+            </table>
         </div>
-      </div>
-      <table class="table table-striped">
-        <thead><tr><th>Código</th><th>Nombre</th><th>Precio venta</th><th>Stock</th><th>Stock mínimo</th><th>Acciones</th></tr></thead>
-        <tbody id="products-table"></tbody>
-      </table>
     </div>
-  </div>
 </body>
 </html>
