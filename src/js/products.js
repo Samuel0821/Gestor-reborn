@@ -1,4 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // -----------------------------
+    // Exportar inventario
+    // -----------------------------
     document.getElementById("exportExcelBtn")?.addEventListener("click", async () => {
         const res = await window.api.exportInventoryExcel();
         showAlert(res.success ? "success" : "danger", res.message);
@@ -9,6 +12,9 @@ document.addEventListener('DOMContentLoaded', () => {
         showAlert(res.success ? "success" : "danger", res.message);
     });
 
+    // -----------------------------
+    // Helpers
+    // -----------------------------
     function formatCOP(value) {
         const num = Number(value) || 0;
         return new Intl.NumberFormat("es-CO", {
@@ -32,6 +38,9 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>`;
     }
 
+    // -----------------------------
+    // Cargar productos
+    // -----------------------------
     async function loadProducts() {
         const { products: fetchedProducts, totalInventoryValue } = await window.api.getInventory();
         products = fetchedProducts;
@@ -60,6 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 </td>
             `;
             table.appendChild(tr);
+
+            // --- Editar producto ---
             tr.querySelector('.edit').addEventListener('click', () => {
                 idInput.value = p.id;
                 codeInput.value = p.code;
@@ -76,13 +87,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 variantsContainer.innerHTML = '';
                 if (p.variants && p.variants.length > 0) {
                     p.variants.forEach(v => {
-                        addVariantField(v.name, v.sale_price);
+                        addVariantField(v.name, v.sale_price, v.conversion_factor);
                     });
                 }
                 // --- FIN LÓGICA DE EDICIÓN DE VARIANTES ---
 
                 cancelBtn.style.display = 'inline-block';
             });
+
+            // --- Eliminar producto ---
             tr.querySelector('.del').addEventListener('click', async () => {
                 if (!confirm('¿Eliminar producto?')) return;
                 await window.api.deleteProduct(p.id);
@@ -92,7 +105,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- NUEVAS FUNCIONES PARA MANEJAR VARIANTES ---
+    // -----------------------------
+    // Variantes
+    // -----------------------------
     const variantsContainer = document.getElementById('variants-container');
     const addVariantBtn = document.getElementById('add-variant-btn');
 
@@ -136,8 +151,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         return variants;
     }
-    // --- FIN DE NUEVAS FUNCIONES ---
 
+    // -----------------------------
+    // Formulario
+    // -----------------------------
     const form = document.getElementById('product-form');
     const minStockInput = document.getElementById('product-min-stock');
     const idInput = document.getElementById('product-id');
@@ -220,13 +237,33 @@ document.addEventListener('DOMContentLoaded', () => {
         await loadCategories();
     });
 
-    cancelBtn.addEventListener('click', () => { form.reset(); idInput.value=''; cancelBtn.style.display='none'; variantsContainer.innerHTML = ''; });
-    minStockInput.value = '';
-    search.addEventListener('input', () => {
-        const q = search.value.toLowerCase();
-        renderTable(products.filter(p => p.name.toLowerCase().includes(q)));
+    cancelBtn.addEventListener('click', () => { 
+        form.reset(); 
+        idInput.value=''; 
+        cancelBtn.style.display='none'; 
+        variantsContainer.innerHTML = ''; 
     });
 
+    minStockInput.value = '';
+
+    search.addEventListener('input', () => {
+        const q = search.value.toLowerCase();
+        renderTable(products.filter(p => p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q)));
+    });
+
+    // -----------------------------
+    // Precarga desde lector de código (cuando escaneas en ventas)
+    // -----------------------------
+    const newProductCode = localStorage.getItem("newProductCode");
+    if (newProductCode) {
+        codeInput.value = newProductCode;
+        localStorage.removeItem("newProductCode");
+        nameInput.focus();
+    }
+
+    // -----------------------------
+    // Inicialización
+    // -----------------------------
     loadProducts();
     loadCategories();
 });

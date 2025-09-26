@@ -29,6 +29,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const creditSearchInput = document.getElementById("credit-search-input");
   const creditSearchBtn = document.getElementById("credit-search-btn");
 
+  // Nuevo campo: lector / entrada por código (está en sales.html)
+  const barcodeInput = document.getElementById("barcode-input");
+
   // -----------------------------
   // Funciones de carga
   // -----------------------------
@@ -67,7 +70,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       total += it.subtotal;
       const tr = document.createElement("tr");
 
-      const isKgVariant = it.product_name.toLowerCase().includes("kg");
+      const isKgVariant = String(it.product_name).toLowerCase().includes("kg");
 
       tr.innerHTML = `
         <td>${i + 1}</td>
@@ -101,14 +104,17 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       // Si es variante por kilos, escuchar cambios de cantidad
       if (isKgVariant) {
-        tr.querySelector(".qty-input").addEventListener("input", (e) => {
-          const newQty = parseFloat(e.target.value);
-          if (!isNaN(newQty) && newQty > 0) {
-            saleItems[i].quantity = newQty;
-            saleItems[i].subtotal = saleItems[i].price * newQty;
-            renderSaleItems();
-          }
-        });
+        const qtyEl = tr.querySelector(".qty-input");
+        if (qtyEl) {
+          qtyEl.addEventListener("input", (e) => {
+            const newQty = parseFloat(e.target.value);
+            if (!isNaN(newQty) && newQty > 0) {
+              saleItems[i].quantity = newQty;
+              saleItems[i].subtotal = saleItems[i].price * newQty;
+              renderSaleItems();
+            }
+          });
+        }
       }
     });
 
@@ -125,7 +131,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // -----------------------------
-  // Agregar producto a la venta
+  // Agregar producto manual (formulario)
   // -----------------------------
   saleForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -149,14 +155,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     
-    // --- LÓGICA AGREGADA PARA VARIANTES ---
+    // Si tiene variantes, mostrar modal de selección
     if (prod.variants && prod.variants.length > 0) {
-        showVariantSelectionModal(prod, qty);
-        productInput.value = "";
-        qtyInput.value = "1";
-        return; 
+      showVariantSelectionModal(prod, qty);
+      productInput.value = "";
+      qtyInput.value = "1";
+      return;
     }
-    // --- FIN DE LÓGICA AGREGADA ---
 
     if (prod.stock < qty) {
       alert("Stock insuficiente");
@@ -166,111 +171,209 @@ document.addEventListener("DOMContentLoaded", async () => {
       alert(`¡Advertencia! El producto '${prod.name}' está en stock mínimo (${prod.stock} unidades).`);
     }
 
-    const initialPrice = prod.sale_price;
+    addItemToSale(prod, qty, null);
 
-    saleItems.push({
-      product_id: prod.id,
-      product_code: prod.code,
-      product_name: prod.name,
-      quantity: qty,
-      price: initialPrice,
-      sale_price: prod.sale_price,
-      special_price: prod.special_price,
-      subtotal: initialPrice * qty,
-      variant_id: null, 
-    });
-
-    renderSaleItems();
     productInput.value = "";
     qtyInput.value = "1";
   });
 
+  // -----------------------------
+  // Lector de código (campo visible)
+  // - el lector actúa como teclado y envía Enter al final
+  // -----------------------------
+  if (barcodeInput) {
+    barcodeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const code = barcodeInput.value.trim();
+        if (!code) return;
+
+        const prod = allProducts.find((p) => String(p.code) === String(code));
+        if (!prod) {
+          // No existe → preguntar si desea registrar
+          if (confirm(`Producto con código "${code}" no encontrado. ¿Deseas registrarlo?`)) {
+            localStorage.setItem("newProductCode", code);
+            // Ir a products.html para registrar (mantén la ruta que uses en tu app)
+            window.location.href = "products.html";
+            return;
+          } else {
+            barcodeInput.value = "";
+            return;
+          }
+        }
+
+        // Si existe, mostrar vista previa con cantidad y opción de agregar
+        showPreviewModal(prod);
+        barcodeInput.value = "";
+      }
+    });
+  }
+
+  // -----------------------------
+  // Modal de vista previa del producto (al escanear)
+  // -----------------------------
+  function showPreviewModal(prod) {
+    const hasImage = prod.image_base64 && prod.image_base64.length > 10; // si guardas imagen como base64
+    const imageHtml = hasImage ? `<img src="${prod.image_base64}" style="max-width:120px; display:block; margin-bottom:8px;">` : `<div style="width:120px;height:60px;display:flex;align-items:center;justify-content:center;background:#f0f0f0;margin-bottom:8px;color:#666;font-size:12px;">Sin imagen</div>`;
+
+    const variantOptionsHtml = (prod.variants && prod.variants.length > 0) ? `
+      <label class="form-label">Variante</label>
+      <select id="preview-variant" class="form-select mb-2">
+        <option value="">-- Selecciona variante (si aplica) --</option>
+        <option value="base" data-price="${prod.sale_price}">Unidad base (${formatCOP(prod.sale_price)})</option>
+        ${prod.variants.map(v => `<option value="${v.id}" data-price="${v.sale_price}" data-name="${v.name}">${v.name} (${formatCOP(v.sale_price)})</option>`).join('')}
+      </select>
+    ` : "";
+
+    const modalHtml = `
+      <div class="modal fade" id="previewModal" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Vista previa del producto</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div style="display:flex; gap:12px; align-items:flex-start;">
+                <div>${imageHtml}</div>
+                <div style="flex:1;">
+                  <p><strong>Código:</strong> ${prod.code}</p>
+                  <p><strong>Nombre:</strong> ${prod.name}</p>
+                  <p><strong>Precio:</strong> ${formatCOP(prod.sale_price)}</p>
+                  ${prod.special_price > 0 ? `<p><strong>Precio especial:</strong> ${formatCOP(prod.special_price)}</p>` : ''}
+                  <p><strong>Stock:</strong> ${prod.stock}</p>
+                  ${variantOptionsHtml}
+                  <label class="form-label">Cantidad:</label>
+                  <input type="number" id="preview-qty" class="form-control" value="1" min="0.1" step="0.1" max="${prod.stock}">
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-success" id="confirm-add-btn">Agregar a la venta</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const existingModal = document.getElementById("previewModal");
+    if (existingModal) existingModal.remove();
+    document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+    const modal = new bootstrap.Modal(document.getElementById("previewModal"));
+    modal.show();
+
+    document.getElementById("confirm-add-btn").addEventListener("click", () => {
+      const qty = Number(document.getElementById("preview-qty").value) || 1;
+
+      // Si hay variante seleccionada:
+      const variantSelect = document.getElementById("preview-variant");
+      let selectedVariant = null;
+      if (variantSelect && variantSelect.value && variantSelect.value !== "base") {
+        const variantId = Number(variantSelect.value);
+        selectedVariant = prod.variants.find(v => v.id === variantId);
+      } else if (variantSelect && variantSelect.value === "base") {
+        selectedVariant = null;
+      }
+
+      if (prod.stock < qty) {
+        alert("Stock insuficiente");
+        return;
+      }
+
+      addItemToSale(prod, qty, selectedVariant);
+      modal.hide();
+    });
+  }
+
+  // -----------------------------
+  // Reutilizable: agregar item a la venta
+  // -----------------------------
   function addItemToSale(prod, qty, variant) {
     let itemPrice = variant ? variant.sale_price : prod.sale_price;
     let itemName = variant ? `${prod.name} (${variant.name})` : prod.name;
     let variantId = variant ? variant.id : null;
 
     const existingItemIndex = saleItems.findIndex(i => 
-        i.product_id === prod.id && i.variant_id === variantId
+      i.product_id === prod.id && i.variant_id === variantId
     );
 
     if (existingItemIndex !== -1) {
-        saleItems[existingItemIndex].quantity += qty;
-        saleItems[existingItemIndex].subtotal += (itemPrice * qty);
+      saleItems[existingItemIndex].quantity += qty;
+      saleItems[existingItemIndex].subtotal += (itemPrice * qty);
     } else {
-        saleItems.push({
-            product_id: prod.id,
-            product_code: prod.code,
-            product_name: itemName,
-            quantity: qty,
-            price: itemPrice,
-            sale_price: prod.sale_price,
-            special_price: prod.special_price,
-            subtotal: itemPrice * qty,
-            variant_id: variantId
-        });
+      saleItems.push({
+        product_id: prod.id,
+        product_code: prod.code,
+        product_name: itemName,
+        quantity: qty,
+        price: itemPrice,
+        sale_price: prod.sale_price,
+        special_price: prod.special_price,
+        subtotal: itemPrice * qty,
+        variant_id: variantId
+      });
     }
 
     renderSaleItems();
   }
 
-  function findProductByText(term) {
-    return allProducts.find(p => `${p.name} (${p.code}) - Stock ${p.stock}` === term);
-  }
-
-  function showVariantSelectionModal(prod) {
+  // -----------------------------
+  // Modal de selección de variante (cuando se agrega desde el formulario principal)
+  // -----------------------------
+  function showVariantSelectionModal(prod, qtyDefault = 1) {
     const modalHtml = `
       <div class="modal fade" id="variantModal" tabindex="-1">
-          <div class="modal-dialog">
-              <div class="modal-content">
-                  <div class="modal-header">
-                      <h5 class="modal-title">Seleccionar Unidad de Venta</h5>
-                      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                  </div>
-                  <div class="modal-body">
-                      <p>El producto <strong>${prod.name}</strong> tiene múltiples unidades de venta. Por favor, selecciona una:</p>
-                      <select id="variant-select" class="form-select mb-3">
-                          <option value="">-- Selecciona una opción --</option>
-                          <option value="base" data-price="${prod.sale_price}">Unidad base (${formatCOP(prod.sale_price)})</option>
-                          ${prod.variants.map(v => 
-                              `<option value="${v.id}" data-name="${v.name}" data-price="${v.sale_price}">${v.name} (${formatCOP(v.sale_price)})</option>`
-                          ).join('')}
-                      </select>
-                  </div>
-                  <div class="modal-footer">
-                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                      <button type="button" class="btn btn-primary" id="confirm-variant-btn">Agregar a Venta</button>
-                  </div>
-              </div>
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Seleccionar Unidad de Venta</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p>El producto <strong>${prod.name}</strong> tiene múltiples unidades de venta. Por favor, selecciona una:</p>
+              <select id="variant-select" class="form-select mb-3">
+                <option value="">-- Selecciona una opción --</option>
+                <option value="base" data-price="${prod.sale_price}">Unidad base (${formatCOP(prod.sale_price)})</option>
+                ${prod.variants.map(v => `<option value="${v.id}" data-name="${v.name}" data-price="${v.sale_price}">${v.name} (${formatCOP(v.sale_price)})</option>`).join('')}
+              </select>
+              <label class="form-label">Cantidad</label>
+              <input type="number" id="variant-qty" class="form-control" value="${qtyDefault}" min="0.1" step="0.1">
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-primary" id="confirm-variant-btn">Agregar a Venta</button>
+            </div>
           </div>
+        </div>
       </div>
     `;
 
-    const existingModal = document.getElementById("variantModal");
-    if (existingModal) existingModal.remove();
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-    const modal = new bootstrap.Modal(document.getElementById('variantModal'));
+    const existing = document.getElementById("variantModal");
+    if (existing) existing.remove();
+    document.body.insertAdjacentHTML("beforeend", modalHtml);
+    const modal = new bootstrap.Modal(document.getElementById("variantModal"));
     modal.show();
 
     document.getElementById("confirm-variant-btn").addEventListener("click", () => {
-        const select = document.getElementById("variant-select");
-        const selectedOption = select.options[select.selectedIndex];
-        if (!selectedOption.value) {
-            alert("Por favor, selecciona una unidad de venta.");
-            return;
-        }
+      const select = document.getElementById("variant-select");
+      const selectedOption = select.options[select.selectedIndex];
+      if (!selectedOption.value) {
+        alert("Por favor, selecciona una unidad de venta.");
+        return;
+      }
 
-        const qty = Number(qtyInput.value) || 1;
-        
-        let selectedVariant = null;
-        if (selectedOption.value !== "base") {
-            const variantId = Number(selectedOption.value);
-            selectedVariant = prod.variants.find(v => v.id === variantId);
-        }
+      const qty = Number(document.getElementById("variant-qty").value) || 1;
 
-        addItemToSale(prod, qty, selectedVariant);
-        modal.hide();
+      let selectedVariant = null;
+      if (selectedOption.value !== "base") {
+        const variantId = Number(selectedOption.value);
+        selectedVariant = prod.variants.find(v => v.id === variantId);
+      }
+
+      addItemToSale(prod, qty, selectedVariant);
+      modal.hide();
     });
   }
 
@@ -348,6 +451,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       `;
     }).join("");
 
+    // eliminar
     salesList.querySelectorAll(".delete-sale").forEach((b) =>
       b.addEventListener("click", async (e) => {
         if (!confirm("Eliminar venta?")) return;
@@ -356,6 +460,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       })
     );
 
+    // exportar PDF
     salesList.querySelectorAll(".export-invoice").forEach((b) =>
       b.addEventListener("click", async (e) => {
         const id = Number(e.target.dataset.id);
@@ -365,151 +470,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       })
     );
 
-    function generateInvoiceHtml(sale, items, company, logoBase64, client, printers) {
-        return `
-          <html>
-            <head>
-              <meta charset="UTF-8">
-              <style>
-                body { font-family: Arial, sans-serif; font-size: 12px; margin: 15px; }
-                h2 { text-align: center; }
-                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-                td, th { border: 1px solid #ccc; padding: 4px; text-align: left; }
-                .total { text-align: right; font-weight: bold; }
-
-                .print-options-panel {
-                  position: fixed;
-                  bottom: 20px;
-                  right: 20px;
-                  background-color: white;
-                  padding: 15px;
-                  border: 1px solid #ccc;
-                  border-radius: 8px;
-                  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-                  display: flex;
-                  flex-direction: column;
-                  gap: 10px;
-                  z-index: 9999;
-                }
-
-                @media print {
-                  .print-options-panel { display: none; }
-                }
-              </style>
-            </head>
-            <body>
-              <div class="print-options-panel">
-                <label>Selecciona impresora:</label>
-                <select id="printerSelect">
-                  ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
-                </select>
-                <label>Tamaño de papel:</label>
-                <select id="paperSizeSelect">
-                  <option value="A4">A4</option>
-                  <option value="80mm">80mm (Ticket)</option>
-                  <option value="57mm">57mm (Mini Ticket)</option>
-                  <option value="Letter">Carta</option>
-                  <option value="Legal">Oficio</option>
-                </select>
-                <label><input type="checkbox" id="includeIva"> Incluir IVA 19%</label>
-                <button id="printButton">Imprimir</button>
-                <button id="closePreview">Cerrar</button>
-
-                <script>
-                  function formatCOP(value) {
-                    return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
-                  }
-
-                  document.getElementById("printButton").addEventListener("click", async () => {
-                    const printer = document.getElementById("printerSelect").value;
-                    const paperSize = document.getElementById("paperSizeSelect").value;
-                    const includeIva = document.getElementById("includeIva").checked;
-
-                    let total = ${sale.total_amount};
-                    let ivaText = "";
-                    if (includeIva) {
-                      const iva = Math.round(total * 0.19);
-                      total += iva;
-                      ivaText = "<p>IVA (19%): " + formatCOP(iva) + "</p>";
-                    }
-
-                    let facturaHtml = document.getElementById("factura").innerHTML 
-                                    + ivaText 
-                                    + "<p class='total'>TOTAL: " + formatCOP(total) + "</p>"
-                                    + "<p style='text-align:center'>Gracias por su compra</p>";
-
-                    // 👉 Ajustes especiales si el tamaño es 57mm
-                    if (paperSize === "57mm") {
-                      facturaHtml = \`
-                        <style>
-                          @page { size: 57mm auto; margin: 0; }
-                          body { width: 57mm; margin: 0; font-family: Arial, sans-serif; font-size: 8px; }
-                          h2 { font-size: 10px; margin: 2px 0; }
-                          table { width: 100%; border-collapse: collapse; font-size: 7px; }
-                          td, th { border: 1px solid #ccc; padding: 0 1px; }
-                          th:nth-child(1), td:nth-child(1) { width: 15%; } /* Código */
-                          th:nth-child(2), td:nth-child(2) { width: 35%; font-size: 6.5px; } /* Producto */
-                          th:nth-child(3), td:nth-child(3) { width: 10%; text-align: center; } /* Cant */
-                          th:nth-child(4), td:nth-child(4) { width: 15%; } /* Precio reducido */
-                          th:nth-child(5), td:nth-child(5) { width: 25%; } /* Subtotal ampliado */
-                        </style>
-                        \` + facturaHtml;
-                    }
-
-                    const result = await window.api.printInvoice({ printer, paperSize, htmlContent: facturaHtml });
-                    if (result.success) alert(result.message);
-                    else alert("Error: " + result.message);
-                  });
-
-                  document.getElementById("closePreview").addEventListener("click", () => window.close());
-                </script>
-              </div>
-
-              <div id="factura">
-                <div style="text-align:center; margin-bottom:15px;">
-                  ${logoBase64 ? `<img src="${logoBase64}" style="max-height:80px;"><br>` : ""}
-                  <h2>${company.company_name || ""}</h2>
-                  <p>NIT: ${company.company_id_card_or_nit || ""}</p>
-                  <p>${company.company_address || ""}</p>
-                  <p>Tel: ${company.company_phone || ""} — ${company.company_email || ""}</p>
-                </div>
-
-                <h2>Factura ${sale.invoice_number || `FACT-${sale.id}`}</h2>
-                <p>Fecha: ${sale.sale_date}</p>
-                <p>Cliente: ${client ? client.name : "N/A"}</p>
-                <p>NIT/Cédula: ${client ? client.id_card_or_nit : "N/A"}</p>
-                <p>Dirección: ${client ? client.address : "N/A"}</p>
-                <p>Teléfono: ${client ? client.phone : "N/A"}</p>
-
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Código</th>
-                      <th>Producto</th>
-                      <th>Cant</th>
-                      <th>Precio</th>
-                      <th>Subtotal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${items.map(it => `
-                      <tr>
-                        <td>${it.product_code || ""}</td>
-                        <td>${it.product_name}</td>
-                        <td>${it.quantity}</td>
-                        <td>${formatCOP(it.price)}</td>
-                        <td>${formatCOP(it.subtotal)}</td>
-                      </tr>
-                    `).join("")}
-                  </tbody>
-                </table>
-                <p class="total">TOTAL: ${formatCOP(sale.total_amount)}</p>
-              </div>
-            </body>
-          </html>
-        `;
-      }
-
+    // imprimir (preview)
     salesList.querySelectorAll(".print-sale").forEach((b) => {
       b.addEventListener("click", async (e) => {
         const id = Number(e.target.dataset.id);
@@ -534,6 +495,154 @@ document.addEventListener("DOMContentLoaded", async () => {
         await window.api.previewInvoice({ content: htmlContent });
       });
     });
+  }
+
+  // -----------------------------
+  // Generar HTML de factura (con ajuste para 57mm)
+  // -----------------------------
+  function generateInvoiceHtml(sale, items, company, logoBase64, client, printers) {
+    return `
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body { font-family: Arial, sans-serif; font-size: 12px; margin: 15px; color: #000; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            h2 { text-align: center; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            td, th { border: 1px solid #ccc; padding: 4px; text-align: left; }
+            .total { text-align: right; font-weight: bold; }
+
+            .print-options-panel {
+              position: fixed;
+              bottom: 20px;
+              right: 20px;
+              background-color: white;
+              padding: 15px;
+              border: 1px solid #ccc;
+              border-radius: 8px;
+              box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+              display: flex;
+              flex-direction: column;
+              gap: 10px;
+              z-index: 9999;
+            }
+
+            @media print {
+              .print-options-panel { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="print-options-panel">
+            <label>Selecciona impresora:</label>
+            <select id="printerSelect">
+              ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
+            </select>
+            <label>Tamaño de papel:</label>
+            <select id="paperSizeSelect">
+              <option value="A4">A4</option>
+              <option value="80mm">80mm (Ticket)</option>
+              <option value="57mm">57mm (Mini Ticket)</option>
+              <option value="Letter">Carta</option>
+              <option value="Legal">Oficio</option>
+            </select>
+            <label><input type="checkbox" id="includeIva"> Incluir IVA 19%</label>
+            <button id="printButton">Imprimir</button>
+            <button id="closePreview">Cerrar</button>
+
+            <script>
+              function formatCOP(value) {
+                return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
+              }
+
+              document.getElementById("printButton").addEventListener("click", async () => {
+                const printer = document.getElementById("printerSelect").value;
+                const paperSize = document.getElementById("paperSizeSelect").value;
+                const includeIva = document.getElementById("includeIva").checked;
+
+                let total = ${sale.total_amount};
+                let ivaText = "";
+                if (includeIva) {
+                  const iva = Math.round(total * 0.19);
+                  total += iva;
+                  ivaText = "<p>IVA (19%): " + formatCOP(iva) + "</p>";
+                }
+
+                let facturaHtml = document.getElementById("factura").innerHTML 
+                                + ivaText 
+                                + "<p class='total'>TOTAL: " + formatCOP(total) + "</p>"
+                                + "<p style='text-align:center'>Gracias por su compra</p>";
+
+                // Ajustes para 57mm
+                if (paperSize === "57mm") {
+                  facturaHtml = \`
+                    <style>
+                      @page { size: 57mm auto; margin: 0; }
+                      body { width: 57mm; margin: 0; font-family: Arial, sans-serif; font-size: 8px; color: #000; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                      h2 { font-size: 10px; margin: 2px 0; }
+                      table { width: 100%; border-collapse: collapse; font-size: 7px; }
+                      td, th { border: 1px solid #ccc; padding: 0 1px; }
+                      th:nth-child(1), td:nth-child(1) { width: 15%; } /* Código */
+                      th:nth-child(2), td:nth-child(2) { width: 35%; font-size: 6.5px; } /* Producto */
+                      th:nth-child(3), td:nth-child(3) { width: 10%; text-align: center; } /* Cant */
+                      th:nth-child(4), td:nth-child(4) { width: 15%; } /* Precio reducido */
+                      th:nth-child(5), td:nth-child(5) { width: 25%; } /* Subtotal ampliado */
+                    </style>
+                    \` + facturaHtml;
+                }
+
+                const result = await window.api.printInvoice({ printer, paperSize, htmlContent: facturaHtml });
+                if (result.success) alert(result.message);
+                else alert("Error: " + result.message);
+              });
+
+              document.getElementById("closePreview").addEventListener("click", () => window.close());
+            </script>
+          </div>
+
+          <div id="factura">
+            <div style="text-align:center; margin-bottom:15px;">
+              ${logoBase64 ? `<img src="${logoBase64}" style="max-height:80px;"><br>` : ""}
+              <h2>${company.company_name || ""}</h2>
+              <p>NIT: ${company.company_id_card_or_nit || ""}</p>
+              <p>${company.company_address || ""}</p>
+              <p>Tel: ${company.company_phone || ""} — ${company.company_email || ""}</p>
+            </div>
+
+            <h2>Factura ${sale.invoice_number || `FACT-${sale.id}`}</h2>
+            <p>Fecha: ${sale.sale_date}</p>
+            <p>Cliente: ${client ? client.name : "N/A"}</p>
+            <p>NIT/Cédula: ${client ? client.id_card_or_nit : "N/A"}</p>
+            <p>Dirección: ${client ? client.address : "N/A"}</p>
+            <p>Teléfono: ${client ? client.phone : "N/A"}</p>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Código</th>
+                  <th>Producto</th>
+                  <th>Cant</th>
+                  <th>Precio</th>
+                  <th>Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items.map(it => `
+                  <tr>
+                    <td>${it.product_code || ""}</td>
+                    <td>${it.product_name}</td>
+                    <td>${it.quantity}</td>
+                    <td>${formatCOP(it.price)}</td>
+                    <td>${formatCOP(it.subtotal)}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+            <p class="total">TOTAL: ${formatCOP(sale.total_amount)}</p>
+          </div>
+        </body>
+      </html>
+    `;
   }
 
   // -----------------------------

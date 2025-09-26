@@ -51,15 +51,23 @@
     <!-- Venta rápida -->
     <div class="card p-4 mb-4">
       <h5 class="mb-3">Venta rápida</h5>
+
       <form id="sale-form" class="row g-3">
 
-         <!-- Selección de cliente (opcional) -->
-    <div class="card p-4 mb-4">
-      <h5 class="mb-3">Cliente (opcional)</h5>
-      <select id="sale-client" class="form-select">
-        <option value="">-- Venta sin cliente --</option>
-      </select>
-    </div>
+        <!-- Selección de cliente (opcional) -->
+        <div class="card p-4 mb-4">
+          <h5 class="mb-3">Cliente (opcional)</h5>
+          <select id="sale-client" class="form-select">
+            <option value="">-- Venta sin cliente --</option>
+          </select>
+        </div>
+
+        <!-- 🔹 Nuevo campo para escanear código de barras -->
+      <div class="mb-3">
+        <label for="barcode-input" class="form-label">Escanear / Ingresar código de barras</label>
+        <input type="text" id="barcode-input" class="form-control" placeholder="Escanea o escribe y presiona Enter">
+      </div>
+      <!-- 🔹 Fin campo nuevo -->
     
         <div class="col-md-6">
           <label class="form-label">Producto</label>
