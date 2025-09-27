@@ -5,6 +5,7 @@
   const db = require("./database");
   const PDFDocument = require("pdfkit");
   const ExcelJS = require("exceljs");
+  const cashRegister = require("./cashRegister");
 
   // ---------- CREAR VENTANA PRINCIPAL ----------
   let mainWindow;
@@ -108,6 +109,31 @@
       ipcMain.handle("delete-sale-item", (event, id) => db.deleteSaleItem(id));
       ipcMain.handle("get-last-invoice-number", () => db.getLastInvoiceNumber());
       ipcMain.handle("set-invoice-number", (event, { id, invoiceNumber }) => db.setInvoiceNumber(id, invoiceNumber));
+
+      // Caja registradora
+      ipcMain.handle("open-cash-register", (event, openingBalance) => {
+        return cashRegister.openCashRegister(openingBalance);
+        });
+
+      ipcMain.handle("get-active-cash-session", () => {
+        return cashRegister.getActiveSession();
+        });
+
+      ipcMain.handle("add-cash-movement", (event, { sessionId, type, amount, description }) => {
+        return cashRegister.addCashMovement(sessionId, type, amount, description);
+        });
+
+      ipcMain.handle("close-cash-register", (event, realClosingBalance) => {
+          return cashRegister.closeCashRegister(realClosingBalance);
+        });
+
+      ipcMain.handle("get-cash-register-sessions", () => {
+        return cashRegister.getCashRegisterSessions();
+        });
+
+      ipcMain.handle("get-cash-movements", (event, sessionId) => {
+          return cashRegister.getCashMovements(sessionId);
+        });
       
       // Gestión de Créditos
       ipcMain.handle("get-credits", async (event, searchTerm) => db.getCredits(searchTerm));
@@ -301,6 +327,7 @@
               const previewWin = new BrowserWindow({
                 width: 800,
                 height: 600,
+                show: true, // 👈 mostrar la ventana con la factura cargada
                 webPreferences: {
                   preload: path.join(__dirname, "preload.js"),
                   contextIsolation: true,
@@ -309,6 +336,13 @@
               });
 
               await previewWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(content));
+
+              previewWin.webContents.on("did-finish-load", () => {
+                previewWin.webContents.print({
+                  silent: false,          // 👈 mostrar diálogo de impresión
+                  printBackground: true,  // imprimir con fondos/colores
+                });
+              });
             });
 
             // Obtener lista de impresoras
@@ -345,12 +379,23 @@
 
             // Imprimir factura
             ipcMain.handle("print-invoice", async (event, { printer, paperSize, htmlContent }) => {
-                try {
-                  const printWin = new BrowserWindow({ show: false });
-                  await printWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(htmlContent));
+              try {
+                const printWin = new BrowserWindow({
+                  width: 800,
+                  height: 600,
+                  show: true, // 👈 ahora también se muestra la vista previa
+                  webPreferences: {
+                    preload: path.join(__dirname, "preload.js"),
+                    contextIsolation: true,
+                    nodeIntegration: false,
+                  },
+                });
 
+                await printWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(htmlContent));
+
+                printWin.webContents.on("did-finish-load", () => {
                   const options = {
-                    silent: false, // 👈 ponlo en true si quieres que imprima directo sin diálogo
+                    silent: false, // 👈 false = muestra diálogo de impresora
                     printBackground: true,
                     deviceName: printer || undefined,
                   };
@@ -358,7 +403,7 @@
                   // Definir tamaño
                   if (paperSize === "80mm") {
                     options.pageSize = { width: 80000, height: 300000 };
-                  } else if (paperSize === "58mm") {
+                  } else if (paperSize === "57mm") {
                     options.pageSize = { width: 58000, height: 300000 };
                   } else if (paperSize === "A4") {
                     options.pageSize = "A4";
@@ -368,131 +413,136 @@
                     options.pageSize = "Legal";
                   }
 
-                  return new Promise((resolve) => {
-                    printWin.webContents.print(options, (success, failureReason) => {
-                      printWin.close();
-                      if (!success) {
-                        console.error("Falló la impresión:", failureReason);
-                        resolve({ success: false, message: failureReason });
-                      } else {
-                        resolve({ success: true, message: "Factura enviada a la impresora." });
-                      }
-                    });
+                  printWin.webContents.print(options, (success, failureReason) => {
+                    if (!success) {
+                      console.error("Falló la impresión:", failureReason);
+                    }
                   });
-                } catch (err) {
-                  console.error("Error al imprimir:", err);
-                  return { success: false, message: err.message };
-                }
-              });
+                });
+
+                return { success: true, message: "Factura lista para imprimir." };
+              } catch (err) {
+                console.error("Error al imprimir:", err);
+                return { success: false, message: err.message };
+              }
+            });
 
 
       // Exportación de PDF descarga factura
       ipcMain.handle("export-invoice-pdf", async (event, { id, includeIva = false } = {}) => {
         try {
-            const sale = db.getSaleById(id);
-            if (!sale) return { success: false, message: "Venta no encontrada" };
-            const items = db.getSaleItems(id) || [];
-            const company = db.getCompanySettings() || {};
-            const client = sale.client_id ? db.getClientById(sale.client_id) : null;
+          const sale = db.getSaleById(id);
+          if (!sale) return { success: false, message: "Venta no encontrada" };
+          const items = db.getSaleItems(id) || [];
+          const company = db.getCompanySettings() || {};
+          const client = sale.client_id ? db.getClientById(sale.client_id) : null;
 
-            const { filePath, canceled } = await dialog.showSaveDialog({
-                defaultPath: `Factura-${sale.invoice_number || String(id).padStart(3, "0")}.pdf`,
-                filters: [{ name: "PDF", extensions: ["pdf"] }],
-            });
-            if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
+          const { filePath, canceled } = await dialog.showSaveDialog({
+            defaultPath: `Factura-${sale.invoice_number || String(id).padStart(3, "0")}.pdf`,
+            filters: [{ name: "PDF", extensions: ["pdf"] }],
+          });
+          if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
 
-            const doc = new PDFDocument({ margin: 40, size: "A4" });
-            const stream = fs.createWriteStream(filePath);
-            doc.pipe(stream);
+          const doc = new PDFDocument({ margin: 40, size: "A4" });
+          const stream = fs.createWriteStream(filePath);
+          doc.pipe(stream);
 
-            renderPdfHeader(doc, company, `Factura ${sale.invoice_number || String(id).padStart(3, "0")}`);
+          renderPdfHeader(doc, company, `Factura ${sale.invoice_number || String(id).padStart(3, "0")}`);
 
-            if (client) {
-                doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 40, doc.y + 10);
-                doc.font("Helvetica").fontSize(10);
-                doc.text(`Nombre: ${client.name || ""}`);
-                doc.text(`NIT/Cédula: ${client.id_card_or_nit || ""}`);
-                doc.text(`Dirección: ${client.address || ""}`);
-                doc.text(`Email: ${client.email || ""}`);
-                doc.text(`Teléfono: ${client.phone || ""}`);
-                doc.moveDown(1);
-            }
-
-            let y = doc.y + 10;
-            doc.fontSize(11).font("Helvetica-Bold");
-            doc.text("#", 40, y, { width: 20 });
-            doc.text("Código", 60, y, { width: 60 });
-            doc.text("Nombre", 120, y, { width: 180 });
-            doc.text("Precio", 320, y, { width: 70, align: "right" });
-            doc.text("Cant.", 400, y, { width: 50, align: "right" });
-            doc.text("Subtotal", 460, y, { width: 80, align: "right" });
-            y += 18;
-            doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
-
+          if (client) {
+            doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 40, doc.y + 10);
             doc.font("Helvetica").fontSize(10);
-            let idx = 1;
-            for (const it of items) {
-                // Verificar salto de página
-                const nextY = y + doc.heightOfString(it.product_name || "-", { width: 180 }) + 5;
-                if (nextY > 700) {
-                    doc.addPage();
-                    y = 40;
-                    doc.fontSize(11).font("Helvetica-Bold");
-                    doc.text("#", 40, y, { width: 20 });
-                    doc.text("Código", 60, y, { width: 60 });
-                    doc.text("Nombre", 120, y, { width: 180 });
-                    doc.text("Precio", 320, y, { width: 70, align: "right" });
-                    doc.text("Cant.", 400, y, { width: 50, align: "right" });
-                    doc.text("Subtotal", 460, y, { width: 80, align: "right" });
-                    y += 18;
-                    doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
-                    doc.font("Helvetica").fontSize(10);
-                    y += 10;
-                }
-
-                const productHeight = doc.heightOfString(it.product_name || "-", { width: 180 });
-                
-                doc.text(String(idx), 40, y, { width: 20 });
-                doc.text(it.product_code || "-", 60, y, { width: 60 });
-                doc.text(it.product_name || "-", 120, y, { width: 180 });
-                doc.text(formatCOP(it.price), 320, y, { width: 70, align: "right" });
-                doc.text(String(it.quantity), 400, y, { width: 50, align: "right" });
-                doc.text(formatCOP(it.subtotal), 460, y, { width: 80, align: "right" });
-                
-                y += productHeight + 5;
-                idx++;
-            }
-
-            const subtotal = items.reduce((acc, it) => acc + (Number(it.subtotal) || Number(it.price) * Number(it.quantity) || 0), 0);
-            const iva = includeIva ? Math.round(subtotal * 0.19) : 0;
-            const total = subtotal + iva;
-
+            doc.text(`Nombre: ${client.name || ""}`);
+            doc.text(`NIT/Cédula: ${client.id_card_or_nit || ""}`);
+            doc.text(`Dirección: ${client.address || ""}`);
+            doc.text(`Email: ${client.email || ""}`);
+            doc.text(`Teléfono: ${client.phone || ""}`);
             doc.moveDown(1);
-            if (includeIva) {
-                doc.fontSize(10).text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 6);
-                doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 22);
-                doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 42);
-            } else {
-                doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 10);
+          }
+
+          let y = doc.y + 10;
+          doc.fontSize(11).font("Helvetica-Bold");
+          doc.text("#", 40, y, { width: 20 });
+          doc.text("Código", 60, y, { width: 60 });
+          doc.text("Nombre", 120, y, { width: 180 });
+          doc.text("Precio", 320, y, { width: 70, align: "right" });
+          doc.text("Cant.", 400, y, { width: 50, align: "right" });
+          doc.text("Subtotal", 460, y, { width: 80, align: "right" });
+          y += 18;
+          doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+
+          doc.font("Helvetica").fontSize(10);
+          let idx = 1;
+          for (const it of items) {
+            const nextY = y + doc.heightOfString(it.product_name || "-", { width: 180 }) + 5;
+            if (nextY > 700) {
+              doc.addPage();
+              y = 40;
+              doc.fontSize(11).font("Helvetica-Bold");
+              doc.text("#", 40, y, { width: 20 });
+              doc.text("Código", 60, y, { width: 60 });
+              doc.text("Nombre", 120, y, { width: 180 });
+              doc.text("Precio", 320, y, { width: 70, align: "right" });
+              doc.text("Cant.", 400, y, { width: 50, align: "right" });
+              doc.text("Subtotal", 460, y, { width: 80, align: "right" });
+              y += 18;
+              doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+              doc.font("Helvetica").fontSize(10);
+              y += 10;
             }
 
-            doc.end();
-            await new Promise((res, rej) => {
-                stream.on("finish", res);
-                stream.on("error", rej);
-            });
+            const productHeight = doc.heightOfString(it.product_name || "-", { width: 180 });
+            doc.text(String(idx), 40, y, { width: 20 });
+            doc.text(it.product_code || "-", 60, y, { width: 60 });
+            doc.text(it.product_name || "-", 120, y, { width: 180 });
+            doc.text(formatCOP(it.price), 320, y, { width: 70, align: "right" });
+            doc.text(String(it.quantity), 400, y, { width: 50, align: "right" });
+            doc.text(formatCOP(it.subtotal), 460, y, { width: 80, align: "right" });
+            y += productHeight + 5;
+            idx++;
+          }
 
-            return { success: true, message: "Factura exportada en PDF correctamente", filePath };
+          const subtotal = items.reduce((acc, it) => acc + (Number(it.subtotal) || Number(it.price) * Number(it.quantity) || 0), 0);
+          const iva = includeIva ? Math.round(subtotal * 0.19) : 0;
+          const total = subtotal + iva;
+
+          doc.moveDown(1);
+          if (includeIva) {
+            doc.fontSize(10).text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 6);
+            doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 22);
+            doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 42);
+          } else {
+            doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 10);
+          }
+
+          // 📌 NUEVO: Detalle de pagos
+          doc.moveDown(2);
+          doc.fontSize(11).font("Helvetica").text(`Efectivo: ${formatCOP(sale.cash_payment || 0)}`, 400, doc.y + 6);
+          doc.text(`Transferencia: ${formatCOP(sale.transfer_payment || 0)}`, 400, doc.y + 22);
+
+          const totalPaid = (sale.cash_payment || 0) + (sale.transfer_payment || 0);
+          const change = totalPaid - total;
+          if (change > 0) {
+            doc.text(`Cambio entregado: ${formatCOP(change)}`, 400, doc.y + 38);
+          }
+
+          doc.end();
+          await new Promise((res, rej) => {
+            stream.on("finish", res);
+            stream.on("error", rej);
+          });
+
+          return { success: true, message: "Factura exportada en PDF correctamente", filePath };
         } catch (err) {
-            let msg = "Error al exportar factura PDF: ";
-            if (err && (err.code === "EBUSY" || err.code === "ELOCKED")) {
-                msg += "El archivo está abierto o bloqueado. Por favor ciérralo antes de exportar.";
-            } else {
-                msg += err && err.message ? err.message : String(err);
-            }
-            return { success: false, message: msg };
+          let msg = "Error al exportar factura PDF: ";
+          if (err && (err.code === "EBUSY" || err.code === "ELOCKED")) {
+            msg += "El archivo está abierto o bloqueado. Por favor ciérralo antes de exportar.";
+          } else {
+            msg += err && err.message ? err.message : String(err);
+          }
+          return { success: false, message: msg };
         }
-    });
+      });
 
       ipcMain.handle("export-quote-pdf", async (event, { id, includeIva = false } = {}) => {
           try {

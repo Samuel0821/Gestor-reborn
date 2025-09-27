@@ -34,8 +34,8 @@ const db = new Database(dbPath);
 // activar foreign keys
 db.pragma("foreign_keys = ON");
 
-// ---------------------
-// CREAR TABLAS
+//MIGRACIONES
+
 // MIGRACIÓN: Agregar min_stock si no existe
 try {
   const columns = db.prepare("PRAGMA table_info(products)").all();
@@ -43,6 +43,17 @@ try {
     db.prepare("ALTER TABLE products ADD COLUMN min_stock INTEGER NOT NULL DEFAULT 0").run();
   }
 } catch (e) { /* ignorar errores si ya existe */ }
+
+//Migración para agregar pagos en sales
+try {
+  const salesColumns = db.prepare("PRAGMA table_info(sales)").all();
+  if (!salesColumns.some(c => c.name === "cash_payment")) {
+    db.prepare("ALTER TABLE sales ADD COLUMN cash_payment REAL NOT NULL DEFAULT 0").run();
+  }
+  if (!salesColumns.some(c => c.name === "transfer_payment")) {
+    db.prepare("ALTER TABLE sales ADD COLUMN transfer_payment REAL NOT NULL DEFAULT 0").run();
+  }
+} catch (e) { /* ignorar */ }
 
 // ---------------------
 // TABLAS
@@ -100,8 +111,12 @@ CREATE TABLE IF NOT EXISTS sales (
   outstanding_balance REAL NOT NULL DEFAULT 0,
   sale_type TEXT NOT NULL DEFAULT 'cash',
   invoice_number TEXT UNIQUE,
+  cash_payment REAL NOT NULL DEFAULT 0,
+  transfer_payment REAL NOT NULL DEFAULT 0,
   FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
 )`).run();
+
+
 
 db.prepare(`
 CREATE TABLE IF NOT EXISTS sale_items (
@@ -116,6 +131,50 @@ CREATE TABLE IF NOT EXISTS sale_items (
   FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
 )`).run();
+
+// --------------------------------------------------------------------
+// CAJA REGISTRADORA
+// --------------------------------------------------------------------
+
+// Sesiones de caja (apertura/cierre)
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS cash_register_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    opened_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    closed_at TEXT,
+    opening_balance REAL NOT NULL,
+    closing_balance REAL,
+    expected_balance REAL,
+    difference REAL,
+    status TEXT NOT NULL DEFAULT 'open'
+  )
+`).run();
+
+// Movimientos de caja (ventas, entradas/salidas manuales)
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS cash_movements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    type TEXT NOT NULL, -- 'sale', 'in', 'out'
+    description TEXT,
+    amount REAL NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES cash_register_sessions(id)
+  )
+`).run();
+
+// Pagos por venta (para manejar efectivo/transferencia/mixto)
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS sale_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sale_id INTEGER NOT NULL,
+    method TEXT NOT NULL, -- 'cash', 'transfer'
+    amount REAL NOT NULL,
+    received REAL, -- solo aplica si es efectivo
+    change REAL,   -- solo aplica si es efectivo
+    FOREIGN KEY (sale_id) REFERENCES sales(id)
+  )
+`).run();
 
 db.prepare(`
 CREATE TABLE IF NOT EXISTS quotes (
@@ -363,120 +422,124 @@ function deleteProduct(id) {
   }
 }
 
+// Ajuste createSale para registrar pagos
+function createSale({ 
+  client_id = null, 
+  items = [], 
+  sale_type = "cash", 
+  paid_amount = 0, 
+  outstanding_balance = 0, 
+  cash_payment = 0, 
+  transfer_payment = 0 
+}) {
+  const insertSale = db.prepare(`
+    INSERT INTO sales (
+      client_id, total_amount, sale_date, sale_type, paid_amount, outstanding_balance,
+      cash_payment, transfer_payment
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
 
-// ---------------------
-// VENTAS
-// ---------------------
-function createSale({ client_id = null, items = [], sale_type = "cash", paid_amount = 0, outstanding_balance = 0 }) {
-    const insertSale = db.prepare(`
-        INSERT INTO sales (
-            client_id, total_amount, sale_date, sale_type, paid_amount, outstanding_balance
-        ) VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    const insertItem = db.prepare("INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
-    const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
-    const getProduct = db.prepare("SELECT id, code, name, stock FROM products WHERE id = ?");
-    const getVariant = db.prepare("SELECT * FROM product_variants WHERE id = ?");
+  const insertPayment = db.prepare(`
+    INSERT INTO sale_payments (sale_id, method, amount, received, change)
+    VALUES (?, ?, ?, ?, ?)
+  `);
 
-    const trx = db.transaction((client_id, items) => {
-        const now = new Date();
-        const formattedDate =
-            now.getFullYear() + "-" +
-            String(now.getMonth() + 1).padStart(2, "0") + "-" +
-            String(now.getDate()).padStart(2, "0") + " " +
-            String(now.getHours()).padStart(2, "0") + ":" +
-            String(now.getMinutes()).padStart(2, "0") + ":" +
-            String(now.getSeconds()).padStart(2, "0");
+  const insertItem = db.prepare(`
+    INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
 
-        let total = 0;
-        for (const it of items) {
-            let price, stockToDecrement;
+  const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
+  const getProduct = db.prepare("SELECT id, code, name, stock FROM products WHERE id = ?");
+  const getVariant = db.prepare("SELECT * FROM product_variants WHERE id = ?");
 
-            // Obtener el producto principal para su stock
-            const prod = getProduct.get(it.product_id);
-            if (!prod) throw new Error(`Producto con id=${it.product_id} no existe`);
+  const trx = db.transaction((client_id, items, cash_payment, transfer_payment) => {
+    const now = new Date();
+    const formattedDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
 
-            // Obtener la variante (si existe) para el precio y el factor
-            if (it.variant_id) {
-                const variant = getVariant.get(it.variant_id);
-                if (!variant) throw new Error(`Variante con id=${it.variant_id} no existe`);
-                
-                price = it.price != null ? it.price : variant.sale_price;
-                stockToDecrement = it.quantity * variant.conversion_factor;
-            } else {
-                // Si no hay variante, es la unidad base del producto
-                price = it.price != null ? it.price : prod.sale_price;
-                stockToDecrement = it.quantity;
-            }
-            
-            if (prod.stock < stockToDecrement) throw new Error(`Stock insuficiente para ${prod.name}`);
+    let total = 0;
+    for (const it of items) {
+      let price, stockToDecrement;
+      const prod = getProduct.get(it.product_id);
+      if (!prod) throw new Error(`Producto con id=${it.product_id} no existe`);
 
-            const subtotal = price * it.quantity;
-            total += subtotal;
-        }
+      if (it.variant_id) {
+        const variant = getVariant.get(it.variant_id);
+        if (!variant) throw new Error(`Variante con id=${it.variant_id} no existe`);
+        price = it.price ?? variant.sale_price;
+        stockToDecrement = it.quantity * variant.conversion_factor;
+      } else {
+        price = it.price ?? prod.sale_price;
+        stockToDecrement = it.quantity;
+      }
 
-        const finalPaid = (sale_type === 'credit') ? paid_amount : total;
-        const finalOutstanding = (sale_type === 'credit') ? outstanding_balance : 0;
-        const saleRes = insertSale.run(
-            client_id || null, 
-            total, 
-            formattedDate, 
-            sale_type, 
-            finalPaid, 
-            finalOutstanding
-        );
-        const saleId = saleRes.lastInsertRowid;
-
-        for (const it of items) {
-            let prodName, prodCode;
-            const prod = getProduct.get(it.product_id);
-            if (!prod) {
-                prodName = "Producto eliminado";
-                prodCode = "";
-            } else {
-                prodName = prod.name;
-                prodCode = prod.code;
-            }
-            
-            // Usamos el nombre y precio del item original enviado desde el front-end
-            insertItem.run(
-                saleId,
-                it.product_id,
-                it.product_name, // Usar el nombre de la variante/unidad
-                prodCode,
-                it.quantity,
-                it.price, // Usar el precio de la variante/unidad
-                it.subtotal
-            );
-
-            // Actualizar el stock con el factor de conversión
-            if (it.variant_id) {
-                const variant = getVariant.get(it.variant_id);
-                if (variant) updateStock.run(it.quantity * variant.conversion_factor, it.product_id);
-            } else {
-                updateStock.run(it.quantity, it.product_id);
-            }
-        }
-
-        const last = getLastInvoiceNumber();
-        let next;
-        if (!last) next = `FACT-${padNumber(1)}`;
-        else {
-            const m = last.match(/-(\d+)$/);
-            const lastNum = m ? parseInt(m[1], 10) : 0;
-            next = `FACT-${padNumber(lastNum + 1)}`;
-        }
-        db.prepare("UPDATE sales SET invoice_number = ? WHERE id = ?").run(next, saleId);
-
-        return saleId;
-    });
-
-    try {
-        const id = trx(client_id, items);
-        return { success: true, message: "Venta registrada", id };
-    } catch (err) {
-        return { success: false, message: String(err) };
+      if (prod.stock < stockToDecrement) throw new Error(`Stock insuficiente para ${prod.name}`);
+      total += price * it.quantity;
     }
+
+    const finalPaid = (sale_type === 'credit') ? paid_amount : (cash_payment + transfer_payment);
+    const finalOutstanding = (sale_type === 'credit') ? outstanding_balance : 0;
+
+    const saleRes = insertSale.run(
+      client_id || null,
+      total,
+      formattedDate,
+      sale_type,
+      finalPaid,
+      finalOutstanding,
+      cash_payment,
+      transfer_payment
+    );
+    const saleId = saleRes.lastInsertRowid;
+
+    for (const it of items) {
+      const prod = getProduct.get(it.product_id);
+      insertItem.run(
+        saleId,
+        it.product_id,
+        it.product_name,
+        prod ? prod.code : "",
+        it.quantity,
+        it.price,
+        it.subtotal
+      );
+
+      if (it.variant_id) {
+        const variant = getVariant.get(it.variant_id);
+        if (variant) updateStock.run(it.quantity * variant.conversion_factor, it.product_id);
+      } else {
+        updateStock.run(it.quantity, it.product_id);
+      }
+    }
+
+    // registrar pagos
+    if (cash_payment > 0) {
+      const change = Math.max((cash_payment + transfer_payment) - total, 0);
+      insertPayment.run(saleId, "cash", cash_payment, cash_payment, change);
+    }
+    if (transfer_payment > 0) {
+      insertPayment.run(saleId, "transfer", transfer_payment, null, null);
+    }
+    // consecutivo factura
+    const last = getLastInvoiceNumber();
+    let next;
+    if (!last) next = `FACT-${padNumber(1)}`;
+    else {
+      const m = last.match(/-(\d+)$/);
+      const lastNum = m ? parseInt(m[1], 10) : 0;
+      next = `FACT-${padNumber(lastNum + 1)}`;
+    }
+    db.prepare("UPDATE sales SET invoice_number = ? WHERE id = ?").run(next, saleId);
+
+    return saleId;
+  });
+
+  try {
+    const id = trx(client_id, items, cash_payment, transfer_payment);
+    return { success: true, message: "Venta registrada", id };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
 }
 
 function getSales() {
@@ -816,6 +879,7 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
 }
 
 module.exports = {
+  db, 
   // clientes
   getClients, getClientById, saveClient, updateClient, deleteClient,
   // categorias

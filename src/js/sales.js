@@ -28,8 +28,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const creditsList = document.getElementById("credits-list");
   const creditSearchInput = document.getElementById("credit-search-input");
   const creditSearchBtn = document.getElementById("credit-search-btn");
-
-  // Nuevo campo: lector / entrada por código (está en sales.html)
   const barcodeInput = document.getElementById("barcode-input");
 
   // -----------------------------
@@ -179,7 +177,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // -----------------------------
   // Lector de código (campo visible)
-  // - el lector actúa como teclado y envía Enter al final
   // -----------------------------
   if (barcodeInput) {
     barcodeInput.addEventListener("keydown", (e) => {
@@ -190,10 +187,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         const prod = allProducts.find((p) => String(p.code) === String(code));
         if (!prod) {
-          // No existe → preguntar si desea registrar
           if (confirm(`Producto con código "${code}" no encontrado. ¿Deseas registrarlo?`)) {
             localStorage.setItem("newProductCode", code);
-            // Ir a products.html para registrar (mantén la ruta que uses en tu app)
             window.location.href = "products.html";
             return;
           } else {
@@ -202,7 +197,6 @@ document.addEventListener("DOMContentLoaded", async () => {
           }
         }
 
-        // Si existe, mostrar vista previa con cantidad y opción de agregar
         showPreviewModal(prod);
         barcodeInput.value = "";
       }
@@ -210,10 +204,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // -----------------------------
-  // Modal de vista previa del producto (al escanear)
+  // Modal de vista previa (al escanear)
   // -----------------------------
   function showPreviewModal(prod) {
-    const hasImage = prod.image_base64 && prod.image_base64.length > 10; // si guardas imagen como base64
+    const hasImage = prod.image_base64 && prod.image_base64.length > 10;
     const imageHtml = hasImage ? `<img src="${prod.image_base64}" style="max-width:120px; display:block; margin-bottom:8px;">` : `<div style="width:120px;height:60px;display:flex;align-items:center;justify-content:center;background:#f0f0f0;margin-bottom:8px;color:#666;font-size:12px;">Sin imagen</div>`;
 
     const variantOptionsHtml = (prod.variants && prod.variants.length > 0) ? `
@@ -267,7 +261,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("confirm-add-btn").addEventListener("click", () => {
       const qty = Number(document.getElementById("preview-qty").value) || 1;
 
-      // Si hay variante seleccionada:
       const variantSelect = document.getElementById("preview-variant");
       let selectedVariant = null;
       if (variantSelect && variantSelect.value && variantSelect.value !== "base") {
@@ -320,7 +313,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // -----------------------------
-  // Modal de selección de variante (cuando se agrega desde el formulario principal)
+  // Modal de selección de variante
   // -----------------------------
   function showVariantSelectionModal(prod, qtyDefault = 1) {
     const modalHtml = `
@@ -378,7 +371,113 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // -----------------------------
-  // Finalizar venta
+  // Modal de pago (nuevo)
+  // -----------------------------
+  function showPaymentModal(totalAmount, clientId, saleType) {
+    const modalHtml = `
+      <div class="modal fade" id="paymentModal" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Registrar Pago</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p><strong>Total:</strong> ${formatCOP(totalAmount)}</p>
+              <div class="mb-2">
+                <label>Efectivo recibido</label>
+                <input type="number" id="cashReceived" class="form-control" value="0" min="0">
+              </div>
+              <div class="mb-2">
+                <label>Transferencia</label>
+                <input type="number" id="transferAmount" class="form-control" value="0" min="0">
+              </div>
+              <div id="changeInfo" class="mt-2 fw-bold text-success"></div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-primary" id="confirmPaymentBtn">Confirmar Pago</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const existing = document.getElementById("paymentModal");
+    if (existing) existing.remove();
+    document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+    const modal = new bootstrap.Modal(document.getElementById("paymentModal"));
+    modal.show();
+
+    const cashInput = document.getElementById("cashReceived");
+    const transferInput = document.getElementById("transferAmount");
+    const changeInfo = document.getElementById("changeInfo");
+
+    function updateChange() {
+      const cash = parseFloat(cashInput.value) || 0;
+      const transfer = parseFloat(transferInput.value) || 0;
+      const totalPaid = cash + transfer;
+      const change = totalPaid - totalAmount;
+      if (change >= 0) {
+        changeInfo.textContent = `Cambio a devolver: ${formatCOP(change)}`;
+      } else {
+        changeInfo.textContent = `Falta: ${formatCOP(-change)}`;
+      }
+    }
+    cashInput.addEventListener("input", updateChange);
+    transferInput.addEventListener("input", updateChange);
+    updateChange();
+
+    document.getElementById("confirmPaymentBtn").addEventListener("click", async () => {
+      const cash = parseFloat(cashInput.value) || 0;
+      const transfer = parseFloat(transferInput.value) || 0;
+      const totalPaid = cash + transfer;
+
+      if (totalPaid < totalAmount && saleType !== "credit") {
+        alert("El monto pagado es insuficiente.");
+        return;
+      }
+
+      const outstandingBalance = saleType === "credit" ? totalAmount : Math.max(0, totalAmount - totalPaid);
+      const paidAmount = saleType === "credit" ? 0 : totalPaid;
+
+      const saleData = {
+        client_id: clientId,
+        items: saleItems,
+        total_amount: totalAmount,
+        paid_amount: paidAmount,
+        outstanding_balance: outstandingBalance,
+        sale_type: saleType,
+        cash_payment: cash,
+        transfer_payment: transfer
+      };
+
+      const res = await window.api.createSale(saleData);
+      if (!res.success) {
+        alert(res.message);
+        return;
+      }
+
+      if (cash > 0) {
+        const activeSession = await window.api.getActiveCashSession();
+        if (activeSession) {
+          await window.api.addCashMovement(activeSession.id, "sale", cash, `Venta #${res.sale_id}`);
+        }
+      }
+
+      alert(res.message || "Venta registrada exitosamente.");
+      saleItems = [];
+      renderSaleItems();
+      modal.hide();
+      await loadSales();
+      await loadProducts();
+      await loadCredits();
+    });
+  }
+
+  // -----------------------------
+  // Finalizar venta (ajustado)
   // -----------------------------
   finalizeBtn.addEventListener("click", async () => {
     if (saleItems.length === 0) {
@@ -394,34 +493,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
-    const paidAmount = (saleType === 'credit') ? 0 : totalAmount;
-    const outstandingBalance = (saleType === 'credit') ? totalAmount : 0;
-    const saleData = {
-      client_id: clientId,
-      items: saleItems,
-      total_amount: totalAmount,
-      paid_amount: paidAmount,
-      outstanding_balance: outstandingBalance,
-      sale_type: saleType
-    };
-
-    const res = await window.api.createSale(saleData);
-    if (!res.success) {
-      alert(res.message);
-      return;
-    }
-    alert(res.message || "Venta registrada exitosamente.");
-
-    saleItems = [];
-    renderSaleItems();
-    productInput.value = "";
-    qtyInput.value = "1";
-    clientSelect.value = "";
-    saleTypeSelect.value = "cash";
-
-    await loadSales();
-    await loadProducts();
-    await loadCredits(); 
+    showPaymentModal(totalAmount, clientId, saleType);
   });
 
   // -----------------------------
@@ -470,7 +542,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       })
     );
 
-    // imprimir (preview)
+    // INICIO ajuste impresión
     salesList.querySelectorAll(".print-sale").forEach((b) => {
       b.addEventListener("click", async (e) => {
         const id = Number(e.target.dataset.id);
@@ -492,158 +564,180 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         const htmlContent = generateInvoiceHtml(sale, items, company, logoBase64, client, printers);
+
+        // Mostrar vista previa primero
         await window.api.previewInvoice({ content: htmlContent });
+
+        // Preguntar impresora
+        const printerChoice = prompt(
+          `Selecciona impresora:\n${printers.map((p, i) => `${i + 1}. ${p.name}${p.isDefault ? " (Predeterminada)" : ""}`).join("\n")}\n\nEscribe el número o deja vacío para usar la predeterminada:`
+        );
+
+        let selectedPrinter = null;
+        if (printerChoice) {
+          const idx = parseInt(printerChoice, 10) - 1;
+          if (printers[idx]) selectedPrinter = printers[idx].name;
+        }
+
+        // Imprimir
+        await window.api.printInvoice({
+          printer: selectedPrinter,
+          paperSize: "A4",
+          htmlContent,
+        });
       });
     });
+    // FIN ajuste impresión
   }
 
   // -----------------------------
-  // Generar HTML de factura (con ajuste para 57mm)
+  // Generar HTML de factura
   // -----------------------------
   function generateInvoiceHtml(sale, items, company, logoBase64, client, printers) {
-    return `
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          <style>
-            body { font-family: Arial, sans-serif; font-size: 12px; margin: 15px; color: #000; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            h2 { text-align: center; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            td, th { border: 1px solid #ccc; padding: 4px; text-align: left; }
-            .total { text-align: right; font-weight: bold; }
+  return `
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+           @page { size: 57mm auto; margin: 0; }
+      body { width: 57mm; margin: 0; font-family: Arial, sans-serif; font-size: 8px; color: #000; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      h2 { font-size: 10px; margin: 2px 0; }
+      table { width: 100%; border-collapse: collapse; font-size: 7px; }
+      td, th { border: 1px solid #ccc; padding: 0 1px; }
+      th:nth-child(1), td:nth-child(1) { width: 15%; }
+      th:nth-child(2), td:nth-child(2) { width: 35%; font-size: 6.5px; }
+      th:nth-child(3), td:nth-child(3) { width: 10%; text-align: center; }
+      th:nth-child(4), td:nth-child(4) { width: 15%; }
+      th:nth-child(5), td:nth-child(5) { width: 25%; }
 
-            .print-options-panel {
-              position: fixed;
-              bottom: 20px;
-              right: 20px;
-              background-color: white;
-              padding: 15px;
-              border: 1px solid #ccc;
-              border-radius: 8px;
-              box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-              display: flex;
-              flex-direction: column;
-              gap: 10px;
-              z-index: 9999;
+          .print-options-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: white;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 9999;
+          }
+
+          @media print {
+            .print-options-panel { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <!-- Panel de opciones de impresión -->
+        <div class="print-options-panel">
+          <label>Selecciona impresora:</label>
+          <select id="printerSelect">
+            ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
+          </select>
+          <label>Tamaño de papel:</label>
+          <select id="paperSizeSelect">
+            <option value="A4">A4</option>
+            <option value="80mm">80mm (Ticket)</option>
+            <option value="57mm">57mm (Mini Ticket)</option>
+            <option value="Letter">Carta</option>
+            <option value="Legal">Oficio</option>
+          </select>
+          <label><input type="checkbox" id="includeIva"> Incluir IVA 19%</label>
+          <button id="printButton">Imprimir</button>
+          <button id="closePreview">Cerrar</button>
+
+          <script>
+            function formatCOP(value) {
+              return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
             }
 
-            @media print {
-              .print-options-panel { display: none; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="print-options-panel">
-            <label>Selecciona impresora:</label>
-            <select id="printerSelect">
-              ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
-            </select>
-            <label>Tamaño de papel:</label>
-            <select id="paperSizeSelect">
-              <option value="A4">A4</option>
-              <option value="80mm">80mm (Ticket)</option>
-              <option value="57mm">57mm (Mini Ticket)</option>
-              <option value="Letter">Carta</option>
-              <option value="Legal">Oficio</option>
-            </select>
-            <label><input type="checkbox" id="includeIva"> Incluir IVA 19%</label>
-            <button id="printButton">Imprimir</button>
-            <button id="closePreview">Cerrar</button>
+            document.getElementById("printButton").addEventListener("click", () => {
+              const printer = document.getElementById("printerSelect").value;
+              const paperSize = document.getElementById("paperSizeSelect").value;
+              const includeIva = document.getElementById("includeIva").checked;
 
-            <script>
-              function formatCOP(value) {
-                return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
+              // Actualizar el DOM antes de imprimir
+              if (includeIva) {
+                const totalBase = ${sale.total_amount};
+                const iva = Math.round(totalBase * 0.19);
+                const total = totalBase + iva;
+                const ivaHtml = "<p>IVA (19%): " + formatCOP(iva) + "</p>";
+                document.getElementById("extraIva").innerHTML = ivaHtml;
+                document.getElementById("finalTotal").innerHTML = "TOTAL: " + formatCOP(total);
               }
 
-              document.getElementById("printButton").addEventListener("click", async () => {
-                const printer = document.getElementById("printerSelect").value;
-                const paperSize = document.getElementById("paperSizeSelect").value;
-                const includeIva = document.getElementById("includeIva").checked;
+              // Mandar directamente a imprimir desde este BrowserWindow
+              window.print();
+            });
 
-                let total = ${sale.total_amount};
-                let ivaText = "";
-                if (includeIva) {
-                  const iva = Math.round(total * 0.19);
-                  total += iva;
-                  ivaText = "<p>IVA (19%): " + formatCOP(iva) + "</p>";
-                }
+            document.getElementById("closePreview").addEventListener("click", () => window.close());
+          </script>
+        </div>
 
-                let facturaHtml = document.getElementById("factura").innerHTML 
-                                + ivaText 
-                                + "<p class='total'>TOTAL: " + formatCOP(total) + "</p>"
-                                + "<p style='text-align:center'>Gracias por su compra</p>";
-
-                // Ajustes para 57mm
-                if (paperSize === "57mm") {
-                  facturaHtml = \`
-                    <style>
-                      @page { size: 57mm auto; margin: 0; }
-                      body { width: 57mm; margin: 0; font-family: Arial, sans-serif; font-size: 8px; color: #000; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                      h2 { font-size: 10px; margin: 2px 0; }
-                      table { width: 100%; border-collapse: collapse; font-size: 7px; }
-                      td, th { border: 1px solid #ccc; padding: 0 1px; }
-                      th:nth-child(1), td:nth-child(1) { width: 15%; } /* Código */
-                      th:nth-child(2), td:nth-child(2) { width: 35%; font-size: 6.5px; } /* Producto */
-                      th:nth-child(3), td:nth-child(3) { width: 10%; text-align: center; } /* Cant */
-                      th:nth-child(4), td:nth-child(4) { width: 15%; } /* Precio reducido */
-                      th:nth-child(5), td:nth-child(5) { width: 25%; } /* Subtotal ampliado */
-                    </style>
-                    \` + facturaHtml;
-                }
-
-                const result = await window.api.printInvoice({ printer, paperSize, htmlContent: facturaHtml });
-                if (result.success) alert(result.message);
-                else alert("Error: " + result.message);
-              });
-
-              document.getElementById("closePreview").addEventListener("click", () => window.close());
-            </script>
+        <!-- Factura -->
+        <div id="factura">
+          <div style="text-align:center; margin-bottom:15px;">
+            ${logoBase64 ? `<img src="${logoBase64}" style="max-height:80px;"><br>` : ""}
+            <h2>${company.company_name || ""}</h2>
+            <p>NIT: ${company.company_id_card_or_nit || ""}</p>
+            <p>${company.company_address || ""}</p>
+            <p>Tel: ${company.company_phone || ""} — ${company.company_email || ""}</p>
           </div>
 
-          <div id="factura">
-            <div style="text-align:center; margin-bottom:15px;">
-              ${logoBase64 ? `<img src="${logoBase64}" style="max-height:80px;"><br>` : ""}
-              <h2>${company.company_name || ""}</h2>
-              <p>NIT: ${company.company_id_card_or_nit || ""}</p>
-              <p>${company.company_address || ""}</p>
-              <p>Tel: ${company.company_phone || ""} — ${company.company_email || ""}</p>
-            </div>
+          <center><h2>Factura ${sale.invoice_number || `FACT-${sale.id}`}</h2>
+          <p>Fecha: ${sale.sale_date}</p>
+          <p>Cliente: ${client ? client.name : "N/A"}</p>
+          <p>NIT/Cédula: ${client ? client.id_card_or_nit : "N/A"}</p>
+          <p>Dirección: ${client ? client.address : "N/A"}</p>
+          <p>Teléfono: ${client ? client.phone : "N/A"}</p>
+          </center>
 
-            <h2>Factura ${sale.invoice_number || `FACT-${sale.id}`}</h2>
-            <p>Fecha: ${sale.sale_date}</p>
-            <p>Cliente: ${client ? client.name : "N/A"}</p>
-            <p>NIT/Cédula: ${client ? client.id_card_or_nit : "N/A"}</p>
-            <p>Dirección: ${client ? client.address : "N/A"}</p>
-            <p>Teléfono: ${client ? client.phone : "N/A"}</p>
 
-            <table>
-              <thead>
+          <table>
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Producto</th>
+                <th>Cant</th>
+                <th>Precio</th>
+                <th>Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${items.map(it => `
                 <tr>
-                  <th>Código</th>
-                  <th>Producto</th>
-                  <th>Cant</th>
-                  <th>Precio</th>
-                  <th>Subtotal</th>
+                  <td>${it.product_code || ""}</td>
+                  <td>${it.product_name}</td>
+                  <td>${it.quantity}</td>
+                  <td>${formatCOP(it.price)}</td>
+                  <td>${formatCOP(it.subtotal)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                ${items.map(it => `
-                  <tr>
-                    <td>${it.product_code || ""}</td>
-                    <td>${it.product_name}</td>
-                    <td>${it.quantity}</td>
-                    <td>${formatCOP(it.price)}</td>
-                    <td>${formatCOP(it.subtotal)}</td>
-                  </tr>
-                `).join("")}
-              </tbody>
-            </table>
-            <p class="total">TOTAL: ${formatCOP(sale.total_amount)}</p>
+              `).join("")}
+            </tbody>
+          </table>
+          <p id="extraIva"></p>
+          <p class="total" id="finalTotal">TOTAL: ${formatCOP(sale.total_amount)}</p>
+
+          <!-- 👇 Desglose de pagos -->
+          <div style="margin-top:10px; font-size:12px;">
+            ${sale.sale_type === "credit" ? `
+              <p><strong>Forma de pago:</strong> Venta a crédito</p>
+            ` : `
+              <p><strong>Forma de pago:</strong> ${sale.sale_type === "cash" ? "Efectivo" : sale.sale_type === "transfer" ? "Transferencia" : "Mixto"}</p>
+              ${sale.cash_payment ? `<p>Efectivo: ${formatCOP(sale.cash_payment)}</p>` : ""}
+              ${sale.transfer_payment ? `<p>Transferencia: ${formatCOP(sale.transfer_payment)}</p>` : ""}
+              ${((sale.cash_payment || 0) + (sale.transfer_payment || 0)) > sale.total_amount ? `<p>Cambio: ${formatCOP(((sale.cash_payment || 0) + (sale.transfer_payment || 0)) - sale.total_amount)}</p>` : ""}
+            `}
           </div>
-        </body>
-      </html>
-    `;
-  }
+          <center><p>Gracias por su compra</></center>
+        </div>
+      </body>
+    </html>
+  `;
+}
 
   // -----------------------------
   // Cargar créditos
@@ -760,7 +854,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // -----------------------------
-  // Inicialización al cargar la página
+  // Inicialización
   // -----------------------------
   await loadProducts();
   await loadClients();

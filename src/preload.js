@@ -72,5 +72,24 @@ markCreditAsPaid: (saleId) => ipcRenderer.invoke("mark-credit-as-paid", saleId),
   getPrinters: () => ipcRenderer.invoke("get-printers"),
   printInvoice: (data) => ipcRenderer.invoke("print-invoice", data),
   previewInvoice: (data) => ipcRenderer.invoke("preview-invoice", data),
-  getCompanyLogo: () => ipcRenderer.invoke("get-company-logo")
+  getCompanyLogo: () => ipcRenderer.invoke("get-company-logo"),
+
+// Caja registradora
+openCashRegister: (openingBalance) => 
+    ipcRenderer.invoke("open-cash-register", openingBalance),
+
+  getActiveCashSession: () => 
+    ipcRenderer.invoke("get-active-cash-session"),
+
+  addCashMovement: (sessionId, type, amount, description) => 
+    ipcRenderer.invoke("add-cash-movement", { sessionId, type, amount, description }),
+
+  closeCashRegister: (realClosingBalance) => 
+    ipcRenderer.invoke("close-cash-register", realClosingBalance),
+
+  getCashRegisterSessions: () => 
+    ipcRenderer.invoke("get-cash-register-sessions"),
+
+  getCashMovements: (sessionId) => 
+    ipcRenderer.invoke("get-cash-movements", sessionId),
 });
