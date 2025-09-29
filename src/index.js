@@ -221,105 +221,132 @@
         // ---------- Exportar reporte de ventas a PDF ----------
           ipcMain.handle("export-sales-report-pdf", async (event, { salesReport, companyInfo, filename }) => {
             try {
-                const salesArray = Array.isArray(salesReport) ? salesReport : [];
-                if (!salesArray.length) {
-                    return { success: false, message: "No hay datos para exportar." };
+              const salesArray = Array.isArray(salesReport) ? salesReport : [];
+              if (!salesArray.length) {
+                return { success: false, message: "No hay datos para exportar." };
+              }
+
+              const { filePath, canceled } = await dialog.showSaveDialog({
+                defaultPath: filename || "reporte_ventas.pdf",
+                filters: [{ name: "PDF", extensions: ["pdf"] }],
+              });
+              if (canceled || !filePath) return { success: false, message: "Exportación cancelada." };
+
+              const doc = new PDFDocument({ margin: 40, size: "A4" });
+              const stream = fs.createWriteStream(filePath);
+              doc.pipe(stream);
+
+              renderPdfHeader(doc, companyInfo, "Reporte de Ventas");
+
+              let y = doc.y + 10;
+              const startY = y;
+
+              // Títulos de las columnas (EN NEGRITA)
+              doc.fontSize(11).font("Helvetica-Bold");
+              doc.text("Fecha", 40, y, { width: 60 });
+              doc.text("# Factura", 100, y, { width: 80 });
+              doc.text("Nombre Producto", 180, y, { width: 170 });
+              doc.text("Cantidad", 350, y, { width: 50, align: "right" });
+              doc.text("Valor Unidad", 400, y, { width: 70, align: "right" });
+              doc.text("Subtotal", 490, y, { width: 60, align: "right" });
+              y += 18;
+
+              // Línea divisoria debajo de los títulos
+              doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+              doc.font("Helvetica").fontSize(9);
+              y += 10;
+
+              // Totales acumulados para resumen final
+              let totalGeneral = 0;
+              let totalCash = 0;
+              let totalTransfer = 0;
+              let totalCredit = 0;
+
+              // Escribir los datos de las ventas
+              for (const sale of salesArray) {
+                const invoiceNumber = sale.invoice_number || "-";
+                const saleDate = sale.sale_date ? sale.sale_date.split(" ")[0] : "-";
+                const saleTotal = sale.total_amount || 0;
+
+                for (const item of sale.items) {
+                  // Verificar salto de página
+                  if (y > doc.page.height - doc.page.margins.bottom - 80) {
+                    doc.addPage();
+                    y = startY;
+                    doc.fontSize(10).font("Helvetica-Bold");
+                    doc.text("Fecha", 40, y, { width: 60 });
+                    doc.text("# Factura", 100, y, { width: 80 });
+                    doc.text("Nombre Producto", 180, y, { width: 170 });
+                    doc.text("Cantidad", 350, y, { width: 50, align: "right" });
+                    doc.text("Valor Unidad", 400, y, { width: 70, align: "right" });
+                    doc.text("Subtotal", 490, y, { width: 60, align: "right" });
+                    y += 18;
+                    doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+                    doc.font("Helvetica").fontSize(9);
+                    y += 10;
+                  }
+
+                  const productHeight = doc.heightOfString(item.product_name, { width: 170 });
+
+                  doc.text(saleDate, 40, y, { width: 60 });
+                  doc.text(invoiceNumber, 100, y, { width: 80 });
+                  doc.text(item.product_name, 180, y, { width: 170 });
+                  doc.text(String(item.quantity), 350, y, { width: 50, align: "right" });
+                  doc.text(formatCOP(item.price), 400, y, { width: 70, align: "right" });
+                  doc.text(formatCOP(item.subtotal), 490, y, { width: 60, align: "right" });
+
+                  y += productHeight + 5;
                 }
 
-                const { filePath, canceled } = await dialog.showSaveDialog({
-                    defaultPath: filename || "reporte_ventas.pdf",
-                    filters: [{ name: "PDF", extensions: ["pdf"] }],
-                });
-                if (canceled || !filePath) return { success: false, message: "Exportación cancelada." };
+                // Agregar el total de la venta
+                doc.font("Helvetica-Bold").text("Total de venta:", 350, y, { width: 130, align: "right" });
+                doc.text(formatCOP(saleTotal), 490, y, { width: 60, align: "right" });
 
-                const doc = new PDFDocument({ margin: 40, size: "A4" });
-                const stream = fs.createWriteStream(filePath);
-                doc.pipe(stream);
+                y += 15;
 
-                renderPdfHeader(doc, companyInfo, "Reporte de Ventas");
-
-                let y = doc.y + 10;
-                const startY = y;
-
-                // Títulos de las columnas (EN NEGRITA)
-                doc.fontSize(11).font("Helvetica-Bold");
-                doc.text("Fecha", 40, y, { width: 60 });
-                doc.text("# Factura", 100, y, { width: 80 });
-                doc.text("Nombre Producto", 180, y, { width: 170 });
-                doc.text("Cantidad", 350, y, { width: 50, align: "right" });
-                doc.text("Valor Unidad", 400, y, { width: 70, align: "right" });
-                doc.text("Subtotal", 490, y, { width: 60, align: "right" });
-                y += 18;
-
-                // Línea divisoria debajo de los títulos
-                doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
-                
-                // Cambiar la fuente a normal para los datos del reporte
+                // 🔹 Mostrar detalle de métodos de pago
                 doc.font("Helvetica").fontSize(9);
-                y += 10;
-
-                // Escribir los datos de las ventas (cada ítem como una fila)
-                for (const sale of salesArray) {
-                    const invoiceNumber = sale.invoice_number || "-";
-                    const saleDate = sale.sale_date ? sale.sale_date.split(' ')[0] : "-";
-                    const saleTotal = sale.total_amount || 0;
-
-                    for (const item of sale.items) {
-                        // Verificar salto de página antes de cada fila de ítem
-                        if (y > doc.page.height - doc.page.margins.bottom - 40) {
-                            doc.addPage();
-                            y = startY;
-                            doc.fontSize(10).font("Helvetica-Bold");
-                            doc.text("Fecha", 40, y, { width: 60 });
-                            doc.text("# Factura", 100, y, { width: 80 });
-                            doc.text("Nombre Producto", 180, y, { width: 170 });
-                            doc.text("Cantidad", 350, y, { width: 50, align: "right" });
-                            doc.text("Valor Unidad", 400, y, { width: 70, align: "right" });
-                            doc.text("Subtotal", 490, y, { width: 60, align: "right" });
-                            y += 18;
-                            doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
-                            doc.font("Helvetica").fontSize(9);
-                            y += 10;
-                        }
-                        
-                        const productHeight = doc.heightOfString(item.product_name, { width: 170 });
-                        
-                        doc.text(saleDate, 40, y, { width: 60 });
-                        doc.text(invoiceNumber, 100, y, { width: 80 });
-                        doc.text(item.product_name, 180, y, { width: 170 });
-                        doc.text(String(item.quantity), 350, y, { width: 50, align: "right" });
-                        doc.text(formatCOP(item.price), 400, y, { width: 70, align: "right" }); 
-                        doc.text(formatCOP(item.subtotal), 490, y, { width: 60, align: "right" });
-                        
-                        y += productHeight + 5;
-                    }
-                    // Agregar el total de la venta después de cada venta
-                    doc.font("Helvetica-Bold").text("Total de venta:", 350, y, { width: 130, align: "right" });
-                    doc.text(formatCOP(saleTotal), 490, y, { width: 60, align: "right" });
-                    
-                    // Volver a la fuente normal para el resto del contenido
-                    doc.font("Helvetica");
-                    y += 15; // Espacio entre ventas
+                doc.text(`Efectivo: ${formatCOP(sale.cash_payment || 0)}`, 350, y, { width: 200 });
+                y += 12;
+                doc.text(`Transferencia: ${formatCOP(sale.transfer_payment || 0)}`, 350, y, { width: 200 });
+                y += 12;
+                if (sale.sale_type === "credit" && sale.outstanding_balance > 0) {
+                  doc.text(`Crédito: ${formatCOP(sale.outstanding_balance)}`, 350, y, { width: 200 });
+                  y += 12;
                 }
 
-                doc.moveDown(1);
-                doc.font("Helvetica-Bold").fontSize(12);
-                const totalGeneral = salesArray.reduce((acc, s) => acc + (s.total_amount || 0), 0);
-                doc.text("Total General:", 380, doc.y, { align: "right" });
-                doc.text(formatCOP(totalGeneral), 490, doc.y, { width: 60, align: "right" });
+                y += 10; // Espacio entre ventas
 
-                doc.end();
-                await new Promise((res, rej) => {
-                    stream.on("finish", res);
-                    stream.on("error", rej);
-                });
+                // Acumular totales
+                totalGeneral += saleTotal;
+                totalCash += sale.cash_payment || 0;
+                totalTransfer += sale.transfer_payment || 0;
+                totalCredit += sale.outstanding_balance || 0;
+              }
 
-                return { success: true, filePath };
+              // 🔹 Totales generales al final
+              doc.moveDown(1.5);
+              doc.font("Helvetica-Bold").fontSize(12).text("Resumen de Métodos de Pago", 40, doc.y);
+
+              doc.font("Helvetica").fontSize(11);
+              doc.text(`Total en efectivo: ${formatCOP(totalCash)}`);
+              doc.text(`Total en transferencias: ${formatCOP(totalTransfer)}`);
+              doc.text(`Total en créditos: ${formatCOP(totalCredit)}`);
+              doc.moveDown(0.5);
+              doc.font("Helvetica-Bold").text(`Total General: ${formatCOP(totalGeneral)}`);
+
+              doc.end();
+              await new Promise((res, rej) => {
+                stream.on("finish", res);
+                stream.on("error", rej);
+              });
+
+              return { success: true, filePath };
             } catch (err) {
-                console.error("Error exportando PDF:", err);
-                return { success: false, message: "Error al exportar PDF: " + (err.message || String(err)) };
+              console.error("Error exportando PDF:", err);
+              return { success: false, message: "Error al exportar PDF: " + (err.message || String(err)) };
             }
-        });
+          });
 
   // ---------------- IMPRESIÓN ----------------
   // Vista previa de factura
@@ -543,7 +570,8 @@
           return { success: false, message: msg };
         }
       });
-
+        
+      // Exportación cotizaciones pdf
       ipcMain.handle("export-quote-pdf", async (event, { id, includeIva = false } = {}) => {
           try {
               let quote = null;

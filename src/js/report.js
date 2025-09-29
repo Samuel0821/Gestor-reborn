@@ -75,12 +75,25 @@ document.addEventListener('DOMContentLoaded', () => {
                         ${s.items.map(it => `<li>${it.product_name} x${it.quantity} = ${formatCOP(it.subtotal)}</li>`).join("")}
                     </ul>
                 `;
+
+                // 🔹 Agregar detalle de pagos debajo de los productos
+                let pagosHtml = `
+                    <div class="mt-2 small text-muted">
+                        Efectivo: ${formatCOP(s.cash_payment || 0)} | 
+                        Transferencia: ${formatCOP(s.transfer_payment || 0)} | 
+                        Crédito: ${s.sale_type === "credit" ? formatCOP(s.outstanding_balance || 0) : formatCOP(0)}
+                    </div>
+                `;
+
                 tableHtml += `
                     <tr>
                         <td>${s.invoice_number}</td>
                         <td>${s.sale_date}</td>
                         <td>${formatCOP(s.total_amount)}</td>
-                        <td>${itemsHtml}</td>
+                        <td>
+                            ${itemsHtml}
+                            ${pagosHtml}
+                        </td>
                     </tr>
                 `;
             });

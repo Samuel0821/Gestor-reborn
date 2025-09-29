@@ -588,156 +588,186 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
     });
     // FIN ajuste impresión
-  }
+    }
 
-  // -----------------------------
-  // Generar HTML de factura
-  // -----------------------------
-  function generateInvoiceHtml(sale, items, company, logoBase64, client, printers) {
-  return `
-    <html>
-      <head>
-        <meta charset="UTF-8">
-        <style>
-           @page { size: 57mm auto; margin: 0; }
-      body { width: 57mm; margin: 0; font-family: Arial, sans-serif; font-size: 8px; color: #000; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      h2 { font-size: 10px; margin: 2px 0; }
-      table { width: 100%; border-collapse: collapse; font-size: 7px; }
-      td, th { border: 1px solid #ccc; padding: 0 1px; }
-      th:nth-child(1), td:nth-child(1) { width: 15%; }
-      th:nth-child(2), td:nth-child(2) { width: 35%; font-size: 6.5px; }
-      th:nth-child(3), td:nth-child(3) { width: 10%; text-align: center; }
-      th:nth-child(4), td:nth-child(4) { width: 15%; }
-      th:nth-child(5), td:nth-child(5) { width: 25%; }
+    // -----------------------------
+    // Generar HTML de factura
+    // -----------------------------
+    function generateInvoiceHtml(sale, items, company, logoBase64, client, printers) {
+      return `
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <style>
+              @page { size: 57mm auto; margin: 0; }
+              body { width: 57mm; margin: 0; font-family: Arial, sans-serif; font-size: 8px; color: #000; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              h2 { font-size: 10px; margin: 2px 0; }
+              table { width: 100%; border-collapse: collapse; font-size: 7px; }
+              td, th { border: 1px solid #ccc; padding: 0 1px; }
+              th:nth-child(1), td:nth-child(1) { width: 15%; }
+              th:nth-child(2), td:nth-child(2) { width: 35%; font-size: 6.5px; }
+              th:nth-child(3), td:nth-child(3) { width: 10%; text-align: center; }
+              th:nth-child(4), td:nth-child(4) { width: 15%; }
+              th:nth-child(5), td:nth-child(5) { width: 25%; }
 
-          .print-options-panel {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background-color: white;
-            padding: 15px;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            z-index: 9999;
-          }
-
-          @media print {
-            .print-options-panel { display: none; }
-          }
-        </style>
-      </head>
-      <body>
-        <!-- Panel de opciones de impresión -->
-        <div class="print-options-panel">
-          <label>Selecciona impresora:</label>
-          <select id="printerSelect">
-            ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
-          </select>
-          <label>Tamaño de papel:</label>
-          <select id="paperSizeSelect">
-            <option value="A4">A4</option>
-            <option value="80mm">80mm (Ticket)</option>
-            <option value="57mm">57mm (Mini Ticket)</option>
-            <option value="Letter">Carta</option>
-            <option value="Legal">Oficio</option>
-          </select>
-          <label><input type="checkbox" id="includeIva"> Incluir IVA 19%</label>
-          <button id="printButton">Imprimir</button>
-          <button id="closePreview">Cerrar</button>
-
-          <script>
-            function formatCOP(value) {
-              return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
-            }
-
-            document.getElementById("printButton").addEventListener("click", () => {
-              const printer = document.getElementById("printerSelect").value;
-              const paperSize = document.getElementById("paperSizeSelect").value;
-              const includeIva = document.getElementById("includeIva").checked;
-
-              // Actualizar el DOM antes de imprimir
-              if (includeIva) {
-                const totalBase = ${sale.total_amount};
-                const iva = Math.round(totalBase * 0.19);
-                const total = totalBase + iva;
-                const ivaHtml = "<p>IVA (19%): " + formatCOP(iva) + "</p>";
-                document.getElementById("extraIva").innerHTML = ivaHtml;
-                document.getElementById("finalTotal").innerHTML = "TOTAL: " + formatCOP(total);
+              .print-options-panel {
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                background-color: white;
+                padding: 15px;
+                border: 2px solid #ccc;
+                border-radius: 10px;
+                box-shadow: 0 6px 10px rgba(0,0,0,0.1);
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                z-index: 9999;
               }
 
-              // Mandar directamente a imprimir desde este BrowserWindow
-              window.print();
-            });
+              @media print {
+                .print-options-panel { display: none; }
+              }
+            </style>
+          </head>
+          <body>
+            <!-- Panel de opciones de impresión -->
+            <div class="print-options-panel">
+              <label>Selecciona impresora:</label>
+              <select id="printerSelect">
+                ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
+              </select>
+              <label>Tamaño de papel:</label>
+              <select id="paperSizeSelect">
+                <option value="A4">A4</option>
+                <option value="80mm">80mm (Ticket)</option>
+                <option value="57mm" selected>57mm (Mini Ticket)</option>
+                <option value="Letter">Carta</option>
+                <option value="Legal">Oficio</option>
+              </select>
+              <label><input type="checkbox" id="includeIva"> Incluir IVA 19%</label>
+              <button id="printButton">Imprimir</button>
+              <button id="closePreview">Cerrar</button>
 
-            document.getElementById("closePreview").addEventListener("click", () => window.close());
-          </script>
-        </div>
+              <script>
+                function formatCOP(value) {
+                  return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
+                }
 
-        <!-- Factura -->
-        <div id="factura">
-          <div style="text-align:center; margin-bottom:15px;">
-            ${logoBase64 ? `<img src="${logoBase64}" style="max-height:80px;"><br>` : ""}
-            <h2>${company.company_name || ""}</h2>
-            <p>NIT: ${company.company_id_card_or_nit || ""}</p>
-            <p>${company.company_address || ""}</p>
-            <p>Tel: ${company.company_phone || ""} — ${company.company_email || ""}</p>
-          </div>
+                // ADJUST: obtener base y pago desde el server (números inyectados)
+                const totalBase = ${Number(sale.total_amount || 0)};
+                const pago = ${Number(sale.cash_payment || 0)} + ${Number(sale.transfer_payment || 0)};
 
-          <center><h2>Factura ${sale.invoice_number || `FACT-${sale.id}`}</h2>
-          <p>Fecha: ${sale.sale_date}</p>
-          <p>Cliente: ${client ? client.name : "N/A"}</p>
-          <p>NIT/Cédula: ${client ? client.id_card_or_nit : "N/A"}</p>
-          <p>Dirección: ${client ? client.address : "N/A"}</p>
-          <p>Teléfono: ${client ? client.phone : "N/A"}</p>
-          </center>
+                // ADJUST: función compacta para recalcular totales y cambio
+                function updateTotals() {
+                  const includeIva = document.getElementById("includeIva").checked;
+                  let iva = 0;
+                  let total = totalBase;
 
+                  if (includeIva) {
+                    iva = Math.round(totalBase * 0.19);
+                    total = totalBase + iva;
+                    document.getElementById("extraTotals").innerHTML = 
+                      "<p>Total bruto: " + formatCOP(totalBase) + "</p>" +
+                      "<p>IVA (19%): " + formatCOP(iva) + "</p>" +
+                      "<p class='total'>Total neto: " + formatCOP(total) + "</p>";
+                  } else {
+                    document.getElementById("extraTotals").innerHTML = 
+                      "<p class='total'>TOTAL: " + formatCOP(totalBase) + "</p>";
+                  }
 
-          <table>
-            <thead>
-              <tr>
-                <th>Código</th>
-                <th>Producto</th>
-                <th>Cant</th>
-                <th>Precio</th>
-                <th>Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${items.map(it => `
-                <tr>
-                  <td>${it.product_code || ""}</td>
-                  <td>${it.product_name}</td>
-                  <td>${it.quantity}</td>
-                  <td>${formatCOP(it.price)}</td>
-                  <td>${formatCOP(it.subtotal)}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-          <p id="extraIva"></p>
-          <p class="total" id="finalTotal">TOTAL: ${formatCOP(sale.total_amount)}</p>
+                  // calcular cambio siempre respecto al total (bruto o neto)
+                  const cambio = pago - total;
+                  if (cambio > 0) {
+                    document.getElementById("cambioContainer").innerHTML =
+                      "<p>Cambio: " + formatCOP(cambio) + "</p>";
+                  } else {
+                    document.getElementById("cambioContainer").innerHTML = "";
+                  }
+                }
 
-          <!-- 👇 Desglose de pagos -->
-          <div style="margin-top:10px; font-size:12px;">
-            ${sale.sale_type === "credit" ? `
-              <p><strong>Forma de pago:</strong> Venta a crédito</p>
-            ` : `
-              <p><strong>Forma de pago:</strong> ${sale.sale_type === "cash" ? "Efectivo" : sale.sale_type === "transfer" ? "Transferencia" : "Mixto"}</p>
-              ${sale.cash_payment ? `<p>Efectivo: ${formatCOP(sale.cash_payment)}</p>` : ""}
-              ${sale.transfer_payment ? `<p>Transferencia: ${formatCOP(sale.transfer_payment)}</p>` : ""}
-              ${((sale.cash_payment || 0) + (sale.transfer_payment || 0)) > sale.total_amount ? `<p>Cambio: ${formatCOP(((sale.cash_payment || 0) + (sale.transfer_payment || 0)) - sale.total_amount)}</p>` : ""}
-            `}
-          </div>
-          <center><p>Gracias por su compra</></center>
-        </div>
-      </body>
-    </html>
-  `;
-}
+                // ADJUST: inicializar la vista para que muestre cambio sin tocar la casilla IVA
+                document.addEventListener("DOMContentLoaded", () => {
+                  updateTotals();
+                });
+
+                // ADJUST: recalcular cuando cambie la casilla IVA
+                document.getElementById("includeIva").addEventListener("change", updateTotals);
+
+                document.getElementById("printButton").addEventListener("click", () => {
+                  updateTotals(); // asegurar que esté actualizado antes de imprimir
+                  window.print();
+                });
+
+                document.getElementById("closePreview").addEventListener("click", () => window.close());
+              </script>
+            </div>
+
+            <!-- Factura -->
+            <div id="factura">
+              <div style="text-align:center; margin-bottom:15px;">
+                ${logoBase64 ? `<img src="${logoBase64}" style="max-height:90px;"><br>` : ""}
+                <h2>${company.company_name || ""}</h2>
+                <p>NIT: ${company.company_id_card_or_nit || ""}</p>
+                <p>${company.company_address || ""}</p>
+                <p>Tel: ${company.company_phone || ""} — ${company.company_email || ""}</p>
+              </div>
+
+              <center><h2>Factura ${sale.invoice_number || `FACT-${sale.id}`}</h2>
+              <p>Fecha: ${sale.sale_date}</p>
+              <p>Cliente: ${client ? client.name : "N/A"}</p>
+              <p>NIT/Cédula: ${client ? client.id_card_or_nit : "N/A"}</p>
+              <p>Dirección: ${client ? client.address : "N/A"}</p>
+              <p>Teléfono: ${client ? client.phone : "N/A"}</p>
+              </center>
+
+              <table>
+                <thead>
+                  <tr>
+                    <th>Código</th>
+                    <th>Producto</th>
+                    <th>Cant</th>
+                    <th>Precio</th>
+                    <th>Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${items.map(it => `
+                    <tr>
+                      <td>${it.product_code || ""}</td>
+                      <td>${it.product_name}</td>
+                      <td>${it.quantity}</td>
+                      <td>${formatCOP(it.price)}</td>
+                      <td>${formatCOP(it.subtotal)}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+
+              <!-- Totales dinámicos -->
+              <div id="extraTotals">
+                <p class="total">TOTAL: ${formatCOP(sale.total_amount)}</p>
+              </div>
+
+              <!-- 👇 Desglose de pagos -->
+              <div style="margin-top:5px; font-size:8px;">
+                ${sale.sale_type === "credit" ? `
+                  <p><strong>Forma de pago:</strong> Venta a crédito</p>
+                ` : `
+                  <p><strong>Forma de pago:</strong> ${sale.sale_type === "cash" ? "Efectivo" : sale.sale_type === "transfer" ? "Transferencia" : "Mixto"}</p>
+                  ${sale.cash_payment ? `<p>Efectivo: ${formatCOP(sale.cash_payment)}</p>` : ""}
+                  ${sale.transfer_payment ? `<p>Transferencia: ${formatCOP(sale.transfer_payment)}</p>` : ""}
+                `}
+                <!-- 👇 Aquí SIEMPRE se inyectará el cambio -->
+                <div id="cambioContainer"></div>
+              </div>
+
+              <center><p>Gracias por su compra</p></center>
+            </div>
+          </body>
+        </html>
+      `;
+    }
 
   // -----------------------------
   // Cargar créditos

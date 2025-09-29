@@ -687,7 +687,7 @@ function createQuote({ client_id = null, items = [] }) {
     let total = 0;
     for (const it of items) {
       const prod = getProduct.get(it.product_id);
-      const prodName = prod ? prod.name : (it.product_name || "Producto eliminado");
+      const prodName = it.product_name || (prod ? prod.name : "Producto eliminado");
       const prodCode = prod ? prod.code : (it.product_code || "");
       const price = (it.price != null) ? it.price : (prod ? prod.sale_price : 0);
       const subtotal = price * it.quantity;
@@ -829,18 +829,14 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
     } else if (reportType === "monthly") {
       groupByClause = "strftime('%Y-%m', sale_date)";
     } else {
-      // daily (default)
-      groupByClause = "date(sale_date)";
+      groupByClause = "date(sale_date)"; // daily por defecto
     }
 
-    // ajustar fechas para cubrir todo el día
     const start = startDate + " 00:00:00";
     const end = endDate + " 23:59:59";
 
-    // ventas agrupadas por período
     const salesStmt = db.prepare(`
-      SELECT
-        GROUP_CONCAT(id) as sale_ids
+      SELECT GROUP_CONCAT(id) as sale_ids
       FROM sales
       WHERE sale_date >= ? AND sale_date <= ?
       GROUP BY ${groupByClause}
@@ -854,27 +850,60 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
       WHERE sale_id = ?
     `);
 
-    // Construir array plano de ventas
+    const paymentsStmt = db.prepare(`
+      SELECT method, amount, received, change
+      FROM sale_payments
+      WHERE sale_id = ?
+    `);
+
     const detailedSales = rows.flatMap(r => {
       const saleIds = r.sale_ids.split(",").map(id => parseInt(id));
       return saleIds.map(sid => {
-        const sale = db.prepare("SELECT invoice_number, sale_date, total_amount FROM sales WHERE id = ?").get(sid);
+        const sale = db.prepare(`
+          SELECT id, invoice_number, sale_date, total_amount,
+                 paid_amount, outstanding_balance, sale_type
+          FROM sales WHERE id = ?
+        `).get(sid);
+
         const items = itemsStmt.all(sid);
+        const payments = paymentsStmt.all(sid);
+
+        let cash_payment = 0;
+        let transfer_payment = 0;
+
+        for (const p of payments) {
+          if (p.method === "cash") {
+            // 🔹 efectivo real = recibido - cambio
+            cash_payment += (p.received || 0) - (p.change || 0);
+          } else if (p.method === "transfer") {
+            transfer_payment += p.amount || 0;
+          }
+        }
+
         return {
-          invoice_number: sale.invoice_number,
-          sale_date: sale.sale_date,
-          total_amount: sale.total_amount,
-          items
+          ...sale,
+          items,
+          cash_payment,
+          transfer_payment
         };
       });
     });
 
     const totalGeneral = detailedSales.reduce((acc, s) => acc + s.total_amount, 0);
+    const totalCash = detailedSales.reduce((acc, s) => acc + (s.cash_payment || 0), 0);
+    const totalTransfer = detailedSales.reduce((acc, s) => acc + (s.transfer_payment || 0), 0);
+    const totalCredit = detailedSales.reduce((acc, s) => acc + (s.outstanding_balance || 0), 0);
 
-    return { sales: detailedSales, totalGeneral };
+    return { 
+      sales: detailedSales, 
+      totalGeneral, 
+      totalCash, 
+      totalTransfer, 
+      totalCredit 
+    };
   } catch (err) {
     console.error("Error en getSalesReport:", err);
-    return { sales: [], totalGeneral: 0 };
+    return { sales: [], totalGeneral: 0, totalCash: 0, totalTransfer: 0, totalCredit: 0 };
   }
 }
 
