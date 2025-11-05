@@ -1,7 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // -----------------------------
     // Exportar inventario
-    // -----------------------------
     document.getElementById("exportExcelBtn")?.addEventListener("click", async () => {
         const res = await window.api.exportInventoryExcel();
         showAlert(res.success ? "success" : "danger", res.message);
@@ -12,9 +10,9 @@ document.addEventListener('DOMContentLoaded', () => {
         showAlert(res.success ? "success" : "danger", res.message);
     });
 
-    // -----------------------------
+    
     // Helpers
-    // -----------------------------
+   
     function formatCOP(value) {
         const num = Number(value) || 0;
         return new Intl.NumberFormat("es-CO", {
@@ -38,9 +36,9 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>`;
     }
 
-    // -----------------------------
+    
     // Cargar productos
-    // -----------------------------
+    
     async function loadProducts() {
         const { products: fetchedProducts, totalInventoryValue } = await window.api.getInventory();
         products = fetchedProducts;
@@ -105,9 +103,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // -----------------------------
     // Variantes
-    // -----------------------------
+   
     const variantsContainer = document.getElementById('variants-container');
     const addVariantBtn = document.getElementById('add-variant-btn');
 
@@ -152,9 +149,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return variants;
     }
 
-    // -----------------------------
     // Formulario
-    // -----------------------------
+    
     const form = document.getElementById('product-form');
     const minStockInput = document.getElementById('product-min-stock');
     const idInput = document.getElementById('product-id');
@@ -251,9 +247,9 @@ document.addEventListener('DOMContentLoaded', () => {
         renderTable(products.filter(p => p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q)));
     });
 
-    // -----------------------------
+   
     // Precarga desde lector de código (cuando escaneas en ventas)
-    // -----------------------------
+   
     const newProductCode = localStorage.getItem("newProductCode");
     if (newProductCode) {
         codeInput.value = newProductCode;
@@ -261,9 +257,9 @@ document.addEventListener('DOMContentLoaded', () => {
         nameInput.focus();
     }
 
-    // -----------------------------
+    
     // Inicialización
-    // -----------------------------
+    
     loadProducts();
     loadCategories();
 });

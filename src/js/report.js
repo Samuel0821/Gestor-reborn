@@ -1,5 +1,3 @@
-// reports.js
-
 document.addEventListener('DOMContentLoaded', () => {
     const reportTypeSelect = document.getElementById('reportType');
     const startDateInput = document.getElementById('startDate');
@@ -76,7 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </ul>
                 `;
 
-                // 🔹 Agregar detalle de pagos debajo de los productos
+                // Agregar detalle de pagos debajo de los productos
                 let pagosHtml = `
                     <div class="mt-2 small text-muted">
                         Efectivo: ${formatCOP(s.cash_payment || 0)} | 

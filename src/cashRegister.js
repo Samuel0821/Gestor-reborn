@@ -1,8 +1,7 @@
 const { db } = require("./database");
 
-// ------------------------------------------------------------
 // Apertura de caja
-// ------------------------------------------------------------
+
 function openCashRegister(openingBalance) {
   // Cerrar cualquier caja abierta previamente
   db.prepare(`
@@ -21,9 +20,8 @@ function openCashRegister(openingBalance) {
   return { success: true, session_id: result.lastInsertRowid };
 }
 
-// ------------------------------------------------------------
 // Obtener sesión activa
-// ------------------------------------------------------------
+
 function getActiveSession() {
   return db.prepare(`
     SELECT * FROM cash_register_sessions
@@ -33,10 +31,9 @@ function getActiveSession() {
   `).get();
 }
 
-// ------------------------------------------------------------
 // Registrar movimiento de caja
 // type = 'sale' | 'in' | 'out'
-// ------------------------------------------------------------
+
 function addCashMovement(sessionId, type, amount, description = null) {
   const stmt = db.prepare(`
     INSERT INTO cash_movements (session_id, type, description, amount)
@@ -46,9 +43,8 @@ function addCashMovement(sessionId, type, amount, description = null) {
   return { success: true, movement_id: result.lastInsertRowid };
 }
 
-// ------------------------------------------------------------
 // Cierre de caja
-// ------------------------------------------------------------
+
 function closeCashRegister(realClosingBalance) {
   const session = getActiveSession();
   if (!session) return { success: false, message: "No hay caja abierta." };
@@ -88,9 +84,9 @@ function closeCashRegister(realClosingBalance) {
   };
 }
 
-// ------------------------------------------------------------
+
 // Reportes
-// ------------------------------------------------------------
+
 function getCashRegisterSessions() {
   return db.prepare(`
     SELECT * FROM cash_register_sessions

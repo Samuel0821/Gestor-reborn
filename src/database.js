@@ -55,9 +55,7 @@ try {
   }
 } catch (e) { /* ignorar */ }
 
-// ---------------------
 // TABLAS
-// ---------------------
 db.prepare(`
 CREATE TABLE IF NOT EXISTS clients (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,10 +130,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
 )`).run();
 
-// --------------------------------------------------------------------
 // CAJA REGISTRADORA
-// --------------------------------------------------------------------
-
 // Sesiones de caja (apertura/cierre)
 db.prepare(`
   CREATE TABLE IF NOT EXISTS cash_register_sessions (
@@ -215,9 +210,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
 const countRow = db.prepare("SELECT COUNT(*) as c FROM company_settings").get();
 if (countRow.c === 0) db.prepare("INSERT INTO company_settings (id) VALUES (1)").run();
 
-// ---------------------
 // HELPERS GENERICOS
-// ---------------------
 function padNumber(n, len = 3) {
   return String(n).padStart(len, "0");
 }
@@ -233,9 +226,7 @@ function nextConsecutive(prefix, column, table) {
   return `${prefix}-${padNumber(last + 1)}`;
 }
 
-// ---------------------
 // CLIENTES
-// ---------------------
 function getClients() {
   return db.prepare("SELECT * FROM clients ORDER BY name").all();
 }
@@ -273,9 +264,7 @@ function deleteClient(id) {
   }
 }
 
-// ---------------------
 // CATEGORÍAS
-// ---------------------
 function getCategories() {
   return db.prepare("SELECT * FROM categories ORDER BY name").all();
 }
@@ -307,9 +296,7 @@ function deleteCategory(id) {
   }
 }
 
-// ---------------------
 // PRODUCTOS
-// ---------------------
 function getProducts() {
   const products = db.prepare(`
     SELECT p.*, c.name as category_name
@@ -329,7 +316,7 @@ function getProductById(id) {
   return db.prepare("SELECT * FROM products WHERE id = ?").get(id);
 }
 
-// 🔹 Helper: asegura que exista la categoría y devuelve su id
+// Helper: asegura que exista la categoría y devuelve su id
 function ensureCategoryId(categoryName) {
   if (!categoryName) return null;
   let row = db.prepare("SELECT id FROM categories WHERE name=?").get(categoryName);
@@ -597,13 +584,8 @@ function deleteSaleItem(id) {
   }
 }
 
-    // ---------------------
     // GESTIÓN DE CRÉDITOS
-    // ---------------------
-
-    /**
-     * Obtiene todos los créditos pendientes, opcionalmente filtrados por cliente.
-     */
+    // Obtiene todos los créditos pendientes, opcionalmente filtrados por cliente.
     function getCredits(searchTerm) {
         let query = `
             SELECT
@@ -623,9 +605,7 @@ function deleteSaleItem(id) {
         return db.prepare(query).all(params);
     }
 
-    /**
-     * Registra un abono a un crédito.
-     */
+     // Registra un abono a un crédito.
     function addCreditPayment(saleId, amount) {
         try {
             const sale = db.prepare("SELECT * FROM sales WHERE id = ?").get(saleId);
@@ -655,9 +635,7 @@ function deleteSaleItem(id) {
         }
     }
 
-    /**
-     * Marca un crédito como pagado.
-     */
+    // Marca un crédito como pagado.
     function markCreditAsPaid(saleId) {
         try {
             const sale = db.prepare("SELECT * FROM sales WHERE id = ?").get(saleId);
@@ -674,9 +652,7 @@ function deleteSaleItem(id) {
         }
     }
 
-// ---------------------
 // COTIZACIONES
-// ---------------------
 function createQuote({ client_id = null, items = [] }) {
   const insertQuote = db.prepare("INSERT INTO quotes (client_id, total_amount) VALUES (?, ?)");
   const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
@@ -730,7 +706,7 @@ function getLastQuoteNumber() {
   return row ? row.quote_number : null;
 }
 
-// 🔹 Actualiza el estado de una cotización
+//  Actualiza el estado de una cotización
 function updateQuote({ id, status }) {
   try {
     const stmt = db.prepare("ALTER TABLE quotes ADD COLUMN status TEXT DEFAULT 'pending'");
@@ -757,9 +733,7 @@ function deleteQuote(id) {
   }
 }
 
-// ---------------------
 // DASHBOARD
-// ---------------------
 function getDashboardData() {
   const clients = db.prepare("SELECT COUNT(*) as c FROM clients").get().c;
   const products = db.prepare("SELECT COUNT(*) as c FROM products").get().c;
@@ -768,9 +742,7 @@ function getDashboardData() {
   return { clients, products, sales, quotes };
 }
 
-// ---------------------
 // SETTINGS (company)
-// ---------------------
 function getCompanySettings() {
   return db.prepare("SELECT * FROM company_settings WHERE id = 1").get();
 }
@@ -805,9 +777,7 @@ function saveCompanySettings(s) {
   return updateCompanySettings(s);
 }
 
-// ---------------------
 // INVENTARIO Y REPORTES
-// ---------------------
 // Función para obtener el valor total del inventario
 function getInventoryTotalValue() {
   const result = db.prepare("SELECT SUM(stock * purchase_price) as total FROM products").get();
@@ -873,7 +843,7 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
 
         for (const p of payments) {
           if (p.method === "cash") {
-            // 🔹 efectivo real = recibido - cambio
+            // efectivo real = recibido - cambio
             cash_payment += (p.received || 0) - (p.change || 0);
           } else if (p.method === "transfer") {
             transfer_payment += p.amount || 0;

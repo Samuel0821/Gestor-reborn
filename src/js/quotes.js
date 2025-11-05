@@ -22,9 +22,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }).format(value);
   }
 
-  // -----------------------------
   // Modal de selección de variante para cotizaciones
-  // -----------------------------
+
   function showVariantSelectionModalForQuote(prod, qtyDefault = 1) {
     const modalHtml = `
       <div class="modal fade" id="variantModal" tabindex="-1">
@@ -77,7 +76,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const selectedVariant = prod.variants.find(v => v.id === variantId);
         if (selectedVariant) {
           price = selectedVariant.sale_price;
-          // 👇 Agregamos la variante al nombre
+          // Agregamos la variante al nombre
           productName = `${prod.name} (${selectedVariant.name})`;
         }
       }
@@ -87,14 +86,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // -----------------------------
   // Función para agregar ítems a la cotización
-  // -----------------------------
+  
   function addItemToQuote(prod, qty, price, productNameOverride = null) {
     quoteItems.push({
       product_id: prod.id,
       product_code: prod.code,
-      product_name: productNameOverride || prod.name, // 👈 aquí siempre queda con variante si aplica
+      product_name: productNameOverride || prod.name, // aquí siempre queda con variante si aplica
       quantity: qty,
       price: price,
       sale_price: prod.sale_price,
@@ -204,7 +202,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       alert(`¡Advertencia! El producto '${prod.name}' está en stock mínimo (${prod.stock} unidades).`);
     }
 
-    // 👉 Chequeamos si el producto tiene variantes
+    // Chequeamos si el producto tiene variantes
     if (prod.variants && prod.variants.length > 0) {
       showVariantSelectionModalForQuote(prod, qty);
     } else {

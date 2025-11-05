@@ -45,7 +45,9 @@ function showStartDayModal() {
       document.getElementById('start-day-value').classList.add('is-invalid');
       return;
     }
+
     // Guardar valor inicial del día y estado de login
+    
     localStorage.setItem('valor_inicial_dia', value);
     localStorage.setItem('logueado', 'true');
     modal.hide();

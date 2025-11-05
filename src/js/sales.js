@@ -12,9 +12,9 @@ function formatCOP(value) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // -----------------------------
+ 
   // Referencias a elementos
-  // -----------------------------
+  
   const productInput = document.getElementById("sale-product-input");
   const productDatalist = document.getElementById("products-list");
   const qtyInput = document.getElementById("sale-quantity");
@@ -30,9 +30,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const creditSearchBtn = document.getElementById("credit-search-btn");
   const barcodeInput = document.getElementById("barcode-input");
 
-  // -----------------------------
   // Funciones de carga
-  // -----------------------------
+  
   async function loadProducts() {
     allProducts = await window.api.getProducts();
     productDatalist.innerHTML = "";
@@ -57,9 +56,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // -----------------------------
   // Renderizar items
-  // -----------------------------
+  
   function renderSaleItems() {
     saleItemsTbody.innerHTML = "";
     let total = 0;
@@ -175,9 +173,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     qtyInput.value = "1";
   });
 
-  // -----------------------------
   // Lector de código (campo visible)
-  // -----------------------------
+  
   if (barcodeInput) {
     barcodeInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
@@ -203,9 +200,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // -----------------------------
   // Modal de vista previa (al escanear)
-  // -----------------------------
+  
   function showPreviewModal(prod) {
     const hasImage = prod.image_base64 && prod.image_base64.length > 10;
     const imageHtml = hasImage ? `<img src="${prod.image_base64}" style="max-width:120px; display:block; margin-bottom:8px;">` : `<div style="width:120px;height:60px;display:flex;align-items:center;justify-content:center;background:#f0f0f0;margin-bottom:8px;color:#666;font-size:12px;">Sin imagen</div>`;
@@ -280,9 +276,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // -----------------------------
   // Reutilizable: agregar item a la venta
-  // -----------------------------
+  
   function addItemToSale(prod, qty, variant) {
     let itemPrice = variant ? variant.sale_price : prod.sale_price;
     let itemName = variant ? `${prod.name} (${variant.name})` : prod.name;
@@ -312,9 +307,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderSaleItems();
   }
 
-  // -----------------------------
   // Modal de selección de variante
-  // -----------------------------
+
   function showVariantSelectionModal(prod, qtyDefault = 1) {
     const modalHtml = `
       <div class="modal fade" id="variantModal" tabindex="-1">
@@ -370,9 +364,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // -----------------------------
   // Modal de pago (nuevo)
-  // -----------------------------
+ 
   function showPaymentModal(totalAmount, clientId, saleType) {
     const modalHtml = `
       <div class="modal fade" id="paymentModal" tabindex="-1">
@@ -476,9 +469,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // -----------------------------
   // Finalizar venta (ajustado)
-  // -----------------------------
+ 
   finalizeBtn.addEventListener("click", async () => {
     if (saleItems.length === 0) {
       alert("No hay items en la venta.");
@@ -496,9 +488,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     showPaymentModal(totalAmount, clientId, saleType);
   });
 
-  // -----------------------------
   // Cargar ventas
-  // -----------------------------
+
   async function loadSales() {
     const sales = await window.api.getSales();
     if (!sales || sales.length === 0) {
@@ -749,7 +740,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <p class="total">TOTAL: ${formatCOP(sale.total_amount)}</p>
               </div>
 
-              <!-- 👇 Desglose de pagos -->
+              <!-- Desglose de pagos -->
               <div style="margin-top:5px; font-size:8px;">
                 ${sale.sale_type === "credit" ? `
                   <p><strong>Forma de pago:</strong> Venta a crédito</p>
@@ -758,7 +749,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                   ${sale.cash_payment ? `<p>Efectivo: ${formatCOP(sale.cash_payment)}</p>` : ""}
                   ${sale.transfer_payment ? `<p>Transferencia: ${formatCOP(sale.transfer_payment)}</p>` : ""}
                 `}
-                <!-- 👇 Aquí SIEMPRE se inyectará el cambio -->
+                <!-- Aquí SIEMPRE se inyectará el cambio -->
                 <div id="cambioContainer"></div>
               </div>
 
@@ -769,9 +760,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       `;
     }
 
-  // -----------------------------
   // Cargar créditos
-  // -----------------------------
+
   async function loadCredits(searchTerm = "") {
     const credits = await window.api.getCredits(searchTerm);
     creditsList.innerHTML = "";
@@ -806,17 +796,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // -----------------------------
+ 
   // Buscar créditos
-  // -----------------------------
+
   creditSearchBtn.addEventListener("click", () => {
     const searchTerm = creditSearchInput.value;
     loadCredits(searchTerm);
   });
 
-  // -----------------------------
+
   // Modal de detalles de crédito
-  // -----------------------------
+
   async function showCreditDetails(saleId) {
     const sale = await window.api.getSaleById(saleId);
     if (!sale) {
@@ -883,9 +873,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // -----------------------------
   // Inicialización
-  // -----------------------------
+  
   await loadProducts();
   await loadClients();
   await loadSales();

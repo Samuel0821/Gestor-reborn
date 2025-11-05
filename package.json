@@ -1,9 +1,9 @@
 {
-  "name": "gestorfx-reborn",
+  "name": "gestorfx",
   "version": "1.0.0",
-  "description": "GestorFX Reborn - clientes, productos, ventas, cotizaciones",
+  "description": "GestorFX: clientes, productos, ventas, cotizaciones, configuraciones y reportes.",
   "authors": [
-    "Ing. Samuel Grisales Barrera"
+    "Grisalis Technologies"
   ],
   "main": "src/index.js",
   "scripts": {
