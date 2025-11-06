@@ -555,13 +555,23 @@ function setInvoiceNumber(id, invoiceNumber) {
 
 function deleteSale(id) {
   try {
-    const items = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(id);
-    for (const it of items) {
-      if (it.product_id) db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(it.quantity, it.product_id);
-    }
-    db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(id);
-    db.prepare("DELETE FROM sales WHERE id = ?").run(id);
-    return { success: true, message: "Venta eliminada y stock restaurado" };
+    db.transaction(() => {
+      const items = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(id);
+      for (const it of items) {
+        if (it.product_id) {
+          db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(it.quantity, it.product_id);
+        }
+      }
+      // Eliminar pagos asociados a la venta
+      db.prepare("DELETE FROM sale_payments WHERE sale_id = ?").run(id);
+      
+      // Eliminar movimiento de caja asociado
+      db.prepare("DELETE FROM cash_movements WHERE type = 'sale' AND description = ?").run(`Venta #${id}`);
+
+      // Eliminar la venta (esto deberÃ­a disparar el borrado en cascada de sale_items)
+      db.prepare("DELETE FROM sales WHERE id = ?").run(id);
+    })();
+    return { success: true, message: "Venta eliminada completamente y stock restaurado" };
   } catch (err) {
     return { success: false, message: String(err) };
   }

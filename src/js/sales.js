@@ -455,7 +455,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (cash > 0) {
         const activeSession = await window.api.getActiveCashSession();
         if (activeSession) {
-          await window.api.addCashMovement(activeSession.id, "sale", cash, `Venta #${res.sale_id}`);
+          await window.api.addCashMovement(activeSession.id, "sale", cash, `Venta #${res.id}`);
         }
       }
 
@@ -590,170 +590,220 @@ document.addEventListener("DOMContentLoaded", async () => {
           <head>
             <meta charset="UTF-8">
             <style>
-              @page { size: 57mm auto; margin: 0; }
-              body { width: 57mm; margin: 0; font-family: Arial, sans-serif; font-size: 8px; color: #000; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              h2 { font-size: 10px; margin: 2px 0; }
-              table { width: 100%; border-collapse: collapse; font-size: 7px; }
-              td, th { border: 1px solid #ccc; padding: 0 1px; }
-              th:nth-child(1), td:nth-child(1) { width: 15%; }
-              th:nth-child(2), td:nth-child(2) { width: 35%; font-size: 6.5px; }
-              th:nth-child(3), td:nth-child(3) { width: 10%; text-align: center; }
-              th:nth-child(4), td:nth-child(4) { width: 15%; }
-              th:nth-child(5), td:nth-child(5) { width: 25%; }
-
-              .print-options-panel {
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                background-color: white;
-                padding: 15px;
-                border: 2px solid #ccc;
-                border-radius: 10px;
-                box-shadow: 0 6px 10px rgba(0,0,0,0.1);
-                display: flex;
-                flex-direction: column;
-                gap: 12px;
-                z-index: 9999;
+              @page { margin: 0mm; }
+              body { 
+                font-family: 'Arial', sans-serif; 
+                font-size: 7px;
+                color: #333;
+                padding: 0;
               }
-
+              .invoice-box {
+                padding: 0;
+              }
+              .header, .footer {
+                text-align: center;
+                margin-bottom: 2px;
+              }
+              .header h2 {
+                margin: 0;
+                font-size: 11px;
+                font-weight: bold;
+              }
+              .header p {
+                margin: 1px 0;
+                font-size: 8px;
+              }
+              .info {
+                margin-bottom: 2px;
+                border-top: 1px dashed #ccc;
+                border-bottom: 1px dashed #ccc;
+                padding: 2px 0;
+              }
+              .info p {
+                margin: 1px 0;
+                font-size: 8px;
+              }
+              .items-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 2px;
+              }
+              .items-table th {
+                border-bottom: 1px solid #000;
+                padding: 0 1px;
+                text-align: left;
+                font-weight: bold;
+                font-size: 8px;
+                line-height: 1.2;
+              }
+              .items-table td {
+                padding: 0 1px;
+                border-bottom: 1px dotted #ccc;
+                font-size: 8px;
+                line-height: 1.2;
+              }
+              .items-table .col-align-right {
+                text-align: right;
+              }
+              .totals-section, .payment-info-section {
+                  margin-top: 1px;
+              }
+              .totals-section table, .payment-info-section table {
+                  font-size: 7px;
+              }
+              .total-row td {
+                font-weight: bold;
+                font-size: 8px;
+              }
+              .footer {
+                margin-top: 5px;
+                border-top: 1px solid #000;
+                padding-top: 2px;
+              }
+              .print-options-panel {
+                position: fixed; bottom: 20px; right: 20px; background-color: white; padding: 15px;
+                border: 2px solid #ccc; border-radius: 10px; box-shadow: 0 6px 10px rgba(0,0,0,0.1);
+                display: flex; flex-direction: column; gap: 12px; z-index: 9999;
+              }
               @media print {
                 .print-options-panel { display: none; }
               }
             </style>
           </head>
           <body>
-            <!-- Panel de opciones de impresión -->
             <div class="print-options-panel">
               <label>Selecciona impresora:</label>
               <select id="printerSelect">
                 ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
               </select>
-              <label>Tamaño de papel:</label>
+              <label>TamaÃ±o de papel:</label>
               <select id="paperSizeSelect">
                 <option value="A4">A4</option>
-                <option value="80mm">80mm (Ticket)</option>
-                <option value="57mm" selected>57mm (Mini Ticket)</option>
+                <option value="80mm" selected>80mm (Ticket)</option>
+                <option value="57mm">57mm (Mini Ticket)</option>
                 <option value="Letter">Carta</option>
                 <option value="Legal">Oficio</option>
               </select>
               <label><input type="checkbox" id="includeIva"> Incluir IVA 19%</label>
               <button id="printButton">Imprimir</button>
               <button id="closePreview">Cerrar</button>
-
               <script>
-                function formatCOP(value) {
-                  return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
-                }
-
-                // ADJUST: obtener base y pago desde el server (números inyectados)
+                function formatCOP(value) { return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value); }
                 const totalBase = ${Number(sale.total_amount || 0)};
                 const pago = ${Number(sale.cash_payment || 0)} + ${Number(sale.transfer_payment || 0)};
-
-                // ADJUST: función compacta para recalcular totales y cambio
                 function updateTotals() {
                   const includeIva = document.getElementById("includeIva").checked;
-                  let iva = 0;
-                  let total = totalBase;
-
+                  let iva = 0; let total = totalBase;
+                  const extraTotalsBody = document.getElementById("extraTotals");
                   if (includeIva) {
-                    iva = Math.round(totalBase * 0.19);
-                    total = totalBase + iva;
-                    document.getElementById("extraTotals").innerHTML = 
-                      "<p>Total bruto: " + formatCOP(totalBase) + "</p>" +
-                      "<p>IVA (19%): " + formatCOP(iva) + "</p>" +
-                      "<p class='total'>Total neto: " + formatCOP(total) + "</p>";
+                    iva = Math.round(totalBase * 0.19); total = totalBase + iva;
+                    extraTotalsBody.innerHTML = 
+                        '<tr><td>Total bruto:</td><td style="text-align: right;">' + formatCOP(totalBase) + '</td></tr>' +
+                        '<tr><td>IVA (19%):</td><td style="text-align: right;">' + formatCOP(iva) + '</td></tr>' +
+                        '<tr class="total-row"><td>Total neto:</td><td style="text-align: right;">' + formatCOP(total) + '</td></tr>';
                   } else {
-                    document.getElementById("extraTotals").innerHTML = 
-                      "<p class='total'>TOTAL: " + formatCOP(totalBase) + "</p>";
+                    extraTotalsBody.innerHTML = '<tr class="total-row"><td>TOTAL:</td><td style="text-align: right;">' + formatCOP(totalBase) + '</td></tr>';
                   }
-
-                  // calcular cambio siempre respecto al total (bruto o neto)
                   const cambio = pago - total;
+                  const cambioContainer = document.getElementById("cambioContainer");
                   if (cambio > 0) {
-                    document.getElementById("cambioContainer").innerHTML =
-                      "<p>Cambio: " + formatCOP(cambio) + "</p>";
+                    cambioContainer.innerHTML = '<tr><td>Cambio:</td><td style="text-align: right;">' + formatCOP(cambio) + '</td></tr>';
                   } else {
-                    document.getElementById("cambioContainer").innerHTML = "";
+                    cambioContainer.innerHTML = "";
                   }
                 }
-
-                // ADJUST: inicializar la vista para que muestre cambio sin tocar la casilla IVA
-                document.addEventListener("DOMContentLoaded", () => {
-                  updateTotals();
-                });
-
-                // ADJUST: recalcular cuando cambie la casilla IVA
+                document.addEventListener("DOMContentLoaded", () => { updateTotals(); });
                 document.getElementById("includeIva").addEventListener("change", updateTotals);
-
-                document.getElementById("printButton").addEventListener("click", () => {
-                  updateTotals(); // asegurar que esté actualizado antes de imprimir
-                  window.print();
-                });
-
+                document.getElementById("printButton").addEventListener("click", () => { updateTotals(); window.print(); });
                 document.getElementById("closePreview").addEventListener("click", () => window.close());
               </script>
             </div>
 
-            <!-- Factura -->
-            <div id="factura">
-              <div style="text-align:center; margin-bottom:15px;">
-                ${logoBase64 ? `<img src="${logoBase64}" style="max-height:90px;"><br>` : ""}
+            <div class="invoice-box">
+              <div class="header">
+                ${logoBase64 ? `<img src="${logoBase64}" style="max-height:70px; margin-bottom: 10px;"><br>` : ""}
                 <h2>${company.company_name || ""}</h2>
                 <p>NIT: ${company.company_id_card_or_nit || ""}</p>
                 <p>${company.company_address || ""}</p>
-                <p>Tel: ${company.company_phone || ""} — ${company.company_email || ""}</p>
+                <p>Tel: ${company.company_phone || ""} â€” ${company.company_email || ""}</p>
               </div>
 
-              <center><h2>Factura ${sale.invoice_number || `FACT-${sale.id}`}</h2>
-              <p>Fecha: ${sale.sale_date}</p>
-              <p>Cliente: ${client ? client.name : "N/A"}</p>
-              <p>NIT/Cédula: ${client ? client.id_card_or_nit : "N/A"}</p>
-              <p>Dirección: ${client ? client.address : "N/A"}</p>
-              <p>Teléfono: ${client ? client.phone : "N/A"}</p>
-              </center>
+              <div class="info">
+                <p><strong>Factura:</strong> ${sale.invoice_number || `FACT-${sale.id}`}</p>
+                <p><strong>Fecha:</strong> ${sale.sale_date}</p>
+                ${client ? `
+                <p><strong>Cliente:</strong> ${client.name}</p>
+                <p><strong>NIT/Cédula:</strong> ${client.id_card_or_nit}</p>
+                <p><strong>Dirección:</strong> ${client.address}</p>
+                <p><strong>Teléfono:</strong> ${client.phone}</p>
+                ` : ''}
+              </div>
 
-              <table>
+              <table class="items-table">
+                <colgroup>
+                  <col style="width: 10%;">
+                  <col style="width: 20%;">
+                  <col style="width: 10%;">
+                  <col style="width: 30%;">
+                  <col style="width: 30%;">
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Código</th>
                     <th>Producto</th>
-                    <th>Cant</th>
-                    <th>Precio</th>
-                    <th>Subtotal</th>
+                    <th class="col-align-right">Cant</th>
+                    <th class="col-align-right">Precio</th>
+                    <th class="col-align-right">Subtotal</th>
                   </tr>
                 </thead>
                 <tbody>
                   ${items.map(it => `
                     <tr>
                       <td>${it.product_code || ""}</td>
-                      <td>${it.product_name}</td>
-                      <td>${it.quantity}</td>
-                      <td>${formatCOP(it.price)}</td>
-                      <td>${formatCOP(it.subtotal)}</td>
+                      <td style="word-break: break-word;">${it.product_name}</td>
+                      <td class="col-align-right">${it.quantity}</td>
+                      <td class="col-align-right">${formatCOP(it.price)}</td>
+                      <td class="col-align-right">${formatCOP(it.subtotal)}</td>
                     </tr>
                   `).join("")}
                 </tbody>
               </table>
 
-              <!-- Totales dinámicos -->
-              <div id="extraTotals">
-                <p class="total">TOTAL: ${formatCOP(sale.total_amount)}</p>
+              <div class="totals-section">
+                <table style="width: 30%;">
+                    <tbody id="extraTotals">
+                        <tr class="total-row">
+                            <td>TOTAL:</td>
+                            <td style="text-align: right;">${formatCOP(sale.total_amount)}</td>
+                        </tr>
+                    </tbody>
+                </table>
               </div>
 
-              <!-- Desglose de pagos -->
-              <div style="margin-top:5px; font-size:8px;">
-                ${sale.sale_type === "credit" ? `
-                  <p><strong>Forma de pago:</strong> Venta a crédito</p>
-                ` : `
-                  <p><strong>Forma de pago:</strong> ${sale.sale_type === "cash" ? "Efectivo" : sale.sale_type === "transfer" ? "Transferencia" : "Mixto"}</p>
-                  ${sale.cash_payment ? `<p>Efectivo: ${formatCOP(sale.cash_payment)}</p>` : ""}
-                  ${sale.transfer_payment ? `<p>Transferencia: ${formatCOP(sale.transfer_payment)}</p>` : ""}
-                `}
-                <!-- Aquí SIEMPRE se inyectará el cambio -->
-                <div id="cambioContainer"></div>
+              <div class="payment-info-section">
+                <table style="width: 30%;">
+                    <tbody>
+                    ${sale.sale_type === "credit" ? `
+                        <tr>
+                            <td><strong>Forma de pago:</strong></td>
+                            <td style="text-align: right;">Venta a crédito</td>
+                        </tr>
+                    ` : `
+                        <tr>
+                            <td><strong>Forma de pago:</strong></td>
+                            <td style="text-align: right;">${sale.sale_type === "cash" ? "Efectivo" : sale.sale_type === "transfer" ? "Transferencia" : "Mixto"}</td>
+                        </tr>
+                        ${sale.cash_payment > 0 ? `<tr><td>Efectivo:</td><td style="text-align: right;">${formatCOP(sale.cash_payment)}</td></tr>` : ""}
+                        ${sale.transfer_payment > 0 ? `<tr><td>Transferencia:</td><td style="text-align: right;">${formatCOP(sale.transfer_payment)}</td></tr>` : ""}
+                    `}
+                    </tbody>
+                </table>
+                <table style="width: 30%;"><tbody id="cambioContainer"></tbody></table>
               </div>
 
-              <center><p>Gracias por su compra</p></center>
+              <div class="footer">
+                <p>Gracias por su compra</p>
+              </div>
             </div>
           </body>
         </html>

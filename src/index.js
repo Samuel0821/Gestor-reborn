@@ -351,25 +351,23 @@
   // ---------------- IMPRESIÓN ----------------
   // Vista previa de factura
             ipcMain.handle("preview-invoice", async (event, { content }) => {
-              const previewWin = new BrowserWindow({
-                width: 800,
-                height: 600,
-                show: true, // 👈 mostrar la ventana con la factura cargada
+              let previewWin = new BrowserWindow({
+                width: 350, // Ancho para simular un tiquete de 80mm
+                height: 800,
+                show: false,
                 webPreferences: {
-                  preload: path.join(__dirname, "preload.js"),
-                  contextIsolation: true,
-                  nodeIntegration: false,
+                    preload: path.join(__dirname, "preload.js"),
+                    contextIsolation: true,
+                    nodeIntegration: false,
                 },
               });
 
-              await previewWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(content));
-
-              previewWin.webContents.on("did-finish-load", () => {
-                previewWin.webContents.print({
-                  silent: false,          // 👈 mostrar diálogo de impresión
-                  printBackground: true,  // imprimir con fondos/colores
-                });
+              previewWin.on('closed', () => {
+                previewWin = null;
               });
+
+              await previewWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(content));
+              previewWin.show();
             });
 
             // Obtener lista de impresoras
