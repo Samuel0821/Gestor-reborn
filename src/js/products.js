@@ -81,6 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 stockInput.value = p.stock || 0;
                 minStockInput.value = p.min_stock || 0;
                 
+                supplierSelect.value = p.supplier_id || '';
                 // --- LÓGICA DE EDICIÓN DE VARIANTES ---
                 variantsContainer.innerHTML = '';
                 if (p.variants && p.variants.length > 0) {
@@ -162,6 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const saleInput = document.getElementById('product-sale-price');
     const stockInput = document.getElementById('product-stock');
     const cancelBtn = document.getElementById('cancel-product');
+    const supplierSelect = document.getElementById('product-supplier');
     const table = document.getElementById('products-table');
     const search = document.getElementById('search-product');
     const codeErrorMessageSpan = document.getElementById('code-error-message');
@@ -176,6 +178,17 @@ document.addEventListener('DOMContentLoaded', () => {
             o.value = c.name;
             o.textContent = c.name;
             categorySelect.appendChild(o);
+        });
+    }
+
+    async function loadSuppliers() {
+        const suppliers = await window.api.getSuppliers();
+        supplierSelect.innerHTML = '<option value="">(Sin proveedor)</option>';
+        suppliers.forEach(s => {
+            const o = document.createElement('option');
+            o.value = s.id;
+            o.textContent = s.name;
+            supplierSelect.appendChild(o);
         });
     }
 
@@ -196,6 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
             special_price: parseFloat(specialPrice) || 0,
             stock: parseInt(stockInput.value, 10) || 0,
             min_stock: parseInt(minStockInput.value, 10) || 0,
+            supplier_id: supplierSelect.value ? Number(supplierSelect.value) : null,
             variants // Agregamos el array de variantes al payload
         };
         
@@ -236,6 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
     cancelBtn.addEventListener('click', () => { 
         form.reset(); 
         idInput.value=''; 
+        supplierSelect.value = '';
         cancelBtn.style.display='none'; 
         variantsContainer.innerHTML = ''; 
     });
@@ -262,4 +277,5 @@ document.addEventListener('DOMContentLoaded', () => {
     
     loadProducts();
     loadCategories();
+    loadSuppliers();
 });

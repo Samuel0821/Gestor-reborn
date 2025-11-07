@@ -24,6 +24,16 @@ contextBridge.exposeInMainWorld("api", {
   getCategories: () => ipcRenderer.invoke("get-categories"),
   getInventory: () => ipcRenderer.invoke("get-inventory"),
 
+  // suppliers
+  getSuppliers: () => ipcRenderer.invoke("get-suppliers"),
+  getSupplierById: (id) => ipcRenderer.invoke("get-supplier-by-id", id),
+  saveSupplier: (data) => ipcRenderer.invoke("save-supplier", data),
+  updateSupplier: (data) => ipcRenderer.invoke("update-supplier", data),
+  deleteSupplier: (id) => ipcRenderer.invoke("delete-supplier", id),
+  exportSuppliersExcel: () => ipcRenderer.invoke("export-suppliers-excel"),
+  exportSuppliersPDF: () => ipcRenderer.invoke("export-suppliers-pdf"),
+  getSuppliersCount: () => ipcRenderer.invoke("get-suppliers-count"),
+
   // sales
   createSale: (data) => ipcRenderer.invoke("create-sale", data),
   getSales: () => ipcRenderer.invoke("get-sales"),
@@ -41,6 +51,15 @@ contextBridge.exposeInMainWorld("api", {
 getCredits: (searchTerm = "") => ipcRenderer.invoke("get-credits", searchTerm),
 addCreditPayment: (saleId, amount) => ipcRenderer.invoke("add-credit-payment", saleId, amount),
 markCreditAsPaid: (saleId) => ipcRenderer.invoke("mark-credit-as-paid", saleId),
+
+  // Purchase Orders
+  createPurchaseOrder: (data) => ipcRenderer.invoke("create-purchase-order", data),
+  getPurchaseOrders: () => ipcRenderer.invoke("get-purchase-orders"),
+  getPurchaseOrderById: (id) => ipcRenderer.invoke("get-purchase-order-by-id", id),
+  updatePurchaseOrder: (data) => ipcRenderer.invoke("update-purchase-order", data),
+  exportPurchaseOrderPDF: (id) => ipcRenderer.invoke("export-purchase-order-pdf", id),
+  receivePurchaseOrder: (id) => ipcRenderer.invoke("receive-purchase-order", id),
+  deletePurchaseOrder: (id) => ipcRenderer.invoke("delete-purchase-order", id),
 
   // quotes
   createQuote: (data) => ipcRenderer.invoke("create-quote", data),

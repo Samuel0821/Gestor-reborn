@@ -100,6 +100,15 @@
       ipcMain.handle("update-category", (event, id, name) => db.updateCategory(id, name));
       ipcMain.handle("delete-category", (event, id) => db.deleteCategory(id));
 
+      // Proveedores
+      ipcMain.handle("get-suppliers", () => db.getSuppliers());
+      ipcMain.handle("get-supplier-by-id", (event, id) => db.getSupplierById(id));
+      ipcMain.handle("save-supplier", (event, data) => db.saveSupplier(data));
+      ipcMain.handle("update-supplier", (event, data) => db.updateSupplier(data));
+      ipcMain.handle("delete-supplier", (event, id) => db.deleteSupplier(id));
+
+      ipcMain.handle("get-suppliers-count", () => db.getSuppliersCount());
+
       // Ventas
       ipcMain.handle("create-sale", (event, data) => db.createSale(data));
       ipcMain.handle("get-sales", () => db.getSales());
@@ -139,6 +148,15 @@
       ipcMain.handle("get-credits", async (event, searchTerm) => db.getCredits(searchTerm));
       ipcMain.handle("add-credit-payment", async (event, saleId, amount) => db.addCreditPayment(saleId, amount));
       ipcMain.handle("mark-credit-as-paid", async (event, saleId) => db.markCreditAsPaid(saleId));
+
+      // Ordenes de Compra
+      ipcMain.handle("create-purchase-order", (event, data) => db.createPurchaseOrder(data));
+      ipcMain.handle("get-purchase-orders", () => db.getPurchaseOrders());
+      ipcMain.handle("get-purchase-order-by-id", (event, id) => db.getPurchaseOrderById(id));
+      ipcMain.handle("update-purchase-order", (event, data) => db.updatePurchaseOrder(data));
+      ipcMain.handle("delete-purchase-order", (event, id) => db.deletePurchaseOrder(id));
+      ipcMain.handle("export-purchase-order-pdf", (event, id) => exportPurchaseOrderPDF(id));
+      ipcMain.handle("receive-purchase-order", (event, id) => db.receivePurchaseOrder(id));
 
       // Cotizaciones
       ipcMain.handle("create-quote", (event, data) => db.createQuote(data));
@@ -348,6 +366,87 @@
             }
           });
 
+      // Exportar proveedores a PDF
+      ipcMain.handle("export-suppliers-pdf", async () => {
+        try {
+            const suppliers = db.getSuppliers() || [];
+            const company = db.getCompanySettings() || {};
+
+            const { filePath, canceled } = await dialog.showSaveDialog({
+                title: "Guardar Lista de Proveedores en PDF",
+                defaultPath: "proveedores.pdf",
+                filters: [{ name: "PDF", extensions: ["pdf"] }],
+            });
+            if (canceled || !filePath) return { success: false, message: "Exportación cancelada." };
+
+            const doc = new PDFDocument({ margin: 40, size: "A4" });
+            const stream = fs.createWriteStream(filePath);
+            doc.pipe(stream);
+
+            renderPdfHeader(doc, company, "Lista de Proveedores");
+
+            let y = doc.y + 10;
+            doc.fontSize(11).font("Helvetica-Bold");
+            doc.text("Nombre", 40, y, { width: 150 });
+            doc.text("NIT", 200, y, { width: 100 });
+            doc.text("Dirección", 310, y, { width: 120 });
+            doc.text("Teléfono", 440, y, { width: 100 });
+            y += 18;
+            doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+
+            doc.font("Helvetica").fontSize(10);
+            for (const s of suppliers) {
+                const rowHeight = Math.max(
+                    doc.heightOfString(s.name || "", { width: 150 }),
+                    doc.heightOfString(s.address || "", { width: 120 })
+                ) + 5;
+
+                if (y + rowHeight > doc.page.height - doc.page.margins.bottom) {
+                    doc.addPage();
+                    y = 40;
+                }
+                doc.text(s.name || "", 40, y, { width: 150 });
+                doc.text(s.nit || "", 200, y, { width: 100 });
+                doc.text(s.address || "", 310, y, { width: 120 });
+                doc.text(s.phone || "", 440, y, { width: 100 });
+                y += rowHeight;
+            }
+
+            doc.end();
+            await new Promise((res, rej) => { stream.on("finish", res); stream.on("error", rej); });
+
+            return { success: true, message: "Lista de proveedores exportada a PDF.", filePath };
+        } catch (err) {
+            return { success: false, message: "Error al exportar proveedores a PDF: " + (err.message || String(err)) };
+        }
+    });
+
+    // Exportar proveedores a Excel
+    ipcMain.handle("export-suppliers-excel", async () => {
+        try {
+            const suppliers = db.getSuppliers() || [];
+            const { filePath, canceled } = await dialog.showSaveDialog({
+                title: "Guardar Lista de Proveedores en Excel",
+                defaultPath: "proveedores.xlsx",
+                filters: [{ name: "Excel Files", extensions: ["xlsx"] }],
+            });
+            if (canceled || !filePath) return { success: false, message: "Exportación cancelada." };
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet("Proveedores");
+            worksheet.columns = [
+                { header: "Nombre", key: "name", width: 30 }, { header: "NIT", key: "nit", width: 20 },
+                { header: "Dirección", key: "address", width: 30 }, { header: "Email", key: "email", width: 25 },
+                { header: "Teléfono", key: "phone", width: 20 },
+            ];
+            worksheet.addRows(suppliers);
+            await workbook.xlsx.writeFile(filePath);
+            return { success: true, message: "Lista de proveedores exportada a Excel.", filePath };
+        } catch (err) {
+            return { success: false, message: "Error al exportar proveedores a Excel: " + (err.message || String(err)) };
+        }
+    });
+
   // ---------------- IMPRESIÓN ----------------
   // Vista previa de factura
             ipcMain.handle("preview-invoice", async (event, { content }) => {
@@ -487,42 +586,39 @@
 
           let y = doc.y + 10;
           doc.fontSize(11).font("Helvetica-Bold");
-          doc.text("#", 40, y, { width: 20 });
-          doc.text("Código", 60, y, { width: 60 });
-          doc.text("Nombre", 120, y, { width: 180 });
-          doc.text("Precio", 320, y, { width: 70, align: "right" });
-          doc.text("Cant.", 400, y, { width: 50, align: "right" });
-          doc.text("Subtotal", 460, y, { width: 80, align: "right" });
+          doc.text("#", 40, y, { width: 25 });
+          doc.text("Nombre", 75, y, { width: 245 });
+          doc.text("Precio", 320, y, { width: 80, align: "right" });
+          doc.text("Cant.", 410, y, { width: 50, align: "right" });
+          doc.text("Subtotal", 470, y, { width: 80, align: "right" });
           y += 18;
           doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
 
           doc.font("Helvetica").fontSize(10);
           let idx = 1;
           for (const it of items) {
-            const nextY = y + doc.heightOfString(it.product_name || "-", { width: 180 }) + 5;
+            const nextY = y + doc.heightOfString(it.product_name || "-", { width: 245 }) + 5;
             if (nextY > 700) {
               doc.addPage();
               y = 40;
               doc.fontSize(11).font("Helvetica-Bold");
-              doc.text("#", 40, y, { width: 20 });
-              doc.text("Código", 60, y, { width: 60 });
-              doc.text("Nombre", 120, y, { width: 180 });
-              doc.text("Precio", 320, y, { width: 70, align: "right" });
-              doc.text("Cant.", 400, y, { width: 50, align: "right" });
-              doc.text("Subtotal", 460, y, { width: 80, align: "right" });
+              doc.text("#", 40, y, { width: 25 });
+              doc.text("Nombre", 75, y, { width: 245 });
+              doc.text("Precio", 320, y, { width: 80, align: "right" });
+              doc.text("Cant.", 410, y, { width: 50, align: "right" });
+              doc.text("Subtotal", 470, y, { width: 80, align: "right" });
               y += 18;
               doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
               doc.font("Helvetica").fontSize(10);
               y += 10;
             }
 
-            const productHeight = doc.heightOfString(it.product_name || "-", { width: 180 });
-            doc.text(String(idx), 40, y, { width: 20 });
-            doc.text(it.product_code || "-", 60, y, { width: 60 });
-            doc.text(it.product_name || "-", 120, y, { width: 180 });
-            doc.text(formatCOP(it.price), 320, y, { width: 70, align: "right" });
-            doc.text(String(it.quantity), 400, y, { width: 50, align: "right" });
-            doc.text(formatCOP(it.subtotal), 460, y, { width: 80, align: "right" });
+            const productHeight = doc.heightOfString(it.product_name || "-", { width: 245 });
+            doc.text(String(idx), 40, y, { width: 25 });
+            doc.text(it.product_name || "-", 75, y, { width: 245 });
+            doc.text(formatCOP(it.price), 320, y, { width: 80, align: "right" });
+            doc.text(String(it.quantity), 410, y, { width: 50, align: "right" });
+            doc.text(formatCOP(it.subtotal), 470, y, { width: 80, align: "right" });
             y += productHeight + 5;
             idx++;
           }
@@ -613,19 +709,18 @@
             let y = doc.y + 10;
             doc.fontSize(11).font("Helvetica-Bold");
             doc.text("#", 40, y, { width: 25 });
-            doc.text("Código", 65, y, { width: 75 });
-            doc.text("Nombre", 140, y, { width: 190 });
-            doc.text("Precio", 330, y, { align: "right", width: 70 });
-            doc.text("Cant.", 400, y, { align: "right", width: 50 });
-            doc.text("Subtotal", 450, y, { align: "right", width: 95 });
+            doc.text("Nombre", 75, y, { width: 255 });
+            doc.text("Precio", 330, y, { align: "right", width: 80 });
+            doc.text("Cant.", 420, y, { align: "right", width: 50 });
+            doc.text("Subtotal", 480, y, { align: "right", width: 70 });
             y += 18;
             doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
 
             doc.font("Helvetica").fontSize(9);
             let idx = 1;
             for (const it of items) {
-                const productText = it.product_name || "-";
-                const productHeight = doc.heightOfString(productText, { width: 190 });
+                const productText = it.product_name || "-";;
+                const productHeight = doc.heightOfString(productText, { width: 255 });
                 const lineHeight = Math.max(20, productHeight + 25);
 
                 if (y + lineHeight > doc.page.height - doc.page.margins.bottom - 40) {
@@ -633,11 +728,10 @@
                     y = 40;
                     doc.fontSize(11).font("Helvetica-Bold");
                     doc.text("#", 40, y, { width: 25 });
-                    doc.text("Código", 65, y, { width: 75 });
-                    doc.text("Nombre", 140, y, { width: 190 });
-                    doc.text("Precio", 330, y, { align: "right", width: 70 });
-                    doc.text("Cant.", 400, y, { align: "right", width: 50 });
-                    doc.text("Subtotal", 450, y, { align: "right", width: 95 });
+                    doc.text("Nombre", 75, y, { width: 255 });
+                    doc.text("Precio", 330, y, { align: "right", width: 80 });
+                    doc.text("Cant.", 420, y, { align: "right", width: 50 });
+                    doc.text("Subtotal", 480, y, { align: "right", width: 70 });
                     y += 18;
                     doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
                     doc.font("Helvetica").fontSize(9);
@@ -646,11 +740,10 @@
 
                 const currentY = y;
                 doc.text(String(idx), 40, currentY, { width: 25 });
-                doc.text(it.product_code || "-", 65, currentY, { width: 75 });
-                doc.text(productText, 140, currentY, { width: 190 });
-                doc.text(formatCOP(it.price), 330, currentY, { align: "right", width: 70 });
-                doc.text(String(it.quantity), 400, currentY, { align: "right", width: 50 });
-                doc.text(formatCOP(it.subtotal), 450, currentY, { align: "right", width: 95 });
+                doc.text(productText, 75, currentY, { width: 255 });
+                doc.text(formatCOP(it.price), 330, currentY, { align: "right", width: 80 });
+                doc.text(String(it.quantity), 420, currentY, { align: "right", width: 50 });
+                doc.text(formatCOP(it.subtotal), 480, currentY, { align: "right", width: 70 });
                 y += lineHeight;
                 idx++;
             }
@@ -801,4 +894,71 @@
             return { success: false, message: "Error al exportar inventario Excel: " + (err.message || String(err)) };
         }
     });
+  }
+
+  async function exportPurchaseOrderPDF(orderId) {
+    try {
+      const order = db.getPurchaseOrderById(orderId);
+      if (!order) return { success: false, message: "Orden de compra no encontrada" };
+      
+      const company = db.getCompanySettings() || {};
+
+      const { filePath, canceled } = await dialog.showSaveDialog({
+        title: "Guardar Orden de Compra en PDF",
+        defaultPath: `Orden-Compra-${order.po_number || order.id}.pdf`,
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+
+      if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
+
+      const doc = new PDFDocument({ margin: 40, size: "A4" });
+      const stream = fs.createWriteStream(filePath);
+      doc.pipe(stream);
+
+      renderPdfHeader(doc, company, `Orden de Compra #${order.po_number || order.id}`);
+
+      // Datos del proveedor
+      doc.fontSize(11).font("Helvetica-Bold").text("Proveedor:", 40, doc.y + 10);
+      doc.font("Helvetica").fontSize(10);
+      doc.text(`Nombre: ${order.supplier_name || ""}`);
+      doc.text(`Dirección: ${order.supplier_address || ""}`);
+      doc.text(`Teléfono: ${order.supplier_phone || ""}`);
+      doc.moveDown(1);
+
+      let y = doc.y + 10;
+      doc.fontSize(11).font("Helvetica-Bold");
+      doc.text("Producto", 40, y, { width: 280 });
+      doc.text("Cant.", 320, y, { align: "right", width: 70 });
+      doc.text("Precio Unit.", 390, y, { align: "right", width: 85 });
+      doc.text("Subtotal", 475, y, { align: "right", width: 80 });
+      y += 18;
+      doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+
+      doc.font("Helvetica").fontSize(10);
+      for (const it of order.items) {
+        const productHeight = doc.heightOfString(it.product_name || "-", { width: 280 });
+        if (y + productHeight > doc.page.height - doc.page.margins.bottom - 40) {
+          doc.addPage();
+          y = 40;
+        }
+        doc.text(it.product_name || "-", 40, y, { width: 280 });
+        doc.text(String(it.quantity), 320, y, { align: "right", width: 70 });
+        doc.text(formatCOP(it.price), 390, y, { align: "right", width: 85 });
+        doc.text(formatCOP(it.subtotal), 475, y, { align: "right", width: 80 });
+        y += productHeight + 5;
+      }
+
+      doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(order.total_amount)}`, 400, y + 20, { align: "right" });
+
+      doc.end();
+      await new Promise((res, rej) => {
+        stream.on("finish", res);
+        stream.on("error", rej);
+      });
+
+      return { success: true, message: "Orden de Compra exportada a PDF.", filePath };
+    } catch (err) {
+      console.error("Error exporting Purchase Order PDF:", err);
+      return { success: false, message: "Error al exportar la Orden de Compra: " + (err.message || String(err)) };
+    }
   }

@@ -87,6 +87,17 @@ CREATE TABLE IF NOT EXISTS products (
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 )`).run();
 
+// 1. Crear tabla de proveedores (similar a la de clientes)
+db.prepare(`
+CREATE TABLE IF NOT EXISTS suppliers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  nit TEXT UNIQUE,
+  address TEXT,
+  email TEXT,
+  phone TEXT
+)`).run();
+
 // Añadir la tabla de variantes de productos
 db.prepare(`
 CREATE TABLE IF NOT EXISTS product_variants (
@@ -98,6 +109,38 @@ CREATE TABLE IF NOT EXISTS product_variants (
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 )`).run();
 
+// 2. Añadir columna para relacionar producto con proveedor
+try {
+  const productCols = db.prepare("PRAGMA table_info(products)").all();
+  if (!productCols.some(c => c.name === "supplier_id")) {
+    db.prepare("ALTER TABLE products ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL").run();
+  }
+} catch(e) { /* ignorar si ya existe */ }
+
+db.prepare(`
+CREATE TABLE IF NOT EXISTS purchase_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplier_id INTEGER NOT NULL,
+  order_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  total_amount REAL NOT NULL DEFAULT 0,
+  po_number TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending', -- pending, completed
+  FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+)`).run();
+
+db.prepare(`
+CREATE TABLE IF NOT EXISTS purchase_order_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  purchase_order_id INTEGER NOT NULL,
+  product_id INTEGER NOT NULL,
+  product_name TEXT,
+  product_code TEXT,
+  quantity INTEGER NOT NULL,
+  price REAL NOT NULL, -- purchase_price
+  subtotal REAL NOT NULL,
+  FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+)`).run();
 
 db.prepare(`
 CREATE TABLE IF NOT EXISTS sales (
@@ -264,6 +307,42 @@ function deleteClient(id) {
   }
 }
 
+// PROVEEDORES
+function getSuppliers() {
+  return db.prepare("SELECT * FROM suppliers ORDER BY name").all();
+}
+
+function getSupplierById(id) {
+  return db.prepare("SELECT * FROM suppliers WHERE id = ?").get(id);
+}
+
+function saveSupplier(supplier) {
+  try {
+    const res = db.prepare(`INSERT INTO suppliers (name, nit, address, email, phone) VALUES (?, ?, ?, ?, ?)`).run(supplier.name, supplier.nit, supplier.address, supplier.email, supplier.phone);
+    return { success: true, message: "Proveedor registrado", id: res.lastInsertRowid };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function updateSupplier(supplier) {
+  try {
+    db.prepare(`UPDATE suppliers SET name=?, nit=?, address=?, email=?, phone=? WHERE id=?`).run(supplier.name, supplier.nit, supplier.address, supplier.email, supplier.phone, supplier.id);
+    return { success: true, message: "Proveedor actualizado" };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function deleteSupplier(id) {
+  db.prepare("DELETE FROM suppliers WHERE id=?").run(id);
+  return { success: true, message: "Proveedor eliminado" };
+}
+
+function getSuppliersCount() {
+  return db.prepare("SELECT COUNT(*) as c FROM suppliers").get().c;
+}
+
 // CATEGORÍAS
 function getCategories() {
   return db.prepare("SELECT * FROM categories ORDER BY name").all();
@@ -299,9 +378,9 @@ function deleteCategory(id) {
 // PRODUCTOS
 function getProducts() {
   const products = db.prepare(`
-    SELECT p.*, c.name as category_name
+    SELECT p.*, c.name as category_name, s.name as supplier_name
     FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
+    LEFT JOIN categories c ON p.category_id = c.id LEFT JOIN suppliers s ON p.supplier_id = s.id
     ORDER BY p.name
   `).all();
   // Obtener variantes para cada producto
@@ -328,11 +407,10 @@ function ensureCategoryId(categoryName) {
 function addProduct(p) {
   try {
     const catId = ensureCategoryId(p.category);
-    // Usamos una transacción para asegurar que el producto y sus variantes se guarden juntos
     const result = db.transaction(() => {
         const productRes = db.prepare(`
-            INSERT INTO products (code, name, category, category_id, purchase_price, sale_price, special_price, stock, min_stock)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO products (code, name, category, category_id, purchase_price, sale_price, special_price, stock, min_stock, supplier_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             p.code,
             p.name,
@@ -342,7 +420,8 @@ function addProduct(p) {
             p.sale_price || 0,
             p.special_price || 0,
             p.stock || 0,
-            p.min_stock || 0
+            p.min_stock || 0,
+            p.supplier_id || null
         );
         const productId = productRes.lastInsertRowid;
         if (p.variants && p.variants.length > 0) {
@@ -368,7 +447,7 @@ function updateProduct(p) {
     db.transaction(() => {
         db.prepare(`
             UPDATE products
-            SET code=?, name=?, category=?, category_id=?, purchase_price=?, sale_price=?, special_price=?, stock=?, min_stock=?
+            SET code=?, name=?, category=?, category_id=?, purchase_price=?, sale_price=?, special_price=?, stock=?, min_stock=?, supplier_id=?
             WHERE id=?
         `).run(
             p.code,
@@ -380,6 +459,7 @@ function updateProduct(p) {
             p.special_price || 0,
             p.stock || 0,
             p.min_stock || 0,
+            p.supplier_id || null,
             p.id
         );
         // Borrar variantes antiguas e insertar nuevas
@@ -887,10 +967,144 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
   }
 }
 
+// ORDENES DE COMPRA (Purchase Orders)
+function createPurchaseOrder({ supplier_id, items = [] }) {
+  const insertPO = db.prepare("INSERT INTO purchase_orders (supplier_id, total_amount) VALUES (?, ?)");
+  const insertItem = db.prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
+  const getProduct = db.prepare("SELECT id, code, name, purchase_price FROM products WHERE id = ?");
+
+  const trx = db.transaction((supplier_id, items) => {
+    const po = insertPO.run(supplier_id, 0);
+    const poId = po.lastInsertRowid;
+    let total = 0;
+    for (const it of items) {
+      const prod = getProduct.get(it.product_id);
+      const prodName = prod ? prod.name : "Producto no encontrado";
+      const prodCode = prod ? prod.code : "";
+      const price = (it.price != null) ? it.price : (prod ? prod.purchase_price : 0);
+      const subtotal = price * it.quantity;
+      total += subtotal;
+      insertItem.run(poId, it.product_id, prodName, prodCode, it.quantity, price, subtotal);
+    }
+    db.prepare("UPDATE purchase_orders SET total_amount = ? WHERE id = ?").run(total, poId);
+    
+    // Generar número consecutivo para la orden de compra
+    const poNumber = nextConsecutive("OC", "po_number", "purchase_orders");
+    db.prepare("UPDATE purchase_orders SET po_number = ? WHERE id = ?").run(poNumber, poId);
+    
+    return poId;
+  });
+
+  try {
+    const id = trx(supplier_id, items);
+    return { success: true, message: "Orden de Compra creada", id };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function getPurchaseOrders() {
+  const orders = db.prepare(`
+    SELECT po.*, s.name as supplier_name 
+    FROM purchase_orders po
+    JOIN suppliers s ON po.supplier_id = s.id
+    ORDER BY po.order_date DESC
+  `).all();
+  const itemsStmt = db.prepare("SELECT * FROM purchase_order_items WHERE purchase_order_id = ?");
+  for (const o of orders) {
+    o.items = itemsStmt.all(o.id);
+  }
+  return orders;
+}
+
+function getPurchaseOrderById(id) {
+  const order = db.prepare("SELECT po.*, s.name as supplier_name, s.address as supplier_address, s.phone as supplier_phone, s.email as supplier_email FROM purchase_orders po JOIN suppliers s ON po.supplier_id = s.id WHERE po.id = ?").get(id);
+  if (order) order.items = db.prepare("SELECT * FROM purchase_order_items WHERE purchase_order_id = ?").all(id);
+  return order;
+}
+
+function receivePurchaseOrder(orderId) {
+  const getOrder = db.prepare("SELECT * FROM purchase_orders WHERE id = ?");
+  const getOrderItems = db.prepare("SELECT * FROM purchase_order_items WHERE purchase_order_id = ?");
+  const updateProductStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
+  const updateOrderStatus = db.prepare("UPDATE purchase_orders SET status = 'completed' WHERE id = ?");
+
+  const trx = db.transaction((id) => {
+    const order = getOrder.get(id);
+    if (!order) {
+      throw new Error("Orden de compra no encontrada.");
+    }
+    if (order.status !== 'pending') {
+      throw new Error("La orden de compra ya ha sido procesada.");
+    }
+
+    const items = getOrderItems.all(id);
+    for (const item of items) {
+      updateProductStock.run(item.quantity, item.product_id);
+    }
+
+    updateOrderStatus.run(id);
+    return { success: true, message: "Orden de compra recibida y stock actualizado." };
+  });
+
+  try {
+    return trx(orderId);
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+function deletePurchaseOrder(id) {
+  try {
+    db.prepare("DELETE FROM purchase_order_items WHERE purchase_order_id = ?").run(id);
+    db.prepare("DELETE FROM purchase_orders WHERE id = ?").run(id);
+    return { success: true, message: "Orden de compra eliminada" };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function updatePurchaseOrder({ id, supplier_id, order_date, items = [] }) {
+    const updatePO = db.prepare("UPDATE purchase_orders SET supplier_id = ?, order_date = ?, total_amount = ? WHERE id = ?");
+    const deleteItems = db.prepare("DELETE FROM purchase_order_items WHERE purchase_order_id = ?");
+    const insertItem = db.prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    const getProduct = db.prepare("SELECT id, code, name FROM products WHERE id = ?");
+
+    const trx = db.transaction((id, supplier_id, order_date, items) => {
+        let total = 0;
+        for (const it of items) {
+            total += it.subtotal;
+        }
+        updatePO.run(supplier_id, order_date, total, id);
+        deleteItems.run(id);
+        for (const it of items) {
+            const prod = getProduct.get(it.product_id);
+            const prodName = prod ? prod.name : "Producto no encontrado";
+            const prodCode = prod ? prod.code : "";
+            insertItem.run(id, it.product_id, prodName, prodCode, it.quantity, it.price, it.subtotal);
+        }
+        return id;
+    });
+
+    try {
+        const updatedId = trx(id, supplier_id, order_date, items);
+        return { success: true, message: "Orden de Compra actualizada", id: updatedId };
+    } catch (err) {
+        return { success: false, message: String(err) };
+    }
+}
+
 module.exports = {
   db, 
   // clientes
   getClients, getClientById, saveClient, updateClient, deleteClient,
+  // proveedores
+  getSuppliers,
+  getSupplierById,
+  saveSupplier,
+  updateSupplier,
+  deleteSupplier,
+  getSuppliersCount,
   // categorias
   getCategories, addCategory, updateCategory, deleteCategory,
   // productos
@@ -910,5 +1124,7 @@ module.exports = {
   // inventario
   getInventory, getInventoryTotalValue,
   // reportes
-  getSalesReport
+  getSalesReport,
+  // Ordenes de compra
+  createPurchaseOrder, getPurchaseOrders, getPurchaseOrderById, receivePurchaseOrder, deletePurchaseOrder, updatePurchaseOrder
 };

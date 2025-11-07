@@ -10,26 +10,8 @@
   <!-- FontAwesome -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 
-  <style>
-    body { background: #f6f8fa; }
-    h1 { font-size: 2.2rem; font-weight: 700; color: #1a237e; margin-bottom: 1.2rem; }
-    .card { border-radius: 1.2rem; box-shadow: 0 2px 12px rgba(0,0,0,0.07); background: #fff; }
-    .form-label { font-weight: 500; color: #37474f; }
-    .btn-primary { background: #1976d2; border: none; }
-    .btn-primary:hover { background: #1565c0; }
-    .btn-secondary { background: #263238; border: none; }
-    .btn-secondary:hover { background: #37474f; }
-    .btn-success { background: #43a047; border: none; }
-    .btn-success:hover { background: #388e3c; }
-    .table th, .table td { vertical-align: middle; }
-    .table-striped > tbody > tr:nth-of-type(odd) { background-color: #f3f6fa; }
-    .table-striped > tbody > tr:hover { background: #e3eafc; }
-    .fa-cash-register, .fa-user, .fa-box { font-size: 1.1rem; }
-    .edit { background: #1976d2; color: #fff; border: none; }
-    .edit:hover { background: #1565c0; }
-    .del { background: #e53935; color: #fff; border: none; }
-    .del:hover { background: #b71c1c; }
-  </style>
+  <!-- Hoja de estilos unificada -->
+  <link rel="stylesheet" href="styles.css">
 
   <script>
     if (!localStorage.getItem('logueado')) {
@@ -43,7 +25,7 @@
   <!-- Tu script -->
   <script defer src="../js/sales.js"></script>
 </head>
-<body class="bg-light">
+<body>
   <div class="container py-4">
     <h1>Ventas</h1>
     <a href="index.html" class="btn btn-secondary mb-3"><i class="fa fa-arrow-left me-2"></i>Volver</a>

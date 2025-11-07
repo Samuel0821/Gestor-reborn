@@ -760,15 +760,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
               <table class="items-table">
                 <colgroup>
-                  <col style="width: 18%;">
-                  <col style="width: 32%;">
-                  <col style="width: 12%;">
-                  <col style="width: 19%;">
-                  <col style="width: 19%;">
+                  <col style="width: 45%;">
+                  <col style="width: 15%;">
+                  <col style="width: 20%;">
+                  <col style="width: 20%;">
                 </colgroup>
                 <thead>
                   <tr>
-                    <th>Código</th>
                     <th>Producto</th>
                     <th class="col-align-center">Cant</th>
                     <th class="col-align-right">Precio</th>
@@ -778,7 +776,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <tbody>
                   ${items.map(it => `
                     <tr>
-                      <td>${it.product_code || ""}</td>
                       <td style="word-break: break-word;">${it.product_name}</td>
                       <td class="col-align-center">${it.quantity}</td>
                       <td class="col-align-right">${formatCOP(it.price)}</td>

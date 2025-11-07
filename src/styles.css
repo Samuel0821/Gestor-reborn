@@ -1,0 +1,43 @@
+/* Estilos Generales para GestorFX */
+
+:root {
+    --primary-color: #2c3e50; /* Azul oscuro */
+    --secondary-color: #34495e; /* Azul más claro */
+    --light-bg: #ecf0f1; /* Fondo gris claro */
+    --text-color: #34495e;
+    --card-bg: #ffffff;
+    --success-color: #27ae60;
+    --danger-color: #c0392b;
+    --primary-btn: #3498db; /* Azul brillante para botones */
+    --primary-btn-hover: #2980b9;
+}
+
+body {
+    background-color: var(--light-bg);
+    color: var(--text-color);
+}
+
+h1, h2, h3, h4, h5, h6 {
+    color: var(--primary-color);
+    font-weight: 700;
+}
+
+.card {
+    border: none;
+    border-radius: 0.75rem;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+    background-color: var(--card-bg);
+}
+
+.btn-primary {
+    background-color: var(--primary-btn);
+    border-color: var(--primary-btn);
+}
+.btn-primary:hover {
+    background-color: var(--primary-btn-hover);
+    border-color: var(--primary-btn-hover);
+}
+
+.table th {
+    color: var(--primary-color);
+}

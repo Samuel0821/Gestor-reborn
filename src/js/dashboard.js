@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const container = document.getElementById('dashboard-cards');
   const alertsContainer = document.getElementById('low-stock-alerts');
   const data = await window.api.getDashboardData();
+  const suppliersCount = await window.api.getSuppliersCount();
   const lowStock = await window.api.getLowStockProducts();
   let alertsHtml = '';
   if (lowStock.length) {
@@ -17,12 +18,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertsContainer.innerHTML = alertsHtml;
   container.innerHTML = `
     <div class="col-md-3"><div class="card p-3">
-    <h5>Clientes</h5><div class="display-6">${data.clients}</div></div></div>
+      <h5>Clientes</h5><div class="display-6">${data.clients}</div></div></div>
     <div class="col-md-3"><div class="card p-3">
-    <h5>Productos</h5><div class="display-6">${data.products}</div></div></div>
+      <h5>Productos</h5><div class="display-6">${data.products}</div></div></div>
     <div class="col-md-3"><div class="card p-3">
-    <h5>Ventas</h5><div class="display-6">${data.sales}</div></div></div>
+      <h5>Proveedores</h5><div class="display-6">${suppliersCount}</div></div></div>
     <div class="col-md-3"><div class="card p-3">
-    <h5>Cotizaciones</h5><div class="display-6">${data.quotes}</div></div></div>
+      <h5>Ventas</h5><div class="display-6">${data.sales}</div></div></div>
+    <div class="col-md-3"><div class="card p-3">
+      <h5>Cotizaciones</h5><div class="display-6">${data.quotes}</div></div></div>
   `;
 });
