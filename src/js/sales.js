@@ -590,80 +590,98 @@ document.addEventListener("DOMContentLoaded", async () => {
           <head>
             <meta charset="UTF-8">
             <style>
-              @page { margin: 0mm; }
+              @page { margin: 6mm; } /* Margen de impresión */
               body { 
                 font-family: 'Arial', sans-serif; 
-                font-size: 7px;
-                color: #333;
+                font-size: 8px; /* Tamaño de fuente base */
+                color: #0a0a0aff;
                 padding: 0;
+                margin: 0;
               }
               .invoice-box {
-                padding: 0;
+                width: 95%;
+                box-sizing: border-box;
+                margin: 0 auto; /* Centrar el contenido */
               }
               .header, .footer {
                 text-align: center;
-                margin-bottom: 2px;
+                margin-bottom: 3mm;
               }
               .header h2 {
-                margin: 0;
-                font-size: 11px;
+                margin: 2;
+                font-size: 14px; /* Aumentado */
                 font-weight: bold;
               }
               .header p {
-                margin: 1px 0;
-                font-size: 8px;
+                margin: 4px 0;
+                font-size: 9px; /* Aumentado */
+                font-weight: bold; /* Añadido */
               }
               .info {
-                margin-bottom: 2px;
-                border-top: 1px dashed #ccc;
-                border-bottom: 1px dashed #ccc;
-                padding: 2px 0;
+                margin-bottom: 4mm;
+                border-top: 4px dashed #ccc;
+                border-bottom: 4px dashed #ccc;
+                padding: 4mm 0;
               }
               .info p {
-                margin: 1px 0;
-                font-size: 8px;
+                margin: 4px ;
+                font-size: 12px;
               }
               .items-table {
-                width: 100%;
+                width: 95%;
                 border-collapse: collapse;
-                margin-bottom: 2px;
+                margin-bottom: 5mm;
               }
               .items-table th {
-                border-bottom: 1px solid #000;
-                padding: 0 1px;
+                border-bottom: 2px solid #000;
+                padding: 2mm 0;
                 text-align: left;
                 font-weight: bold;
-                font-size: 8px;
-                line-height: 1.2;
+                font-size: 10px;
               }
               .items-table td {
-                padding: 0 1px;
+                padding: 0.8mm 0;
                 border-bottom: 1px dotted #ccc;
-                font-size: 8px;
-                line-height: 1.2;
+                font-size: 10px;
+                vertical-align: middle; /* Alinear al centro */
               }
               .items-table .col-align-right {
                 text-align: right;
+                vertical-align: middle; /* Alinear al centro */
+              }
+              .items-table .col-align-center {
+                text-align: center;
+                vertical-align: middle; /* Alinear al centro */
               }
               .totals-section, .payment-info-section {
-                  margin-top: 1px;
+                  margin-top: 4mm;
               }
               .totals-section table, .payment-info-section table {
-                  font-size: 7px;
+                  width: 95%;
+                  font-size: 10px;
+              }
+              .totals-section td:first-child, .payment-info-section td:first-child {
+                  text-align: left;
+              }
+              .totals-section td:last-child, .payment-info-section td:last-child {
+                  text-align: right;
               }
               .total-row td {
                 font-weight: bold;
-                font-size: 8px;
+                font-size: 12px;
+                padding-top: 2mm;
+                border-top: 2px solid #000;
               }
               .footer {
-                margin-top: 5px;
-                border-top: 1px solid #000;
-                padding-top: 2px;
+                margin-top: 8mm;
+                border-top: 3px solid #000;
+                padding-top: 4mm;
+                font-size: 10px;
               }
               .print-options-panel {
-                position: fixed; bottom: 20px; right: 20px; background-color: white; padding: 15px;
-                border: 2px solid #ccc; border-radius: 10px; box-shadow: 0 6px 10px rgba(0,0,0,0.1);
-                display: flex; flex-direction: column; gap: 12px; z-index: 9999;
+                position: fixed; bottom: 30px; right: 25px; background-color: white; padding: 20px;
+                border: 4px solid #ccc; border-radius: 15px; box-shadow: 0 8px 12px rgba(0,0,0,0.1);
+                display: flex; flex-direction: column; gap: 15px; z-index: 9999;
               }
               @media print {
                 .print-options-panel { display: none; }
@@ -676,7 +694,7 @@ document.addEventListener("DOMContentLoaded", async () => {
               <select id="printerSelect">
                 ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
               </select>
-              <label>TamaÃ±o de papel:</label>
+              <label>Tamaño de papel:</label>
               <select id="paperSizeSelect">
                 <option value="A4">A4</option>
                 <option value="80mm" selected>80mm (Ticket)</option>
@@ -698,16 +716,16 @@ document.addEventListener("DOMContentLoaded", async () => {
                   if (includeIva) {
                     iva = Math.round(totalBase * 0.19); total = totalBase + iva;
                     extraTotalsBody.innerHTML = 
-                        '<tr><td>Total bruto:</td><td style="text-align: right;">' + formatCOP(totalBase) + '</td></tr>' +
-                        '<tr><td>IVA (19%):</td><td style="text-align: right;">' + formatCOP(iva) + '</td></tr>' +
-                        '<tr class="total-row"><td>Total neto:</td><td style="text-align: right;">' + formatCOP(total) + '</td></tr>';
+                        '<tr><td>Total bruto:</td><td>' + formatCOP(totalBase) + '</td></tr>' +
+                        '<tr><td>IVA (19%):</td><td>' + formatCOP(iva) + '</td></tr>' +
+                        '<tr class="total-row"><td>Total neto:</td><td>' + formatCOP(total) + '</td></tr>';
                   } else {
-                    extraTotalsBody.innerHTML = '<tr class="total-row"><td>TOTAL:</td><td style="text-align: right;">' + formatCOP(totalBase) + '</td></tr>';
+                    extraTotalsBody.innerHTML = '<tr class="total-row"><td>TOTAL:</td><td>' + formatCOP(totalBase) + '</td></tr>';
                   }
                   const cambio = pago - total;
                   const cambioContainer = document.getElementById("cambioContainer");
                   if (cambio > 0) {
-                    cambioContainer.innerHTML = '<tr><td>Cambio:</td><td style="text-align: right;">' + formatCOP(cambio) + '</td></tr>';
+                    cambioContainer.innerHTML = '<tr><td>Cambio:</td><td>' + formatCOP(cambio) + '</td></tr>';
                   } else {
                     cambioContainer.innerHTML = "";
                   }
@@ -721,11 +739,12 @@ document.addEventListener("DOMContentLoaded", async () => {
 
             <div class="invoice-box">
               <div class="header">
-                ${logoBase64 ? `<img src="${logoBase64}" style="max-height:70px; margin-bottom: 10px;"><br>` : ""}
-                <h2>${company.company_name || ""}</h2>
+                ${logoBase64 ? `<img src="${logoBase64}" style="max-height:120px; margin-bottom: 10px; filter: brightness(0.8) contrast(1.5);"><br>` : ""}
+                <h2><strong>${company.company_name || ""}</strong></h2>
                 <p>NIT: ${company.company_id_card_or_nit || ""}</p>
                 <p>${company.company_address || ""}</p>
-                <p>Tel: ${company.company_phone || ""} â€” ${company.company_email || ""}</p>
+                <p>Tel: ${company.company_phone || ""}</p>
+                <p>Correo: ${company.company_email || ""}</p>
               </div>
 
               <div class="info">
@@ -741,17 +760,17 @@ document.addEventListener("DOMContentLoaded", async () => {
 
               <table class="items-table">
                 <colgroup>
-                  <col style="width: 10%;">
-                  <col style="width: 30%;">
-                  <col style="width: 10%;">
-                  <col style="width: 25%;">
-                  <col style="width: 25%;">
+                  <col style="width: 18%;">
+                  <col style="width: 32%;">
+                  <col style="width: 12%;">
+                  <col style="width: 19%;">
+                  <col style="width: 19%;">
                 </colgroup>
                 <thead>
                   <tr>
                     <th>Código</th>
                     <th>Producto</th>
-                    <th class="col-align-right">Cant</th>
+                    <th class="col-align-center">Cant</th>
                     <th class="col-align-right">Precio</th>
                     <th class="col-align-right">Subtotal</th>
                   </tr>
@@ -761,7 +780,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                     <tr>
                       <td>${it.product_code || ""}</td>
                       <td style="word-break: break-word;">${it.product_name}</td>
-                      <td class="col-align-right">${it.quantity}</td>
+                      <td class="col-align-center">${it.quantity}</td>
                       <td class="col-align-right">${formatCOP(it.price)}</td>
                       <td class="col-align-right">${formatCOP(it.subtotal)}</td>
                     </tr>
@@ -770,35 +789,35 @@ document.addEventListener("DOMContentLoaded", async () => {
               </table>
 
               <div class="totals-section">
-                <table style="width: 30%;">
+                <table style="width: 95%;">
                     <tbody id="extraTotals">
                         <tr class="total-row">
                             <td>TOTAL:</td>
-                            <td style="text-align: right;">${formatCOP(sale.total_amount)}</td>
+                            <td>${formatCOP(sale.total_amount)}</td>
                         </tr>
                     </tbody>
                 </table>
               </div>
 
               <div class="payment-info-section">
-                <table style="width: 30%;">
+                <table style="width: 95%;">
                     <tbody>
                     ${sale.sale_type === "credit" ? `
                         <tr>
                             <td><strong>Forma de pago:</strong></td>
-                            <td style="text-align: right;">Venta a crédito</td>
+                            <td>Venta a crédito</td>
                         </tr>
                     ` : `
                         <tr>
                             <td><strong>Forma de pago:</strong></td>
-                            <td style="text-align: right;">${sale.sale_type === "cash" ? "Efectivo" : sale.sale_type === "transfer" ? "Transferencia" : "Mixto"}</td>
+                            <td>${sale.cash_payment > 0 && sale.transfer_payment > 0 ? "Mixto" : sale.cash_payment > 0 ? "Efectivo" : "Transferencia"}</td>
                         </tr>
-                        ${sale.cash_payment > 0 ? `<tr><td>Efectivo:</td><td style="text-align: right;">${formatCOP(sale.cash_payment)}</td></tr>` : ""}
-                        ${sale.transfer_payment > 0 ? `<tr><td>Transferencia:</td><td style="text-align: right;">${formatCOP(sale.transfer_payment)}</td></tr>` : ""}
+                        ${sale.cash_payment > 0 ? `<tr><td>Efectivo:</td><td>${formatCOP(sale.cash_payment)}</td></tr>` : ""}
+                        ${sale.transfer_payment > 0 ? `<tr><td>Transferencia:</td><td>${formatCOP(sale.transfer_payment)}</td></tr>` : ""}
                     `}
                     </tbody>
                 </table>
-                <table style="width: 30%;"><tbody id="cambioContainer"></tbody></table>
+                <table style="width: 95%;"><tbody id="cambioContainer"></tbody></table>
               </div>
 
               <div class="footer">

@@ -352,7 +352,7 @@
   // Vista previa de factura
             ipcMain.handle("preview-invoice", async (event, { content }) => {
               let previewWin = new BrowserWindow({
-                width: 350, // Ancho para simular un tiquete de 80mm
+                width: 800, 
                 height: 800,
                 show: false,
                 webPreferences: {
@@ -570,101 +570,121 @@
       });
         
       // Exportación cotizaciones pdf
-      ipcMain.handle("export-quote-pdf", async (event, { id, includeIva = false } = {}) => {
-          try {
-              let quote = null;
-              let quoteId = id;
-              if (typeof id !== "undefined" && id !== null) {
-                  quote = db.getQuoteById(id);
-              } else if (typeof quote_number !== "undefined" && quote_number !== null) {
-                  quote = db.getQuotes().find(q => q.quote_number === quote_number);
-                  if (quote) quoteId = quote.id;
-              } else {
-                  return { success: false, message: "Error: Debes enviar el id o el quote_number de la cotización." };
-              }
-              if (!quote) return { success: false, message: "Cotización no encontrada" };
-              const items = db.getQuoteItems(quoteId) || [];
-              const company = db.getCompanySettings() || {};
-              const client = quote.client_id ? db.getClientById(quote.client_id) : null;
+      ipcMain.handle("export-quote-pdf", async (event, { id, quote_number, includeIva = false } = {}) => {
+        try {
+            let quote = null;
+            let quoteId = id;
+            if (typeof id !== "undefined" && id !== null) {
+                quote = db.getQuoteById(id);
+            } else if (typeof quote_number !== "undefined" && quote_number !== null) {
+                quote = db.getQuotes().find(q => q.quote_number === quote_number);
+                if (quote) quoteId = quote.id;
+            } else {
+                return { success: false, message: "Error: Debes enviar el id o el quote_number de la cotización." };
+            }
+            if (!quote) return { success: false, message: "Cotización no encontrada" };
+            const items = db.getQuoteItems(quoteId) || [];
+            const company = db.getCompanySettings() || {};
+            const client = quote.client_id ? db.getClientById(quote.client_id) : null;
 
-              const { filePath, canceled } = await dialog.showSaveDialog({
-                  defaultPath: `Cotizacion-${quote.quote_number || String(id).padStart(3, "0")}.pdf`,
-                  filters: [{ name: "PDF", extensions: ["pdf"] }],
-              });
-              if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
+            const { filePath, canceled } = await dialog.showSaveDialog({
+                defaultPath: `Cotizacion-${quote.quote_number || String(id).padStart(3, "0")}.pdf`,
+                filters: [{ name: "PDF", extensions: ["pdf"] }],
+            });
+            if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
 
-              const doc = new PDFDocument({ margin: 40, size: "A4" });
-              const stream = fs.createWriteStream(filePath);
-              doc.pipe(stream);
+            const doc = new PDFDocument({ margin: 40, size: "A4" });
+            const stream = fs.createWriteStream(filePath);
+            doc.pipe(stream);
 
-              renderPdfHeader(doc, company, `Cotización ${quote.quote_number || String(id).padStart(3, "0")}`);
+            renderPdfHeader(doc, company, `Cotización ${quote.quote_number || String(id).padStart(3, "0")}`);
 
-              if (client) {
-                  doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 40, doc.y + 10);
-                  doc.font("Helvetica").fontSize(10);
-                  doc.text(`Nombre: ${client.name || ""}`);
-                  doc.text(`NIT/Cédula: ${client.id_card_or_nit || ""}`);
-                  doc.text(`Dirección: ${client.address || ""}`);
-                  doc.text(`Email: ${client.email || ""}`);
-                  doc.text(`Teléfono: ${client.phone || ""}`);
-                  doc.moveDown(1);
-              }
+            if (client) {
+                doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 40, doc.y + 10);
+                doc.font("Helvetica").fontSize(10);
+                doc.text(`Nombre: ${client.name || ""}`);
+                doc.text(`NIT/Cédula: ${client.id_card_or_nit || ""}`);
+                doc.text(`Dirección: ${client.address || ""}`);
+                doc.text(`Email: ${client.email || ""}`);
+                doc.text(`Teléfono: ${client.phone || ""}`);
+                doc.moveDown(1);
+            }
 
-              let y = doc.y + 10;
-              doc.fontSize(11).font("Helvetica-Bold");
-              doc.text("#", 40, y, { width: 20 });
-              doc.text("Código", 60, y, { width: 60 });
-              doc.text("Nombre", 120, y, { width: 180 });
-              doc.text("Precio", 320, y, { width: 70, align: "right" });
-              doc.text("Cant.", 400, y, { width: 50, align: "right" });
-              doc.text("Subtotal", 460, y, { width: 80, align: "right" });
-              y += 18;
-              doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+            let y = doc.y + 10;
+            doc.fontSize(11).font("Helvetica-Bold");
+            doc.text("#", 40, y, { width: 25 });
+            doc.text("Código", 65, y, { width: 75 });
+            doc.text("Nombre", 140, y, { width: 190 });
+            doc.text("Precio", 330, y, { align: "right", width: 70 });
+            doc.text("Cant.", 400, y, { align: "right", width: 50 });
+            doc.text("Subtotal", 450, y, { align: "right", width: 95 });
+            y += 18;
+            doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
 
-              doc.font("Helvetica").fontSize(10);
-              let idx = 1;
-              for (const it of items) {
-                  doc.text(String(idx), 40, y, { width: 20 });
-                  doc.text(it.product_code || "-", 60, y, { width: 60 });
-                  doc.text(it.product_name || "-", 120, y, { width: 180 });
-                  doc.text(formatCOP(it.price), 320, y, { width: 70, align: "right" });
-                  doc.text(String(it.quantity), 400, y, { width: 50, align: "right" });
-                  doc.text(formatCOP(it.subtotal), 460, y, { width: 80, align: "right" });
-                  y += 18;
-                  idx++;
-                  if (y > 700) { doc.addPage(); y = 40; }
-              }
+            doc.font("Helvetica").fontSize(9);
+            let idx = 1;
+            for (const it of items) {
+                const productText = it.product_name || "-";
+                const productHeight = doc.heightOfString(productText, { width: 190 });
+                const lineHeight = Math.max(20, productHeight + 25);
 
-              const subtotal = items.reduce((acc, it) => acc + (Number(it.subtotal) || Number(it.price) * Number(it.quantity) || 0), 0);
-              const iva = includeIva ? Math.round(subtotal * 0.19) : 0;
-              const total = subtotal + iva;
+                if (y + lineHeight > doc.page.height - doc.page.margins.bottom - 40) {
+                    doc.addPage();
+                    y = 40;
+                    doc.fontSize(11).font("Helvetica-Bold");
+                    doc.text("#", 40, y, { width: 25 });
+                    doc.text("Código", 65, y, { width: 75 });
+                    doc.text("Nombre", 140, y, { width: 190 });
+                    doc.text("Precio", 330, y, { align: "right", width: 70 });
+                    doc.text("Cant.", 400, y, { align: "right", width: 50 });
+                    doc.text("Subtotal", 450, y, { align: "right", width: 95 });
+                    y += 18;
+                    doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+                    doc.font("Helvetica").fontSize(9);
+                    y += 10;
+                }
 
-              doc.moveDown(1);
-              if (includeIva) {
-                  doc.fontSize(10).text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 6);
-                  doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 22);
-                  doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 42);
-              } else {
-                  doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 10);
-              }
+                const currentY = y;
+                doc.text(String(idx), 40, currentY, { width: 25 });
+                doc.text(it.product_code || "-", 65, currentY, { width: 75 });
+                doc.text(productText, 140, currentY, { width: 190 });
+                doc.text(formatCOP(it.price), 330, currentY, { align: "right", width: 70 });
+                doc.text(String(it.quantity), 400, currentY, { align: "right", width: 50 });
+                doc.text(formatCOP(it.subtotal), 450, currentY, { align: "right", width: 95 });
+                y += lineHeight;
+                idx++;
+            }
 
-              doc.end();
-              await new Promise((res, rej) => {
-                  stream.on("finish", res);
-                  stream.on("error", rej);
-              });
+            const subtotal = items.reduce((acc, it) => acc + (Number(it.subtotal) || Number(it.price) * Number(it.quantity) || 0), 0);
+            const iva = includeIva ? Math.round(subtotal * 0.19) : 0;
+            const total = subtotal + iva;
 
-              return { success: true, message: "Cotización exportada en PDF correctamente", filePath };
-          } catch (err) {
-              let msg = "Error al exportar cotización PDF: ";
-              if (err && (err.code === "EBUSY" || err.code === "ELOCKED")) {
-                  msg += "El archivo está abierto o bloqueado. Por favor ciérralo antes de exportar.";
-              } else {
-                  msg += err && err.message ? err.message : String(err);
-              }
-              return { success: false, message: msg };
-          }
-      });
+            doc.moveDown(1);
+            if (includeIva) {
+                doc.fontSize(10).text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 6);
+                doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 22);
+                doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 42);
+            } else {
+                doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 10);
+            }
+
+            doc.end();
+            await new Promise((res, rej) => {
+                stream.on("finish", res);
+                stream.on("error", rej);
+            });
+
+            return { success: true, message: "Cotización exportada en PDF correctamente", filePath };
+        } catch (err) {
+            let msg = "Error al exportar cotización PDF: ";
+            if (err && (err.code === "EBUSY" || err.code === "ELOCKED")) {
+                msg += "El archivo está abierto o bloqueado. Por favor ciérralo antes de exportar.";
+            } else {
+                msg += err && err.message ? err.message : String(err);
+            }
+            return { success: false, message: msg };
+        }
+    });
 
       ipcMain.handle("export-inventory-pdf", async () => {
                 try {
