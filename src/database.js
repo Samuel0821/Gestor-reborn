@@ -1124,7 +1124,7 @@ module.exports = {
   // inventario
   getInventory, getInventoryTotalValue,
   // reportes
-  getSalesReport,
-  // Ordenes de compra
-  createPurchaseOrder, getPurchaseOrders, getPurchaseOrderById, receivePurchaseOrder, deletePurchaseOrder, updatePurchaseOrder
+  getSalesReport
+  // Ordenes de compra,
+  ,createPurchaseOrder, getPurchaseOrders, getPurchaseOrderById, receivePurchaseOrder, deletePurchaseOrder, updatePurchaseOrder
 };

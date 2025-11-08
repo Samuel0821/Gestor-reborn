@@ -28,12 +28,14 @@ document.addEventListener('DOMContentLoaded', () => {
     addProductItemBtn.addEventListener('click', () => {
         const itemDiv = document.createElement('div');
         itemDiv.classList.add('row', 'g-3', 'mb-2', 'product-item');
+        const uniqueId = `product-list-${Date.now()}`;
         itemDiv.innerHTML = `
             <div class="col-md-5">
-                <select class="form-select product-select">
-                    <option value="">Seleccione un producto</option>
-                    ${products.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
-                </select>
+                <input class="form-control product-search" list="${uniqueId}" placeholder="Escriba para buscar un producto...">
+                <datalist id="${uniqueId}">
+                    ${products.map(p => `<option data-id="${p.id}" value="${p.name}"></option>`).join('')}
+                </datalist>
+                <input type="hidden" class="product-id">
             </div>
             <div class="col-md-3">
                 <input type="number" class="form-control quantity" placeholder="Cantidad" min="1" value="1">
@@ -46,6 +48,20 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `;
         productItemsContainer.appendChild(itemDiv);
+
+        const productSearchInput = itemDiv.querySelector('.product-search');
+        const productIdInput = itemDiv.querySelector('.product-id');
+        const datalist = itemDiv.querySelector('datalist');
+
+        productSearchInput.addEventListener('input', (e) => {
+            const inputValue = e.target.value;
+            const option = Array.from(datalist.options).find(opt => opt.value === inputValue);
+            if (option) {
+                productIdInput.value = option.getAttribute('data-id');
+            } else {
+                productIdInput.value = '';
+            }
+        });
     });
 
     // Remover item de producto
@@ -63,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const orderDate = document.getElementById('order-date').value;
         const items = [];
         productItemsContainer.querySelectorAll('.product-item').forEach(item => {
-            const productId = item.querySelector('.product-select').value;
+            const productId = item.querySelector('.product-id').value;
             const quantity = item.querySelector('.quantity').value;
             const price = item.querySelector('.price').value;
             if (productId && quantity && price) {
@@ -192,12 +208,14 @@ document.addEventListener('DOMContentLoaded', () => {
             po.items.forEach(item => {
                 const itemDiv = document.createElement('div');
                 itemDiv.classList.add('row', 'g-3', 'mb-2', 'product-item');
+                const uniqueId = `product-list-${Date.now()}-${item.product_id}`;
                 itemDiv.innerHTML = `
                     <div class="col-md-5">
-                        <select class="form-select product-select">
-                            <option value="">Seleccione un producto</option>
-                            ${products.map(p => `<option value="${p.id}" ${p.id === item.product_id ? 'selected' : ''}>${p.name}</option>`).join('')}
-                        </select>
+                        <input class="form-control product-search" list="${uniqueId}" placeholder="Escriba para buscar un producto..." value="${item.product_name}">
+                        <datalist id="${uniqueId}">
+                            ${products.map(p => `<option data-id="${p.id}" value="${p.name}"></option>`).join('')}
+                        </datalist>
+                        <input type="hidden" class="product-id" value="${item.product_id}">
                     </div>
                     <div class="col-md-3">
                         <input type="number" class="form-control quantity" placeholder="Cantidad" min="1" value="${item.quantity}">
@@ -210,6 +228,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
                 productItemsContainer.appendChild(itemDiv);
+
+                const productSearchInput = itemDiv.querySelector('.product-search');
+                const productIdInput = itemDiv.querySelector('.product-id');
+                const datalist = itemDiv.querySelector('datalist');
+
+                productSearchInput.addEventListener('input', (e) => {
+                    const inputValue = e.target.value;
+                    const option = Array.from(datalist.options).find(opt => opt.value === inputValue);
+                    if (option) {
+                        productIdInput.value = option.getAttribute('data-id');
+                    } else {
+                        productIdInput.value = '';
+                    }
+                });
             });
             savePurchaseOrderBtn.textContent = 'Actualizar';
             cancelEditBtn.style.display = 'inline-block';

@@ -7,6 +7,9 @@
   const ExcelJS = require("exceljs");
   const cashRegister = require("./cashRegister");
 
+  // Deshabilitar la caché de disco para prevenir errores de "Acceso denegado"
+  app.commandLine.appendSwitch('disable-http-cache');
+
   // ---------- CREAR VENTANA PRINCIPAL ----------
   let mainWindow;
 
@@ -156,6 +159,7 @@
       ipcMain.handle("update-purchase-order", (event, data) => db.updatePurchaseOrder(data));
       ipcMain.handle("delete-purchase-order", (event, id) => db.deletePurchaseOrder(id));
       ipcMain.handle("export-purchase-order-pdf", (event, id) => exportPurchaseOrderPDF(id));
+      ipcMain.handle("get-purchase-orders-count", () => db.getPurchaseOrders().length);
       ipcMain.handle("receive-purchase-order", (event, id) => db.receivePurchaseOrder(id));
 
       // Cotizaciones
@@ -234,6 +238,71 @@
             } catch (err) {
                 return [];
             }
+        });
+
+        // ---------- Exportar productos con bajo stock a PDF ----------
+        ipcMain.handle("export-low-stock-pdf", async () => {
+          try {
+            const company = db.getCompanySettings() || {};
+            const products = db.getProducts();
+            const lowStockProducts = products.filter(p => p.min_stock >= 0 && p.stock <= p.min_stock);
+
+            if (lowStockProducts.length === 0) {
+              return { success: false, message: "No hay productos con stock bajo para exportar." };
+            }
+
+            const { filePath, canceled } = await dialog.showSaveDialog({
+              title: "Guardar Reporte de Stock Mínimo",
+              defaultPath: "reporte_stock_minimo.pdf",
+              filters: [{ name: "PDF", extensions: ["pdf"] }],
+            });
+
+            if (canceled || !filePath) return { success: false, message: "Exportación cancelada." };
+
+            const doc = new PDFDocument({ margin: 40, size: "A4" });
+            const stream = fs.createWriteStream(filePath);
+            doc.pipe(stream);
+
+            renderPdfHeader(doc, company, "Reporte de Productos con Stock Mínimo");
+
+            const tableTop = doc.y + 10;
+            const tableLeft = 40;
+            const tableWidth = 515;
+
+            doc.y = tableTop;
+            doc.fontSize(11).font("Helvetica-Bold");
+            doc.text("Código", 40, doc.y, { width: 80 });
+            doc.text("Nombre", 120, doc.y, { width: 250 });
+            doc.text("Stock Actual", 370, doc.y, { width: 80, align: "right" });
+            doc.text("Stock Mínimo", 450, doc.y, { width: 80, align: "right" });
+            doc.moveDown(0.5);
+            const headerY = doc.y;
+            doc.moveTo(tableLeft, headerY).lineTo(tableLeft + tableWidth, headerY).stroke();
+
+            doc.font("Helvetica").fontSize(10);
+            let y = doc.y + 5;
+
+            for (const p of lowStockProducts) {
+                const rowHeight = doc.heightOfString(p.name || "", { width: 250 }) + 8;
+                if (y + rowHeight > doc.page.height - doc.page.margins.bottom) {
+                    doc.addPage();
+                    y = doc.page.margins.top;
+                }
+                doc.text(p.code || "", 40, y, { width: 80 });
+                doc.text(p.name || "", 120, y, { width: 250 });
+                doc.text(String(p.stock || 0), 370, y, { width: 80, align: "right" });
+                doc.text(String(p.min_stock || 0), 450, y, { width: 80, align: "right" });
+                y += rowHeight;
+            }
+
+            doc.end();
+            await new Promise((res, rej) => { stream.on("finish", res); stream.on("error", rej); });
+
+            return { success: true, filePath };
+          } catch (err) {
+            console.error("Error al exportar PDF de bajo stock:", err);
+            return { success: false, message: "Error al exportar PDF: " + (err.message || String(err)) };
+          }
         });
 
         // ---------- Exportar reporte de ventas a PDF ----------

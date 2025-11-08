@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("api", {
+  exportLowStockPDF: () => ipcRenderer.invoke("export-low-stock-pdf"),
   getLowStockProducts: () => ipcRenderer.invoke("get-low-stock-products"),
   approveQuote: (quoteId) => ipcRenderer.invoke("approve-quote", quoteId),
   exportInventoryPDF: () => ipcRenderer.invoke("export-inventory-pdf"),
@@ -60,6 +61,7 @@ markCreditAsPaid: (saleId) => ipcRenderer.invoke("mark-credit-as-paid", saleId),
   exportPurchaseOrderPDF: (id) => ipcRenderer.invoke("export-purchase-order-pdf", id),
   receivePurchaseOrder: (id) => ipcRenderer.invoke("receive-purchase-order", id),
   deletePurchaseOrder: (id) => ipcRenderer.invoke("delete-purchase-order", id),
+  getPurchaseOrdersCount: () => ipcRenderer.invoke("get-purchase-orders-count"),
 
   // quotes
   createQuote: (data) => ipcRenderer.invoke("create-quote", data),
