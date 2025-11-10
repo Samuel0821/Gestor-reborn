@@ -7,6 +7,7 @@
   const ExcelJS = require("exceljs");
   const cashRegister = require("./cashRegister");
 
+
   // Deshabilitar la caché de disco para prevenir errores de "Acceso denegado"
   app.commandLine.appendSwitch('disable-http-cache');
 
@@ -15,8 +16,10 @@
 
   function createWindow() {
     mainWindow = new BrowserWindow({
+
       width: 1200,
       height: 800,
+      icon: path.join(__dirname, "logo", "gestorfx_logo.ico"), // <-- El ícono va aquí
       webPreferences: {
         preload: path.join(__dirname, "preload.js"),
         contextIsolation: true,
@@ -32,6 +35,7 @@
   }
 
   app.whenReady().then(() => {
+
       createWindow();
       registerIpcHandlers();
   });
@@ -39,6 +43,7 @@
   app.on("window-all-closed", () => {
     // Limpiar estado de login al cerrar la app
     try {
+
       const { session } = require('electron');
       session.defaultSession.webRequest.onCompleted({ urls: ['*://*/*'] }, () => {
         mainWindow.webContents.executeJavaScript('localStorage.removeItem("logueado");');
@@ -52,6 +57,7 @@
   });
 
   // ---------- HELPERS ----------
+
   function formatCOP(value) {
     const num = Number(value) || 0;
     return new Intl.NumberFormat("es-CO", {
@@ -60,6 +66,7 @@
       minimumFractionDigits: 0,
     }).format(Math.round(num));
   }
+
 
   function renderPdfHeader(doc, company = {}, title = "") {
     const headerTop = 40;
@@ -84,6 +91,7 @@
   }
 
   // ---------- REGISTRAR MANEJADORES IPC ----------
+
   function registerIpcHandlers() {
       // Clientes
       ipcMain.handle("get-clients", () => db.getClients());
@@ -95,6 +103,7 @@
       // Productos
       ipcMain.handle("get-products", () => db.getProducts());
       ipcMain.handle("get-product-by-id", (event, id) => db.getProductById(id));
+
       ipcMain.handle("add-product", (event, data) => db.addProduct(data));
       ipcMain.handle("update-product", (event, data) => db.updateProduct(data));
       ipcMain.handle("delete-product", (event, id) => db.deleteProduct(id));
@@ -118,6 +127,7 @@
       ipcMain.handle("get-sale-by-id", (event, id) => db.getSaleById(id));
       ipcMain.handle("get-sale-items", (event, id) => db.getSaleItems(id));
       ipcMain.handle("delete-sale", (event, id) => db.deleteSale(id));
+
       ipcMain.handle("delete-sale-item", (event, id) => db.deleteSaleItem(id));
       ipcMain.handle("get-last-invoice-number", () => db.getLastInvoiceNumber());
       ipcMain.handle("set-invoice-number", (event, { id, invoiceNumber }) => db.setInvoiceNumber(id, invoiceNumber));
@@ -125,6 +135,7 @@
       // Caja registradora
       ipcMain.handle("open-cash-register", (event, openingBalance) => {
         return cashRegister.openCashRegister(openingBalance);
+
         });
 
       ipcMain.handle("get-active-cash-session", () => {
@@ -132,12 +143,14 @@
         });
 
       ipcMain.handle("add-cash-movement", (event, { sessionId, type, amount, description }) => {
+
         return cashRegister.addCashMovement(sessionId, type, amount, description);
         });
 
       ipcMain.handle("close-cash-register", (event, realClosingBalance) => {
           return cashRegister.closeCashRegister(realClosingBalance);
         });
+
 
       ipcMain.handle("get-cash-register-sessions", () => {
         return cashRegister.getCashRegisterSessions();
@@ -148,6 +161,7 @@
         });
       
       // Gestión de Créditos
+
       ipcMain.handle("get-credits", async (event, searchTerm) => db.getCredits(searchTerm));
       ipcMain.handle("add-credit-payment", async (event, saleId, amount) => db.addCreditPayment(saleId, amount));
       ipcMain.handle("mark-credit-as-paid", async (event, saleId) => db.markCreditAsPaid(saleId));
@@ -158,6 +172,7 @@
       ipcMain.handle("get-purchase-order-by-id", (event, id) => db.getPurchaseOrderById(id));
       ipcMain.handle("update-purchase-order", (event, data) => db.updatePurchaseOrder(data));
       ipcMain.handle("delete-purchase-order", (event, id) => db.deletePurchaseOrder(id));
+
       ipcMain.handle("export-purchase-order-pdf", (event, id) => exportPurchaseOrderPDF(id));
       ipcMain.handle("get-purchase-orders-count", () => db.getPurchaseOrders().length);
       ipcMain.handle("receive-purchase-order", (event, id) => db.receivePurchaseOrder(id));
@@ -173,6 +188,7 @@
 
       // --- Aprobar cotización y convertir en venta ---
       ipcMain.handle("approve-quote", async (event, quoteId) => {
+
         try {
           // 1. Obtener la cotización
           const quote = db.getQuoteById(quoteId);
@@ -208,6 +224,7 @@
       
       // Configuración y Dashboard
       ipcMain.handle("get-company-settings", () => db.getCompanySettings());
+
       ipcMain.handle("update-company-settings", (event, settings) => db.updateCompanySettings(settings));
       ipcMain.handle("get-dashboard-data", () => db.getDashboardData());
       ipcMain.handle("reset-database", () => db.resetDatabase());
@@ -218,6 +235,7 @@
 
       // Reportes e Inventario
         ipcMain.handle("get-sales-report", (event, params) => db.getSalesReport(params));
+
         
         ipcMain.handle("get-inventory", async () => {
                 try {
@@ -230,6 +248,7 @@
                 }
             });
 
+
         ipcMain.handle("get-low-stock-products", async () => {
             try {
                 const products = db.getProducts();
@@ -241,6 +260,7 @@
         });
 
         // ---------- Exportar productos con bajo stock a PDF ----------
+
         ipcMain.handle("export-low-stock-pdf", async () => {
           try {
             const company = db.getCompanySettings() || {};
@@ -306,6 +326,7 @@
         });
 
         // ---------- Exportar reporte de ventas a PDF ----------
+
           ipcMain.handle("export-sales-report-pdf", async (event, { salesReport, companyInfo, filename }) => {
             try {
               const salesArray = Array.isArray(salesReport) ? salesReport : [];
@@ -436,6 +457,7 @@
           });
 
       // Exportar proveedores a PDF
+
       ipcMain.handle("export-suppliers-pdf", async () => {
         try {
             const suppliers = db.getSuppliers() || [];
@@ -491,6 +513,7 @@
     });
 
     // Exportar proveedores a Excel
+
     ipcMain.handle("export-suppliers-excel", async () => {
         try {
             const suppliers = db.getSuppliers() || [];
@@ -518,6 +541,7 @@
 
   // ---------------- IMPRESIÓN ----------------
   // Vista previa de factura
+
             ipcMain.handle("preview-invoice", async (event, { content }) => {
               let previewWin = new BrowserWindow({
                 width: 800, 
@@ -539,6 +563,7 @@
             });
 
             // Obtener lista de impresoras
+
             ipcMain.handle("get-printers", async () => {
               try {
                 const win = BrowserWindow.getAllWindows()[0];
@@ -555,6 +580,7 @@
             });
 
             // --- Obtener logo de la empresa en base64 ---
+
             ipcMain.handle("get-company-logo", async () => {
               try {
                 const settings = db.getCompanySettings() || {};
@@ -571,6 +597,7 @@
             });
 
             // Imprimir factura
+
             ipcMain.handle("print-invoice", async (event, { printer, paperSize, htmlContent }) => {
               try {
                 const printWin = new BrowserWindow({
@@ -622,6 +649,7 @@
 
 
       // Exportación de PDF descarga factura
+
       ipcMain.handle("export-invoice-pdf", async (event, { id, includeIva = false } = {}) => {
         try {
           const sale = db.getSaleById(id);
@@ -734,6 +762,7 @@
         }
       });
         
+
       // Exportación cotizaciones pdf
       ipcMain.handle("export-quote-pdf", async (event, { id, quote_number, includeIva = false } = {}) => {
         try {
@@ -848,6 +877,7 @@
         }
     });
 
+
       ipcMain.handle("export-inventory-pdf", async () => {
                 try {
                     const products = db.getProducts() || [];
@@ -909,6 +939,7 @@
             });
 
       ipcMain.handle("export-inventory-excel", async () => {
+
         try {
             const products = db.getProducts() || [];
             const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.sale_price)), 0);
@@ -966,6 +997,7 @@
   }
 
   async function exportPurchaseOrderPDF(orderId) {
+
     try {
       const order = db.getPurchaseOrderById(orderId);
       if (!order) return { success: false, message: "Orden de compra no encontrada" };

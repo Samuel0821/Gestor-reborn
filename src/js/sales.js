@@ -3,6 +3,10 @@ console.log('sales.js cargado');
 let saleItems = [];
 let allProducts = [];
 
+function saveCart() {
+  sessionStorage.setItem('shoppingCart', JSON.stringify(saleItems));
+}
+
 function formatCOP(value) {
   return new Intl.NumberFormat("es-CO", {
     style: "currency",
@@ -12,6 +16,11 @@ function formatCOP(value) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // Cargar carrito desde sessionStorage al iniciar
+  const savedCart = sessionStorage.getItem('shoppingCart');
+  if (savedCart) {
+    saleItems = JSON.parse(savedCart);
+  }
  
   // Referencias a elementos
   
@@ -29,6 +38,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const creditSearchInput = document.getElementById("credit-search-input");
   const creditSearchBtn = document.getElementById("credit-search-btn");
   const barcodeInput = document.getElementById("barcode-input");
+
+  renderSaleItems();
 
   // Funciones de carga
   
@@ -124,6 +135,9 @@ document.addEventListener("DOMContentLoaded", async () => {
           renderSaleItems();
         })
       );
+    
+    // Guardar carrito en sessionStorage cada vez que se renderiza
+    saveCart();
   }
 
   // -----------------------------
@@ -460,6 +474,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       alert(res.message || "Venta registrada exitosamente.");
+      sessionStorage.removeItem('shoppingCart'); // Limpiar carrito de la sesión
       saleItems = [];
       renderSaleItems();
       modal.hide();

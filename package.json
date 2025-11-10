@@ -1,7 +1,7 @@
 {
   "name": "gestorfx",
   "version": "1.0.0",
-  "description": "GestorFX: clientes, productos, ventas, cotizaciones, configuraciones y reportes.",
+  "description": "GestorFX: clientes, productos, proveedores, ventas, ordenes de compra,cotizaciones, configuraciones y reportes.",
   "authors": [
     "Grisalis Technologies"
   ],
