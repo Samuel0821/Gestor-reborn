@@ -1,5 +1,5 @@
   // ---------- DEPENDENCIAS PRINCIPALES ----------
-  const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+  const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
   const path = require("node:path");
   const fs = require("fs");
   const db = require("./database");
@@ -123,7 +123,7 @@
 
       // Ventas
       ipcMain.handle("create-sale", (event, data) => db.createSale(data));
-      ipcMain.handle("get-sales", () => db.getSales());
+      ipcMain.handle("get-sales", (event, limit, offset) => db.getSales(limit, offset));
       ipcMain.handle("get-sale-by-id", (event, id) => db.getSaleById(id));
       ipcMain.handle("get-sale-items", (event, id) => db.getSaleItems(id));
       ipcMain.handle("delete-sale", (event, id) => db.deleteSale(id));
@@ -186,6 +186,35 @@
       ipcMain.handle("get-last-quote-number", () => db.getLastQuoteNumber());
       ipcMain.handle("set-quote-number", (event, { id, quoteNumber }) => db.setQuoteNumber(id, quoteNumber));
 
+      // Servicios
+      ipcMain.handle("get-services", () => db.getServices());
+      ipcMain.handle("get-service-by-id", (event, id) => db.getServiceById(id));
+      ipcMain.handle("create-service", (event, data) => db.createService(data));
+      ipcMain.handle("update-service", (event, data) => db.updateService(data));
+      ipcMain.handle("delete-service", (event, id) => db.deleteService(id));
+
+      // Usuarios
+      ipcMain.handle("login", (event, creds) => db.login(creds.username, creds.password));
+      ipcMain.handle("get-users", () => db.getUsers());
+      ipcMain.handle("create-user", (event, data) => db.createUser(data));
+      ipcMain.handle("update-user", (event, data) => db.updateUser(data));
+      ipcMain.handle("delete-user", (event, id) => db.deleteUser(id));
+
+      // Soporte Técnico
+      ipcMain.handle("send-support-ticket", async (event, { subject, message }) => {
+        try {
+          const userEmail = "contacto.grisalistech@gmail.com";
+          const fullSubject = `Soporte GestorFX: ${subject}`;
+          const fullBody = `${message}\n\n---\nEnviado desde GestorFX`;
+          const mailtoLink = `mailto:${userEmail}?subject=${encodeURIComponent(fullSubject)}&body=${encodeURIComponent(fullBody)}`;
+          
+          await shell.openExternal(mailtoLink);
+          return { success: true };
+        } catch (error) {
+          return { success: false, message: error.message };
+        }
+      });
+
       // --- Aprobar cotización y convertir en venta ---
       ipcMain.handle("approve-quote", async (event, quoteId) => {
 
@@ -227,6 +256,7 @@
 
       ipcMain.handle("update-company-settings", (event, settings) => db.updateCompanySettings(settings));
       ipcMain.handle("get-dashboard-data", () => db.getDashboardData());
+      ipcMain.handle("get-sales-last-days", (event, days) => db.getSalesLastDays(days));
       ipcMain.handle("reset-database", () => db.resetDatabase());
       ipcMain.handle("select-file", async (event, options) => {
           const result = await dialog.showOpenDialog(options);

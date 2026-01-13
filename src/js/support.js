@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <a href="services.html" class="sidebar-link ${currentPage === 'services.html' ? 'active' : ''}"><i class="fa fa-concierge-bell"></i> <span class="link-text">Servicios</span></a>
         <a href="reports.html" class="sidebar-link ${currentPage === 'reports.html' ? 'active' : ''}"><i class="fa fa-chart-line"></i> <span class="link-text">Reportes</span></a>
         <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
+        <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
       </nav>
     `;
 
@@ -39,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
     navbar.innerHTML = `
       <div class="d-flex align-items-center">
         <button id="sidebar-toggle" class="btn btn-link text-white"><i class="fa fa-bars"></i></button>
-        <div class="page-title">Gestión de Clientes</div>
+        <div class="page-title">Soporte Técnico</div>
       </div>
       <div class="user-profile">
         <div class="user-info">
@@ -81,95 +82,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if(localStorage.getItem('sidebar-collapsed') === 'true') sidebar.classList.add('collapsed');
   }
 
-  const form = document.getElementById('client-form');
-  const idInput = document.getElementById('client-id');
-  const nameInput = document.getElementById('client-name');
-  const idcardInput = document.getElementById('client-idcard');
-  const addressInput = document.getElementById('client-address');
-  const emailInput = document.getElementById('client-email');
-  const phoneInput = document.getElementById('client-phone');
-  const cancelBtn = document.getElementById('cancel-edit');
-  const table = document.getElementById('clients-table');
-  const search = document.getElementById('search-client');
-
-  let clients = [];
-
-  async function loadClients() {
-    clients = await window.api.getClients();
-    renderTable(clients);
-  }
-
-  function renderTable(list) {
-    table.innerHTML = '';
-    for (const c of list) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><strong>${c.name}</strong></td>
-        <td>${c.id_card_or_nit}</td>
-        <td>${c.address || ''}</td>
-        <td>${c.email || ''}</td>
-        <td>${c.phone || ''}</td>
-        <td>
-          <button class="btn btn-sm btn-warning edit" data-id="${c.id}">Editar</button>
-          <button class="btn btn-sm btn-danger del" data-id="${c.id}">Eliminar</button>
-        </td>
-      `;
-      table.appendChild(tr);
-    }
-    table.querySelectorAll('.edit').forEach(b => b.addEventListener('click', async (e) => {
-      const id = Number(e.target.dataset.id);
-      const client = await window.api.getClientById(id);
-      idInput.value = client.id;
-      nameInput.value = client.name;
-      idcardInput.value = client.id_card_or_nit;
-      addressInput.value = client.address || '';
-      emailInput.value = client.email || '';
-      phoneInput.value = client.phone || '';
-      cancelBtn.style.display = 'inline-block';
-    }));
-    table.querySelectorAll('.del').forEach(b => b.addEventListener('click', async (e) => {
-      if (!confirm('¿Eliminar cliente?')) return;
-      const id = Number(e.target.dataset.id);
-      await window.api.deleteClient(id);
-      loadClients();
-    }));
-  }
-
+  // Lógica del formulario de soporte
+  const form = document.getElementById('support-form');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const payload = {
-      id: idInput.value ? Number(idInput.value) : undefined,
-      name: nameInput.value.trim(),
-      id_card_or_nit: idcardInput.value.trim(),
-      address: addressInput.value.trim(),
-      email: emailInput.value.trim(),
-      phone: phoneInput.value.trim()
-    };
-    if (!payload.name || !payload.id_card_or_nit) { alert('Nombre y NIT son obligatorios'); return; }
-
-    if (payload.id) {
-      await window.api.updateClient(payload);
-      cancelBtn.style.display = 'none';
-    } else {
-      const res = await window.api.saveClient(payload);
-      if (!res.success) { alert(res.message); return; }
+    const subject = document.getElementById('support-subject').value;
+    const message = document.getElementById('support-message').value;
+    
+    const result = await window.api.sendSupportTicket({ subject, message });
+    if(result.success) {
+        // No es necesario alertar si abre el correo, pero confirmamos la acción
+        form.reset();
     }
-    form.reset();
-    idInput.value = '';
-    await loadClients();
   });
-
-  cancelBtn.addEventListener('click', () => {
-    form.reset();
-    idInput.value = '';
-    cancelBtn.style.display = 'none';
-  });
-
-  search.addEventListener('input', () => {
-    const q = search.value.toLowerCase();
-    const filtered = clients.filter(c => c.name.toLowerCase().includes(q));
-    renderTable(filtered);
-  });
-
-  loadClients();
 });

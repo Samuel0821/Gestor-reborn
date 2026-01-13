@@ -1,21 +1,49 @@
-# GestorFX
+# GestorFX - Sistema ERP Profesional
 
-## Descripción
-GestorFX es una aplicación de escritorio multiplataforma (Windows, Linux, macOS) desarrollada con Electron y SQLite, diseñada para la gestión de inventario, ventas, clientes, cotizaciones, reportes y configuración empresarial.
+## Descripción General
+GestorFX es una solución de software de escritorio robusta y moderna para la gestión integral de negocios (ERP). Desarrollada con **Electron** y **Node.js**, utiliza una arquitectura asíncrona para garantizar un rendimiento fluido y una experiencia de usuario ágil. Todos los procesos de base de datos y generación de archivos se ejecutan en segundo plano sin bloquear la interfaz.
 
-## Características principales
-- **Login seguro:** Acceso mediante usuario y contraseña (por defecto: admin / 12345).
-- **Inicio de día:** Solicita el valor inicial de caja al iniciar sesión.
-- **Gestión de productos:** Registro, edición, eliminación, inventario, stock mínimo, exportación a PDF/Excel.
-- **Gestión de clientes:** Registro, edición, eliminación, búsqueda y listado.
-- **Gestión de ventas:** Venta rápida, historial, cálculo de totales, facturación.
-- **Gestión de cotizaciones:** Creación, historial, exportación.
-- **Reportes:** Generación de reportes diarios, semanales y mensuales.
-- **Ajustes:** Configuración de datos empresariales y logo.
-- **Alertas:** Avisos de productos con stock bajo.
-- **Diseño moderno:** Interfaz profesional con Bootstrap y FontAwesome.
+## Características Principales
 
-## Estructura de carpetas
+### 🚀 Arquitectura y Rendimiento
+- **Comunicación Asíncrona:** Toda la interacción entre la interfaz (Frontend) y la base de datos (Backend) se realiza mediante `IPC (Inter-Process Communication)` de forma asíncrona (`async/await`), asegurando que la aplicación nunca se congele durante operaciones pesadas.
+- **Base de Datos Local:** Utiliza SQLite (`better-sqlite3`) para un almacenamiento rápido, seguro y sin necesidad de servidores externos.
+- **Seguridad:** Aislamiento de contexto (`contextIsolation: true`) y precarga segura de APIs.
+
+### 📦 Módulos del Sistema
+1.  **Dashboard Interactivo:**
+    - Gráficos de ventas en tiempo real (Chart.js).
+    - Indicadores clave de rendimiento (KPIs).
+    - Alertas automáticas de stock mínimo.
+2.  **Punto de Venta (POS):**
+    - Facturación rápida con soporte para lector de código de barras.
+    - Manejo de variantes de productos (Unidades de medida).
+    - Pagos mixtos (Efectivo + Transferencia).
+    - Ventas a crédito y gestión de abonos.
+3.  **Inventario Avanzado:**
+    - Gestión de productos, categorías y proveedores.
+    - Control de stock y alertas de reabastecimiento.
+    - Exportación de inventario a Excel y PDF.
+4.  **Servicios:**
+    - Creación de paquetes de servicios (Mano de obra + Insumos).
+    - Descuento automático de materiales del inventario al vender un servicio.
+5.  **Compras y Proveedores:**
+    - Generación de Órdenes de Compra.
+    - Recepción de mercancía con actualización automática de stock.
+    - Base de datos de proveedores.
+6.  **Cotizaciones:**
+    - Generación de cotizaciones profesionales en PDF.
+    - Conversión de cotización a venta con un solo clic.
+7.  **Finanzas y Caja:**
+    - Apertura y cierre de caja (Arqueo ciego).
+    - Registro de movimientos de efectivo.
+    - Reportes de utilidad real (Ventas - Costos).
+8.  **Soporte Técnico:**
+    - Módulo integrado para envío de reportes de error directamente al desarrollador.
+
+## Estructura del Proyecto
+El proyecto sigue una estructura modular clara:
+
 ```
 database.sqlite
 package.json

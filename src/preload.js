@@ -37,7 +37,7 @@ contextBridge.exposeInMainWorld("api", {
 
   // sales
   createSale: (data) => ipcRenderer.invoke("create-sale", data),
-  getSales: () => ipcRenderer.invoke("get-sales"),
+  getSales: (limit, offset) => ipcRenderer.invoke("get-sales", limit, offset),
   getSaleById: (id) => ipcRenderer.invoke("get-sale-by-id", id),
   getSaleItems: (id) => ipcRenderer.invoke("get-sale-items", id),
   deleteSale: (id) => ipcRenderer.invoke("delete-sale", id),
@@ -75,12 +75,30 @@ markCreditAsPaid: (saleId) => ipcRenderer.invoke("mark-credit-as-paid", saleId),
   exportQuotePDF: (id, quote_number, includeIva = false) =>
     ipcRenderer.invoke("export-quote-pdf", { id, quote_number, includeIva }),
 
+  // services
+  getServices: () => ipcRenderer.invoke("get-services"),
+  getServiceById: (id) => ipcRenderer.invoke("get-service-by-id", id),
+  createService: (data) => ipcRenderer.invoke("create-service", data),
+  updateService: (data) => ipcRenderer.invoke("update-service", data),
+  deleteService: (id) => ipcRenderer.invoke("delete-service", id),
+
+  // users
+  login: (creds) => ipcRenderer.invoke("login", creds),
+  getUsers: () => ipcRenderer.invoke("get-users"),
+  createUser: (data) => ipcRenderer.invoke("create-user", data),
+  updateUser: (data) => ipcRenderer.invoke("update-user", data),
+  deleteUser: (id) => ipcRenderer.invoke("delete-user", id),
+
+  // support
+  sendSupportTicket: (data) => ipcRenderer.invoke("send-support-ticket", data),
+
   // settings
   getCompanySettings: () => ipcRenderer.invoke("get-company-settings"),
   updateCompanySettings: (data) => ipcRenderer.invoke("update-company-settings", data),
 
   // dashboard
   getDashboardData: () => ipcRenderer.invoke("get-dashboard-data"),
+  getSalesLastDays: (days) => ipcRenderer.invoke("get-sales-last-days", days),
 
   // reset
   resetDatabase: () => ipcRenderer.invoke("reset-database"),

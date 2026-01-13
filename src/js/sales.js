@@ -16,6 +16,89 @@ function formatCOP(value) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // Mostrar usuario logueado
+  const role = localStorage.getItem('user_role');
+  const name = localStorage.getItem('user_name');
+  if (role && name) {
+    // --- INICIO LOGICA LAYOUT ERP ---
+    const currentPage = window.location.pathname.split('/').pop();
+    
+    // Crear estructura principal
+    const appWrapper = document.createElement('div');
+    appWrapper.className = 'app-wrapper';
+
+    // Sidebar
+    const sidebar = document.createElement('div');
+    sidebar.className = 'sidebar';
+    sidebar.innerHTML = `
+      <div class="sidebar-brand"><i class="fa fa-cubes"></i> <span class="brand-text ms-2">GestorFX</span></div>
+      <nav class="sidebar-menu">
+        <a href="index.html" class="sidebar-link ${currentPage === 'index.html' ? 'active' : ''}"><i class="fa fa-home"></i> <span class="link-text">Dashboard</span></a>
+        <a href="sales.html" class="sidebar-link ${currentPage === 'sales.html' ? 'active' : ''}"><i class="fa fa-shopping-cart"></i> <span class="link-text">Ventas</span></a>
+        <a href="products.html" class="sidebar-link ${currentPage === 'products.html' ? 'active' : ''}"><i class="fa fa-box"></i> <span class="link-text">Productos</span></a>
+        <a href="clients.html" class="sidebar-link ${currentPage === 'clients.html' ? 'active' : ''}"><i class="fa fa-users"></i> <span class="link-text">Clientes</span></a>
+        <a href="suppliers.html" class="sidebar-link ${currentPage === 'suppliers.html' ? 'active' : ''}"><i class="fa fa-truck"></i> <span class="link-text">Proveedores</span></a>
+        <a href="quotes.html" class="sidebar-link ${currentPage === 'quotes.html' ? 'active' : ''}"><i class="fa fa-file-invoice-dollar"></i> <span class="link-text">Cotizaciones</span></a>
+        <a href="purchase_orders.html" class="sidebar-link ${currentPage === 'purchase_orders.html' ? 'active' : ''}"><i class="fa fa-clipboard-list"></i> <span class="link-text">Órdenes Compra</span></a>
+        <a href="services.html" class="sidebar-link ${currentPage === 'services.html' ? 'active' : ''}"><i class="fa fa-concierge-bell"></i> <span class="link-text">Servicios</span></a>
+        <a href="reports.html" class="sidebar-link ${currentPage === 'reports.html' ? 'active' : ''}"><i class="fa fa-chart-line"></i> <span class="link-text">Reportes</span></a>
+        <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
+        <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
+      </nav>
+    `;
+
+    // Main Content Wrapper
+    const mainWrapper = document.createElement('div');
+    mainWrapper.className = 'main-content-wrapper';
+
+    // Navbar
+    const navbar = document.createElement('div');
+    navbar.className = 'top-navbar';
+    navbar.innerHTML = `
+      <div class="d-flex align-items-center">
+        <button id="sidebar-toggle" class="btn btn-link text-white"><i class="fa fa-bars"></i></button>
+        <div class="page-title">Punto de Venta</div>
+      </div>
+      <div class="user-profile">
+        <div class="user-info">
+          <div class="user-name">${name}</div>
+          <div class="user-role">${role === 'admin' ? 'Administrador' : 'Usuario'}</div>
+        </div>
+        <button id="logout-btn" class="btn btn-outline-danger btn-sm" title="Salir"><i class="fa fa-sign-out-alt"></i></button>
+      </div>
+    `;
+
+    // Mover el contenido existente (.container) dentro del nuevo layout
+    const contentContainer = document.createElement('div');
+    contentContainer.className = 'content-container';
+    const originalContainer = document.querySelector('.container');
+    if (originalContainer) contentContainer.appendChild(originalContainer);
+
+    mainWrapper.appendChild(navbar);
+    mainWrapper.appendChild(contentContainer);
+    appWrapper.appendChild(sidebar);
+    appWrapper.appendChild(mainWrapper);
+    
+    // Insertar al inicio del body
+    document.body.insertBefore(appWrapper, document.body.firstChild);
+    // --- FIN LOGICA LAYOUT ERP ---
+
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      if(confirm('¿Cerrar sesión?')) {
+        ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
+        window.location.href = 'login.html';
+      }
+    });
+
+    // Lógica Sidebar Colapsable
+    const toggleBtn = document.getElementById('sidebar-toggle');
+    toggleBtn.addEventListener('click', () => {
+        sidebar.classList.toggle('collapsed');
+        localStorage.setItem('sidebar-collapsed', sidebar.classList.contains('collapsed'));
+    });
+    if(localStorage.getItem('sidebar-collapsed') === 'true') sidebar.classList.add('collapsed');
+  }
+
   // Cargar carrito desde sessionStorage al iniciar
   const savedCart = sessionStorage.getItem('shoppingCart');
   if (savedCart) {
@@ -81,7 +164,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       tr.innerHTML = `
         <td>${i + 1}</td>
-        <td>${it.product_code}</td>
+        <td>${it.product_code || '-'}</td>
         <td>${it.product_name}</td>
         <td>
           ${isKgVariant 
@@ -505,13 +588,95 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Cargar ventas
 
-  async function loadSales() {
-    const sales = await window.api.getSales();
-    if (!sales || sales.length === 0) {
-      salesList.innerHTML = '<div class="alert alert-secondary">No hay ventas</div>';
+  let currentOffset = 0;
+  const SALES_LIMIT = 10;
+  let loadMoreBtn;
+
+  // Crear botón de "Cargar más"
+  const btnContainer = document.createElement("div");
+  btnContainer.className = "text-center mt-3 mb-3";
+  loadMoreBtn = document.createElement("button");
+  loadMoreBtn.className = "btn btn-secondary";
+  loadMoreBtn.textContent = "Cargar más facturas";
+  loadMoreBtn.style.display = "none";
+  loadMoreBtn.addEventListener("click", () => loadSales(true));
+  btnContainer.appendChild(loadMoreBtn);
+  
+  if (salesList && salesList.parentNode) {
+    salesList.parentNode.insertBefore(btnContainer, salesList.nextSibling);
+  }
+
+  // Delegación de eventos para la lista de ventas (Eliminar, Exportar, Imprimir)
+  salesList.addEventListener("click", async (e) => {
+    const target = e.target;
+
+    if (target.classList.contains("delete-sale")) {
+      if (!confirm("Eliminar venta?")) return;
+      await window.api.deleteSale(Number(target.dataset.id));
+      await loadSales(false); // Recargar desde cero
+    } else if (target.classList.contains("export-invoice")) {
+      const id = Number(target.dataset.id);
+      const withIva = confirm("¿Incluir IVA 19% en la factura? Aceptar = Sí, Cancelar = No");
+      const res = await window.api.exportInvoicePDF(id, withIva);
+      alert(res.message || JSON.stringify(res));
+    } else if (target.classList.contains("print-sale")) {
+      await handlePrintSale(Number(target.dataset.id));
+    }
+  });
+
+  async function handlePrintSale(id) {
+    const sale = await window.api.getSaleById(id);
+    const items = await window.api.getSaleItems(id);
+    const company = await window.api.getCompanySettings();
+    const logoBase64 = await window.api.getCompanyLogo();
+    const client = sale.client_id ? await window.api.getClientById(sale.client_id) : null;
+
+    if (!sale || !items) {
+      alert("No se encontró la información de la venta");
       return;
     }
-    salesList.innerHTML = sales.map((s) => {
+
+    const printers = await window.api.getPrinters();
+    if (!printers || printers.length === 0) {
+      alert("No se encontraron impresoras disponibles");
+      return;
+    }
+
+    const htmlContent = generateInvoiceHtml(sale, items, company, logoBase64, client, printers);
+    await window.api.previewInvoice({ content: htmlContent });
+
+    const printerChoice = prompt(
+      `Selecciona impresora:\n${printers.map((p, i) => `${i + 1}. ${p.name}${p.isDefault ? " (Predeterminada)" : ""}`).join("\n")}\n\nEscribe el número o deja vacío para usar la predeterminada:`
+    );
+
+    let selectedPrinter = null;
+    if (printerChoice) {
+      const idx = parseInt(printerChoice, 10) - 1;
+      if (printers[idx]) selectedPrinter = printers[idx].name;
+    }
+
+    await window.api.printInvoice({ printer: selectedPrinter, paperSize: "A4", htmlContent });
+  }
+
+  async function loadSales(append = false) {
+    if (!append) {
+      currentOffset = 0;
+      salesList.innerHTML = "";
+      loadMoreBtn.style.display = "none";
+    }
+
+    const sales = await window.api.getSales(SALES_LIMIT, currentOffset);
+    
+    if (!sales || sales.length === 0) {
+      if (!append) salesList.innerHTML = '<div class="alert alert-secondary">No hay ventas</div>';
+      else {
+        alert("No hay más facturas.");
+        loadMoreBtn.style.display = "none";
+      }
+      return;
+    }
+
+    const html = sales.map((s) => {
       const itemsHtml = (s.items || []).map(it => `<li>${it.product_name} x ${it.quantity} = ${formatCOP(it.subtotal)}</li>`).join("");
       return `
         <div class="card mb-2 p-2">
@@ -529,72 +694,27 @@ document.addEventListener("DOMContentLoaded", async () => {
       `;
     }).join("");
 
-    // eliminar
-    salesList.querySelectorAll(".delete-sale").forEach((b) =>
-      b.addEventListener("click", async (e) => {
-        if (!confirm("Eliminar venta?")) return;
-        await window.api.deleteSale(Number(e.target.dataset.id));
-        await loadSales();
-      })
-    );
-
-    // exportar PDF
-    salesList.querySelectorAll(".export-invoice").forEach((b) =>
-      b.addEventListener("click", async (e) => {
-        const id = Number(e.target.dataset.id);
-        const withIva = confirm("¿Incluir IVA 19% en la factura? Aceptar = Sí, Cancelar = No");
-        const res = await window.api.exportInvoicePDF(id, withIva);
-        alert(res.message || JSON.stringify(res));
-      })
-    );
-
-    // INICIO ajuste impresión
-    salesList.querySelectorAll(".print-sale").forEach((b) => {
-      b.addEventListener("click", async (e) => {
-        const id = Number(e.target.dataset.id);
-        const sale = await window.api.getSaleById(id);
-        const items = await window.api.getSaleItems(id);
-        const company = await window.api.getCompanySettings();
-        const logoBase64 = await window.api.getCompanyLogo();
-        const client = sale.client_id ? await window.api.getClientById(sale.client_id) : null;
-
-        if (!sale || !items) {
-          alert("No se encontró la información de la venta");
-          return;
-        }
-
-        const printers = await window.api.getPrinters();
-        if (!printers || printers.length === 0) {
-          alert("No se encontraron impresoras disponibles");
-          return;
-        }
-
-        const htmlContent = generateInvoiceHtml(sale, items, company, logoBase64, client, printers);
-
-        // Mostrar vista previa primero
-        await window.api.previewInvoice({ content: htmlContent });
-
-        // Preguntar impresora
-        const printerChoice = prompt(
-          `Selecciona impresora:\n${printers.map((p, i) => `${i + 1}. ${p.name}${p.isDefault ? " (Predeterminada)" : ""}`).join("\n")}\n\nEscribe el número o deja vacío para usar la predeterminada:`
-        );
-
-        let selectedPrinter = null;
-        if (printerChoice) {
-          const idx = parseInt(printerChoice, 10) - 1;
-          if (printers[idx]) selectedPrinter = printers[idx].name;
-        }
-
-        // Imprimir
-        await window.api.printInvoice({
-          printer: selectedPrinter,
-          paperSize: "A4",
-          htmlContent,
-        });
-      });
-    });
-    // FIN ajuste impresión
+    if (append) {
+      salesList.insertAdjacentHTML('beforeend', html);
+    } else {
+      salesList.innerHTML = html;
     }
+
+    // Restricción de roles
+    const role = localStorage.getItem('user_role');
+    if (role !== 'admin') {
+      salesList.querySelectorAll('.delete-sale').forEach(btn => btn.remove());
+    }
+
+    currentOffset += sales.length;
+
+    // Mostrar botón solo si trajimos el límite completo (significa que puede haber más)
+    if (sales.length === SALES_LIMIT) {
+      loadMoreBtn.style.display = "inline-block";
+    } else {
+      loadMoreBtn.style.display = "none";
+    }
+  }
 
     // -----------------------------
     // Generar HTML de factura
@@ -960,4 +1080,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadClients();
   await loadSales();
   await loadCredits();
+
+  // Atajos de teclado
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'F2') {
+        e.preventDefault();
+        productInput.focus();
+    }
+    if (e.key === 'F9') {
+        e.preventDefault();
+        finalizeBtn.click();
+    }
+  });
 });

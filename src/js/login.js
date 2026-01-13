@@ -2,15 +2,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('login-form');
   const errorMsg = document.getElementById('login-error');
 
-  form.addEventListener('submit', function(e) {
+  form.addEventListener('submit', async function(e) {
     e.preventDefault();
     const user = document.getElementById('login-user').value.trim();
     const pass = document.getElementById('login-pass').value.trim();
-    if (user === 'admin' && pass === '12345') {
+    
+    const res = await window.api.login({ username: user, password: pass });
+    if (res.success) {
+      localStorage.setItem('user_id', res.user.id);
+      localStorage.setItem('user_role', res.user.role);
+      localStorage.setItem('user_name', res.user.name || res.user.username);
       errorMsg.style.display = 'none';
       showStartDayModal();
     } else {
-      errorMsg.textContent = 'Usuario o contraseña incorrectos.';
+      errorMsg.textContent = res.message || 'Usuario o contraseña incorrectos.';
       errorMsg.style.display = 'block';
     }
   });

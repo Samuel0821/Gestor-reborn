@@ -1,15 +1,15 @@
 /* Estilos Generales para GestorFX */
 
 :root {
-    --primary-color: #2c3e50; /* Azul oscuro */
-    --secondary-color: #34495e; /* Azul más claro */
-    --light-bg: #ecf0f1; /* Fondo gris claro */
-    --text-color: #34495e;
-    --card-bg: #ffffff;
+    --primary-color: #1E3A8A; /* Azul oscuro corporativo */
+    --secondary-color: #6B7280; /* Gris secundario */
+    --light-bg: #F3F4F6; /* Gris claro fondo */
+    --text-color: #111827; /* Negro suave texto */
+    --card-bg: #FFFFFF; /* Blanco tarjetas */
     --success-color: #27ae60;
     --danger-color: #c0392b;
-    --primary-btn: #3498db; /* Azul brillante para botones */
-    --primary-btn-hover: #2980b9;
+    --primary-btn: #1E3A8A; /* Botón primario igual al corporativo */
+    --primary-btn-hover: #1e40af;
 }
 
 body {
@@ -40,4 +40,350 @@ h1, h2, h3, h4, h5, h6 {
 
 .table th {
     color: var(--primary-color);
+}
+
+/* --- LOGIN PROFESIONAL ERP --- */
+.login-page {
+    background: linear-gradient(135deg, #0f172a 0%, var(--primary-color) 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.login-card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+    width: 100%;
+    max-width: 420px;
+    overflow: hidden;
+    animation: slideUp 0.5s ease-out;
+}
+
+.login-header {
+    background: var(--primary-color);
+    padding: 40px 30px;
+    text-align: center;
+    color: white;
+}
+
+.login-header h2 {
+    color: white;
+    margin: 0;
+    font-size: 26px;
+    letter-spacing: 1px;
+}
+
+.login-header p {
+    margin: 8px 0 0;
+    opacity: 0.8;
+    font-size: 14px;
+}
+
+.login-body {
+    padding: 40px 30px;
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- LAYOUT ERP (SIDEBAR + NAVBAR) --- */
+.app-wrapper {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.sidebar {
+    width: 260px;
+    background: #111827; /* Fondo oscuro profesional */
+    color: #9ca3af;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    transition: width 0.3s;
+}
+
+.sidebar-brand {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    font-size: 20px;
+    font-weight: 700;
+    color: white;
+    background: rgba(0,0,0,0.2);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.sidebar-menu {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 0;
+}
+
+.sidebar-link {
+    display: flex;
+    align-items: center;
+    padding: 12px 24px;
+    color: inherit;
+    text-decoration: none;
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+    font-size: 15px;
+}
+
+.sidebar-link i {
+    width: 24px;
+    margin-right: 12px;
+    text-align: center;
+}
+
+.sidebar-link:hover, .sidebar-link.active {
+    background: rgba(255,255,255,0.05);
+    color: white;
+    border-left-color: var(--primary-color);
+}
+
+.main-content-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #f3f4f6;
+    overflow: hidden;
+}
+
+.top-navbar {
+    height: 64px;
+    background: white;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 32px;
+    flex-shrink: 0;
+}
+
+.content-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+}
+
+/* --- LOGIN PROFESIONAL ERP --- */
+.login-page {
+    background: linear-gradient(135deg, #0f172a 0%, var(--primary-color) 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.login-card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+    width: 100%;
+    max-width: 420px;
+    overflow: hidden;
+    animation: slideUp 0.5s ease-out;
+}
+
+.login-header {
+    background: var(--primary-color);
+    padding: 40px 30px;
+    text-align: center;
+    color: white;
+}
+
+.login-header h2 {
+    color: white;
+    margin: 0;
+    font-size: 26px;
+    letter-spacing: 1px;
+}
+
+.login-header p {
+    margin: 8px 0 0;
+    opacity: 0.8;
+    font-size: 14px;
+}
+
+.login-body {
+    padding: 40px 30px;
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- LAYOUT ERP (SIDEBAR + NAVBAR) --- */
+.app-wrapper {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.sidebar {
+    width: 260px;
+    background: #111827; /* Fondo oscuro profesional */
+    color: #9ca3af;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    transition: width 0.3s;
+}
+
+/* Sidebar Colapsado */
+.sidebar.collapsed {
+    width: 80px;
+}
+.sidebar.collapsed .brand-text,
+.sidebar.collapsed .link-text {
+    display: none;
+}
+.sidebar.collapsed .sidebar-brand {
+    justify-content: center;
+    padding: 0;
+}
+.sidebar.collapsed .sidebar-link {
+    justify-content: center;
+    padding: 15px 0;
+}
+.sidebar.collapsed .sidebar-link i {
+    margin-right: 0;
+    font-size: 1.2rem;
+}
+
+.sidebar-brand {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    font-size: 20px;
+    font-weight: 700;
+    color: white;
+    background: rgba(0,0,0,0.2);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.sidebar-menu {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 0;
+}
+
+.sidebar-link {
+    display: flex;
+    align-items: center;
+    padding: 12px 24px;
+    color: inherit;
+    text-decoration: none;
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+    font-size: 15px;
+}
+
+.sidebar-link i {
+    width: 24px;
+    margin-right: 12px;
+    text-align: center;
+}
+
+.sidebar-link:hover, .sidebar-link.active {
+    background: rgba(255,255,255,0.05);
+    color: white;
+    border-left-color: var(--primary-color);
+}
+
+.main-content-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #f3f4f6;
+    overflow: hidden;
+}
+
+.top-navbar {
+    height: 64px;
+    background: var(--primary-color); /* Color corporativo */
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 32px;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    z-index: 100;
+}
+
+#sidebar-toggle {
+    font-size: 1.2rem;
+    cursor: pointer;
+    background: rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 4px 10px;
+    border: none;
+    margin-right: 15px;
+}
+
+.page-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.user-profile {
+    display: flex;
+    align-items: center;
+}
+
+.user-info {
+    margin-right: 16px;
+    text-align: right;
+    line-height: 1.2;
+}
+
+.user-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.user-role {
+    font-size: 0.75rem;
+    opacity: 0.8;
+}
+
+/* Ajuste del botón de salir para fondo oscuro */
+.top-navbar .btn-outline-danger {
+    color: white;
+    border-color: rgba(255,255,255,0.4);
+}
+
+.top-navbar .btn-outline-danger:hover {
+    background-color: rgba(255,255,255,0.15);
+    border-color: white;
+    color: #fff;
+}
+
+.content-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+}
+
+/* --- DASHBOARD CARDS --- */
+.dashboard-card {
+    border-left: 5px solid var(--primary-color) !important;
+    transition: transform 0.2s ease;
+}
+
+.dashboard-card:hover {
+    transform: translateY(-3px);
 }

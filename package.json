@@ -1,7 +1,7 @@
 {
   "name": "gestorfx",
-  "version": "1.0.0",
-  "description": "GestorFX: clientes, productos, proveedores, ventas, ordenes de compra,cotizaciones, configuraciones y reportes.",
+  "version": "1.0.1",
+  "description": "GestorFX: clientes, productos, proveedores, ventas, ordenes de compra,cotizaciones, Servicios, configuraciones, soporte técnico y reportes.",
   "authors": [
     "Grisalis Technologies"
   ],
@@ -9,10 +9,11 @@
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",
-    "make": "electron-forge make"
+    "make": "electron-forge make",
+    "postinstall": "electron-rebuild"
   },
   "dependencies": {
-    "better-sqlite3": "^8.7.0",
+    "better-sqlite3": "^9.4.3",
     "bootstrap": "^5.3.2",
     "electron-squirrel-startup": "^1.0.1",
     "exceljs": "^4.4.0",

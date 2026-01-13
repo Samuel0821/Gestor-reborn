@@ -1,6 +1,7 @@
 const Database = require("better-sqlite3");
 const path = require("node:path");
 const fs = require("fs");
+const crypto = require("crypto");
 let dbPath;
 
 // Detectar si la app está empaquetada
@@ -248,6 +249,42 @@ CREATE TABLE IF NOT EXISTS company_settings (
   company_phone TEXT,
   logo_path TEXT
 )`).run();
+
+// SERVICIOS
+db.prepare(`
+CREATE TABLE IF NOT EXISTS services (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  description TEXT,
+  price REAL NOT NULL DEFAULT 0
+)`).run();
+
+db.prepare(`
+CREATE TABLE IF NOT EXISTS service_products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  service_id INTEGER NOT NULL,
+  product_id INTEGER NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+)`).run();
+
+// USUARIOS Y ROLES
+db.prepare(`
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user', -- 'admin' or 'user'
+  name TEXT
+)`).run();
+
+// Crear usuario admin por defecto si no existe
+const adminExist = db.prepare("SELECT COUNT(*) as c FROM users").get();
+if (adminExist.c === 0) {
+  const hash = crypto.createHash('sha256').update('12345').digest('hex');
+  db.prepare("INSERT INTO users (username, password_hash, role, name) VALUES (?, ?, ?, ?)").run('admin', hash, 'admin', 'Administrador');
+}
 
 // asegurarse fila settings
 const countRow = db.prepare("SELECT COUNT(*) as c FROM company_settings").get();
@@ -527,20 +564,27 @@ function createSale({
     let total = 0;
     for (const it of items) {
       let price, stockToDecrement;
-      const prod = getProduct.get(it.product_id);
-      if (!prod) throw new Error(`Producto con id=${it.product_id} no existe`);
+      
+      // Si tiene product_id, es un producto físico y validamos stock
+      if (it.product_id) {
+        const prod = getProduct.get(it.product_id);
+        if (!prod) throw new Error(`Producto con id=${it.product_id} no existe`);
 
-      if (it.variant_id) {
-        const variant = getVariant.get(it.variant_id);
-        if (!variant) throw new Error(`Variante con id=${it.variant_id} no existe`);
-        price = it.price ?? variant.sale_price;
-        stockToDecrement = it.quantity * variant.conversion_factor;
+        if (it.variant_id) {
+          const variant = getVariant.get(it.variant_id);
+          if (!variant) throw new Error(`Variante con id=${it.variant_id} no existe`);
+          price = it.price ?? variant.sale_price;
+          stockToDecrement = it.quantity * variant.conversion_factor;
+        } else {
+          price = it.price ?? prod.sale_price;
+          stockToDecrement = it.quantity;
+        }
+        if (prod.stock < stockToDecrement) throw new Error(`Stock insuficiente para ${prod.name}`);
       } else {
-        price = it.price ?? prod.sale_price;
-        stockToDecrement = it.quantity;
+        // Es un servicio o ítem libre
+        price = it.price || 0;
       }
 
-      if (prod.stock < stockToDecrement) throw new Error(`Stock insuficiente para ${prod.name}`);
       total += price * it.quantity;
     }
 
@@ -560,22 +604,29 @@ function createSale({
     const saleId = saleRes.lastInsertRowid;
 
     for (const it of items) {
-      const prod = getProduct.get(it.product_id);
+      let prodCode = "";
+      if (it.product_id) {
+        const prod = getProduct.get(it.product_id);
+        prodCode = prod ? prod.code : "";
+      }
+
       insertItem.run(
         saleId,
-        it.product_id,
+        it.product_id || null,
         it.product_name,
-        prod ? prod.code : "",
+        prodCode,
         it.quantity,
         it.price,
         it.subtotal
       );
 
-      if (it.variant_id) {
+      if (it.product_id) {
+        if (it.variant_id) {
         const variant = getVariant.get(it.variant_id);
         if (variant) updateStock.run(it.quantity * variant.conversion_factor, it.product_id);
-      } else {
-        updateStock.run(it.quantity, it.product_id);
+        } else {
+          updateStock.run(it.quantity, it.product_id);
+        }
       }
     }
 
@@ -609,8 +660,8 @@ function createSale({
   }
 }
 
-function getSales() {
-  const sales = db.prepare("SELECT id, client_id, sale_date, total_amount, invoice_number FROM sales ORDER BY sale_date DESC").all();
+function getSales(limit = -1, offset = 0) {
+  const sales = db.prepare("SELECT id, client_id, sale_date, total_amount, invoice_number FROM sales ORDER BY sale_date DESC LIMIT ? OFFSET ?").all(limit, offset);
   const itemsStmt = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal FROM sale_items WHERE sale_id = ?");
   for (const s of sales) s.items = itemsStmt.all(s.id);
   return sales;
@@ -752,13 +803,13 @@ function createQuote({ client_id = null, items = [] }) {
     const quoteId = q.lastInsertRowid;
     let total = 0;
     for (const it of items) {
-      const prod = getProduct.get(it.product_id);
+      const prod = it.product_id ? getProduct.get(it.product_id) : null;
       const prodName = it.product_name || (prod ? prod.name : "Producto eliminado");
       const prodCode = prod ? prod.code : (it.product_code || "");
       const price = (it.price != null) ? it.price : (prod ? prod.sale_price : 0);
       const subtotal = price * it.quantity;
       total += subtotal;
-      insertItem.run(quoteId, it.product_id, prodName, prodCode, it.quantity, price, subtotal);
+      insertItem.run(quoteId, it.product_id || null, prodName, prodCode, it.quantity, price, subtotal);
     }
     db.prepare("UPDATE quotes SET total_amount = ? WHERE id = ?").run(total, quoteId);
     const last = getLastQuoteNumber();
@@ -829,7 +880,23 @@ function getDashboardData() {
   const products = db.prepare("SELECT COUNT(*) as c FROM products").get().c;
   const sales = db.prepare("SELECT COUNT(*) as c FROM sales").get().c;
   const quotes = db.prepare("SELECT COUNT(*) as c FROM quotes").get().c;
-  return { clients, products, sales, quotes };
+  const services = db.prepare("SELECT COUNT(*) as c FROM services").get().c;
+  return { clients, products, sales, quotes, services };
+}
+
+function getSalesLastDays(days = 7) {
+  try {
+    const sql = `
+      SELECT date(sale_date) as date, SUM(total_amount) as total
+      FROM sales
+      WHERE sale_date >= date('now', '-' || ? || ' days')
+      GROUP BY date(sale_date)
+      ORDER BY date(sale_date) ASC
+    `;
+    return db.prepare(sql).all(days);
+  } catch (e) {
+    return [];
+  }
 }
 
 // SETTINGS (company)
@@ -905,9 +972,10 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
     const rows = salesStmt.all(start, end);
 
     const itemsStmt = db.prepare(`
-      SELECT product_name, quantity, price, subtotal
-      FROM sale_items
-      WHERE sale_id = ?
+      SELECT si.product_name, si.quantity, si.price, si.subtotal, p.purchase_price
+      FROM sale_items si
+      LEFT JOIN products p ON si.product_id = p.id
+      WHERE si.sale_id = ?
     `);
 
     const paymentsStmt = db.prepare(`
@@ -915,6 +983,8 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
       FROM sale_payments
       WHERE sale_id = ?
     `);
+
+    let totalProfit = 0;
 
     const detailedSales = rows.flatMap(r => {
       const saleIds = r.sale_ids.split(",").map(id => parseInt(id));
@@ -927,6 +997,15 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
 
         const items = itemsStmt.all(sid);
         const payments = paymentsStmt.all(sid);
+
+        // Calcular la utilidad de esta venta
+        const saleProfit = items.reduce((profit, item) => {
+          const cost = item.purchase_price || 0;
+          const revenue = item.price * item.quantity;
+          return profit + (revenue - (cost * item.quantity));
+        }, 0);
+        
+        totalProfit += saleProfit;
 
         let cash_payment = 0;
         let transfer_payment = 0;
@@ -943,6 +1022,7 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
         return {
           ...sale,
           items,
+          profit: saleProfit, // Añadir utilidad a la venta
           cash_payment,
           transfer_payment
         };
@@ -956,14 +1036,15 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
 
     return { 
       sales: detailedSales, 
-      totalGeneral, 
+      totalGeneral,
+      totalProfit, // Añadir utilidad total
       totalCash, 
       totalTransfer, 
       totalCredit 
     };
   } catch (err) {
     console.error("Error en getSalesReport:", err);
-    return { sales: [], totalGeneral: 0, totalCash: 0, totalTransfer: 0, totalCredit: 0 };
+    return { sales: [], totalGeneral: 0, totalProfit: 0, totalCash: 0, totalTransfer: 0, totalCredit: 0 };
   }
 }
 
@@ -1094,6 +1175,131 @@ function updatePurchaseOrder({ id, supplier_id, order_date, items = [] }) {
     }
 }
 
+// GESTIÓN DE SERVICIOS
+function getServices() {
+  return db.prepare(`
+    SELECT s.*, 
+      (SELECT COALESCE(SUM(sp.quantity * p.sale_price), 0)
+       FROM service_products sp 
+       JOIN products p ON sp.product_id = p.id 
+       WHERE sp.service_id = s.id
+      ) as materials_cost
+    FROM services s 
+    ORDER BY s.name
+  `).all();
+}
+
+function getServiceById(id) {
+  const service = db.prepare("SELECT * FROM services WHERE id = ?").get(id);
+  if (service) {
+    const products = db.prepare(`
+      SELECT sp.product_id, sp.quantity, p.name, p.code, p.sale_price
+      FROM service_products sp
+      JOIN products p ON sp.product_id = p.id
+      WHERE sp.service_id = ?
+    `).all(id);
+    service.products = products;
+  }
+  return service;
+}
+
+function createService(data) {
+  const insert = db.prepare("INSERT INTO services (name, description, price) VALUES (?, ?, ?)");
+  const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity) VALUES (?, ?, ?)");
+  
+  const trx = db.transaction((data) => {
+    const info = insert.run(data.name, data.description, data.price);
+    const serviceId = info.lastInsertRowid;
+    if (data.products && data.products.length > 0) {
+      for (const p of data.products) {
+        insertItem.run(serviceId, p.product_id, p.quantity);
+      }
+    }
+    return serviceId;
+  });
+  
+  try {
+    const id = trx(data);
+    return { success: true, message: "Servicio creado", id };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function updateService(data) {
+  const update = db.prepare("UPDATE services SET name = ?, description = ?, price = ? WHERE id = ?");
+  const deleteItems = db.prepare("DELETE FROM service_products WHERE service_id = ?");
+  const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity) VALUES (?, ?, ?)");
+
+  const trx = db.transaction((data) => {
+    update.run(data.name, data.description, data.price, data.id);
+    deleteItems.run(data.id);
+    if (data.products && data.products.length > 0) {
+      for (const p of data.products) {
+        insertItem.run(data.id, p.product_id, p.quantity);
+      }
+    }
+  });
+
+  try {
+    trx(data);
+    return { success: true, message: "Servicio actualizado" };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function deleteService(id) {
+  try {
+    db.prepare("DELETE FROM services WHERE id = ?").run(id);
+    return { success: true, message: "Servicio eliminado" };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+// AUTENTICACIÓN Y USUARIOS
+function login(username, password) {
+  const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
+  if (!user) return { success: false, message: "Usuario no encontrado" };
+  
+  const hash = crypto.createHash('sha256').update(password).digest('hex');
+  if (hash !== user.password_hash) return { success: false, message: "Contraseña incorrecta" };
+  
+  return { success: true, user: { id: user.id, username: user.username, role: user.role, name: user.name } };
+}
+
+function getUsers() {
+  return db.prepare("SELECT id, username, role, name FROM users").all();
+}
+
+function createUser(u) {
+  try {
+    const hash = crypto.createHash('sha256').update(u.password).digest('hex');
+    db.prepare("INSERT INTO users (username, password_hash, role, name) VALUES (?, ?, ?, ?)").run(u.username, hash, u.role, u.name);
+    return { success: true, message: "Usuario creado" };
+  } catch (e) { return { success: false, message: String(e) }; }
+}
+
+function updateUser(u) {
+  try {
+    if (u.password && u.password.trim() !== "") {
+      const hash = crypto.createHash('sha256').update(u.password).digest('hex');
+      db.prepare("UPDATE users SET username=?, password_hash=?, role=?, name=? WHERE id=?").run(u.username, hash, u.role, u.name, u.id);
+    } else {
+      db.prepare("UPDATE users SET username=?, role=?, name=? WHERE id=?").run(u.username, u.role, u.name, u.id);
+    }
+    return { success: true, message: "Usuario actualizado" };
+  } catch (e) { return { success: false, message: String(e) }; }
+}
+
+function deleteUser(id) {
+  try {
+    db.prepare("DELETE FROM users WHERE id = ?").run(id);
+    return { success: true, message: "Usuario eliminado" };
+  } catch (e) { return { success: false, message: String(e) }; }
+}
+
 module.exports = {
   db, 
   // clientes
@@ -1126,5 +1332,10 @@ module.exports = {
   // reportes
   getSalesReport
   // Ordenes de compra,
-  ,createPurchaseOrder, getPurchaseOrders, getPurchaseOrderById, receivePurchaseOrder, deletePurchaseOrder, updatePurchaseOrder
+  ,createPurchaseOrder, getPurchaseOrders, getPurchaseOrderById, receivePurchaseOrder, deletePurchaseOrder, updatePurchaseOrder,
+  // Servicios
+  getServices, getServiceById, createService, updateService, deleteService,
+  // Usuarios
+  login, getUsers, createUser, deleteUser, updateUser,
+  getSalesLastDays
 };
