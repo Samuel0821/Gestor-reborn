@@ -19,13 +19,16 @@
 
       width: 1200,
       height: 800,
-      icon: path.join(__dirname, "logo", "gestorfx_logo.ico"), // <-- El ícono va aquí
+      icon: path.join(__dirname, "logo", "gestorfx_logof.ico"), // <-- El ícono va aquí
       webPreferences: {
         preload: path.join(__dirname, "preload.js"),
         contextIsolation: true,
         nodeIntegration: false,
       },
     });
+
+    // Eliminar la barra de menú por defecto (Archivo, Vista, etc.)
+    mainWindow.setMenu(null);
 
     // Siempre iniciar en login.html
     mainWindow.loadFile(path.join(__dirname, "views", "login.html"));
@@ -123,10 +126,11 @@
 
       // Ventas
       ipcMain.handle("create-sale", (event, data) => db.createSale(data));
-      ipcMain.handle("get-sales", (event, limit, offset) => db.getSales(limit, offset));
+      ipcMain.handle("get-sales", (event, limit, offset, clientId) => db.getSales(limit, offset, clientId));
       ipcMain.handle("get-sale-by-id", (event, id) => db.getSaleById(id));
       ipcMain.handle("get-sale-items", (event, id) => db.getSaleItems(id));
       ipcMain.handle("delete-sale", (event, id) => db.deleteSale(id));
+      ipcMain.handle("update-sale", (event, data) => db.updateSale(data));
 
       ipcMain.handle("delete-sale-item", (event, id) => db.deleteSaleItem(id));
       ipcMain.handle("get-last-invoice-number", () => db.getLastInvoiceNumber());
@@ -163,8 +167,8 @@
       // Gestión de Créditos
 
       ipcMain.handle("get-credits", async (event, searchTerm) => db.getCredits(searchTerm));
-      ipcMain.handle("add-credit-payment", async (event, saleId, amount) => db.addCreditPayment(saleId, amount));
-      ipcMain.handle("mark-credit-as-paid", async (event, saleId) => db.markCreditAsPaid(saleId));
+      ipcMain.handle("add-credit-payment", async (event, saleId, amount, method, reference) => db.addCreditPayment(saleId, amount, method, reference));
+      ipcMain.handle("mark-credit-as-paid", async (event, saleId, method, reference) => db.markCreditAsPaid(saleId, method, reference));
 
       // Ordenes de Compra
       ipcMain.handle("create-purchase-order", (event, data) => db.createPurchaseOrder(data));
@@ -179,7 +183,7 @@
 
       // Cotizaciones
       ipcMain.handle("create-quote", (event, data) => db.createQuote(data));
-      ipcMain.handle("get-quotes", () => db.getQuotes());
+      ipcMain.handle("get-quotes", (event, clientId) => db.getQuotes(clientId));
       ipcMain.handle("get-quote-by-id", (event, id) => db.getQuoteById(id));
       ipcMain.handle("get-quote-items", (event, id) => db.getQuoteItems(id));
       ipcMain.handle("delete-quote", (event, id) => db.deleteQuote(id));
@@ -214,6 +218,15 @@
           return { success: false, message: error.message };
         }
       });
+
+      // Gastos
+      ipcMain.handle('get-expenses', async (event, startDate, endDate) => db.getExpenses(startDate, endDate));
+      ipcMain.handle('save-expense', async (event, expense) => db.saveExpense(expense));
+      ipcMain.handle('delete-expense', async (event, id) => db.deleteExpense(id));
+
+      // Auditoría
+      ipcMain.handle("get-audit-logs", (event, { startDate, endDate }) => db.getAuditLogs(startDate, endDate));
+      ipcMain.handle("log-action", (event, { userName, action, details }) => db.logAction(userName, action, details));
 
       // --- Aprobar cotización y convertir en venta ---
       ipcMain.handle("approve-quote", async (event, quoteId) => {
@@ -357,7 +370,7 @@
 
         // ---------- Exportar reporte de ventas a PDF ----------
 
-          ipcMain.handle("export-sales-report-pdf", async (event, { salesReport, companyInfo, filename }) => {
+          ipcMain.handle("export-sales-report-pdf", async (event, { salesReport, companyInfo, filename, financialSummary, paymentMethodsSummary }) => {
             try {
               const salesArray = Array.isArray(salesReport) ? salesReport : [];
               if (!salesArray.length) {
@@ -464,14 +477,36 @@
 
               // 🔹 Totales generales al final
               doc.moveDown(1.5);
-              doc.font("Helvetica-Bold").fontSize(12).text("Resumen de Métodos de Pago", 40, doc.y);
+              
+              // Sección de Balance Financiero
+              if (financialSummary) {
+                doc.font("Helvetica-Bold").fontSize(12).text("Balance Financiero", 40, doc.y);
+                doc.font("Helvetica").fontSize(10);
+                doc.text(`(+) Total Ventas: ${formatCOP(financialSummary.totalSales)}`);
+                doc.text(`(-) Costo Mercancía: ${formatCOP(financialSummary.totalCost)}`);
+                doc.text(`(=) Utilidad Bruta: ${formatCOP(financialSummary.grossProfit)}`);
+                doc.fillColor("red").text(`(-) Total Gastos: ${formatCOP(financialSummary.totalExpenses)}`);
+                doc.fillColor("black").font("Helvetica-Bold").text(`(=) UTILIDAD NETA REAL: ${formatCOP(financialSummary.netProfit)}`);
+                doc.moveDown(1);
+              }
 
-              doc.font("Helvetica").fontSize(11);
-              doc.text(`Total en efectivo: ${formatCOP(totalCash)}`);
-              doc.text(`Total en transferencias: ${formatCOP(totalTransfer)}`);
-              doc.text(`Total en créditos: ${formatCOP(totalCredit)}`);
-              doc.moveDown(0.5);
-              doc.font("Helvetica-Bold").text(`Total General: ${formatCOP(totalGeneral)}`);
+              // Sección de Métodos de Pago
+              doc.font("Helvetica-Bold").fontSize(12).text("Resumen de Métodos de Pago", 40, doc.y);
+              doc.font("Helvetica").fontSize(10);
+              doc.text(`Total en Efectivo: ${formatCOP(totalCash)}`);
+              doc.text(`Total en Créditos: ${formatCOP(totalCredit)}`);
+              
+              if (paymentMethodsSummary && paymentMethodsSummary.transfersByBank) {
+                doc.moveDown(0.5);
+                doc.font("Helvetica-Bold").text("Detalle Transferencias por Banco:");
+                doc.font("Helvetica");
+                for (const [bank, amount] of Object.entries(paymentMethodsSummary.transfersByBank)) {
+                   doc.text(`- ${bank || 'Sin referencia'}: ${formatCOP(amount)}`);
+                }
+                doc.font("Helvetica-Bold").text(`Total Transferencias: ${formatCOP(totalTransfer)}`);
+              } else {
+                doc.text(`Total en Transferencias: ${formatCOP(totalTransfer)}`);
+              }
 
               doc.end();
               await new Promise((res, rej) => {
@@ -765,13 +800,43 @@
 
           // 📌 NUEVO: Detalle de pagos
           doc.moveDown(2);
-          doc.fontSize(11).font("Helvetica").text(`Efectivo: ${formatCOP(sale.cash_payment || 0)}`, 400, doc.y + 6);
-          doc.text(`Transferencia: ${formatCOP(sale.transfer_payment || 0)}`, 400, doc.y + 22);
+          
+          // Obtener referencia de transferencia si existe
+          let transferRef = "";
+          try {
+             const payments = db.db.prepare("SELECT * FROM sale_payments WHERE sale_id = ?").all(id);
+             const tPayment = payments.find(p => p.method === "transfer");
+             if (tPayment && tPayment.reference) transferRef = tPayment.reference;
+          } catch(e) {}
 
-          const totalPaid = (sale.cash_payment || 0) + (sale.transfer_payment || 0);
+          const cash = sale.cash_payment || 0;
+          const transfer = sale.transfer_payment || 0;
+          const isCredit = sale.sale_type === "credit";
+          
+          doc.fontSize(11).font("Helvetica");
+          let currentY = doc.y;
+
+          if (isCredit) {
+              doc.text(`Crédito: ${formatCOP(sale.total_amount)}`, 400, currentY + 6);
+          } else {
+              if (cash > 0 && transfer > 0) {
+                  doc.text(`Pago en efectivo: ${formatCOP(cash)}`, 400, currentY + 6);
+                  doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}: ${formatCOP(transfer)}`, 400, currentY + 22);
+                  currentY += 16; // Ajuste para la siguiente línea si es mixto
+              } else if (cash > 0) {
+                  doc.text(`Pago en efectivo: ${formatCOP(cash)}`, 400, currentY + 6);
+              } else if (transfer > 0) {
+                  doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}: ${formatCOP(transfer)}`, 400, currentY + 6);
+              }
+          }
+
+          const totalPaid = cash + transfer;
           const change = totalPaid - total;
-          if (change > 0) {
-            doc.text(`Cambio entregado: ${formatCOP(change)}`, 400, doc.y + 38);
+          
+          if (change > 0 && !isCredit) {
+            let offset = 22;
+            if (cash > 0 && transfer > 0) offset = 38;
+            doc.text(`Cambio entregado: ${formatCOP(change)}`, 400, doc.y + offset);
           }
 
           doc.end();
@@ -1055,6 +1120,12 @@
       doc.text(`Dirección: ${order.supplier_address || ""}`);
       doc.text(`Teléfono: ${order.supplier_phone || ""}`);
       doc.moveDown(1);
+
+      // Notas de la orden
+      if (order.notes) {
+        doc.fontSize(10).font("Helvetica-Oblique").text(`Nota: ${order.notes}`, 40, doc.y, { width: 500 });
+        doc.moveDown(1);
+      }
 
       let y = doc.y + 10;
       doc.fontSize(11).font("Helvetica-Bold");

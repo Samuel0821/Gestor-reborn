@@ -25,23 +25,23 @@
     <a href="index.html" class="btn btn-secondary mb-3"><i class="fa fa-arrow-left me-2"></i>Volver</a>
 
     <div class="row">
-      <!-- Menú Lateral -->
-      <div class="col-md-3 mb-4">
-        <div class="list-group" id="settings-list-tab" role="tablist">
-          <a class="list-group-item list-group-item-action active" id="list-company-list" data-bs-toggle="list" href="#list-company" role="tab" aria-controls="list-company">
+      <!-- Botones de navegación (Estilo Reporte) -->
+      <div class="col-12 mb-4">
+        <div class="btn-group w-100 shadow-sm" role="group" aria-label="Ajustes">
+          <button class="btn btn-outline-primary active" id="list-company-list" type="button" onclick="openTab(event, 'list-company')">
             <i class="fa fa-building me-2"></i>Configuración de Empresa
-          </a>
-          <a class="list-group-item list-group-item-action" id="list-print-list" data-bs-toggle="list" href="#list-print" role="tab" aria-controls="list-print">
+          </button>
+          <button class="btn btn-outline-primary" id="list-print-list" type="button" onclick="openTab(event, 'list-print')">
             <i class="fa fa-print me-2"></i>Configuración de Impresión
-          </a>
-          <a class="list-group-item list-group-item-action" id="list-users-list" data-bs-toggle="list" href="#list-users" role="tab" aria-controls="list-users">
+          </button>
+          <button class="btn btn-outline-primary" id="list-users-list" type="button" onclick="openTab(event, 'list-users')">
             <i class="fa fa-users-gear me-2"></i>Gestión de Usuarios
-          </a>
+          </button>
         </div>
       </div>
 
       <!-- Contenido -->
-      <div class="col-md-9">
+      <div class="col-12">
         <div class="tab-content" id="nav-tabContent">
           
           <!-- Pestaña: Empresa -->
@@ -141,5 +141,20 @@
       </div>
     </div>
   </div>
+  <script>
+    function openTab(evt, tabId) {
+      // Ocultar todos los paneles
+      const panes = document.querySelectorAll('.tab-pane');
+      panes.forEach(p => p.classList.remove('show', 'active'));
+
+      // Desactivar todos los botones
+      const buttons = document.querySelectorAll('.btn-group .btn');
+      buttons.forEach(b => b.classList.remove('active'));
+
+      // Activar actual
+      document.getElementById(tabId).classList.add('show', 'active');
+      evt.currentTarget.classList.add('active');
+    }
+  </script>
 </body>
 </html>

@@ -56,6 +56,30 @@ try {
   }
 } catch (e) { /* ignorar */ }
 
+// MIGRACIÓN: Agregar referencia (banco) a pagos de venta
+try {
+  const spColumns = db.prepare("PRAGMA table_info(sale_payments)").all();
+  if (!spColumns.some(c => c.name === "reference")) {
+    db.prepare("ALTER TABLE sale_payments ADD COLUMN reference TEXT").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar conversion_factor a sale_items para manejo correcto de stock en variantes
+try {
+  const siColumns = db.prepare("PRAGMA table_info(sale_items)").all();
+  if (!siColumns.some(c => c.name === "conversion_factor")) {
+    db.prepare("ALTER TABLE sale_items ADD COLUMN conversion_factor REAL DEFAULT 1").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar variant_id a sale_items para poder editar ventas con variantes
+try {
+  const siColumns = db.prepare("PRAGMA table_info(sale_items)").all();
+  if (!siColumns.some(c => c.name === "variant_id")) {
+    db.prepare("ALTER TABLE sale_items ADD COLUMN variant_id INTEGER").run();
+  }
+} catch (e) { /* ignorar */ }
+
 // TABLAS
 db.prepare(`
 CREATE TABLE IF NOT EXISTS clients (
@@ -129,6 +153,14 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
 )`).run();
 
+// MIGRACIÓN: Agregar notas a órdenes de compra (Ejecutar DESPUÉS de crear la tabla)
+try {
+  const poColumns = db.prepare("PRAGMA table_info(purchase_orders)").all();
+  if (!poColumns.some(c => c.name === "notes")) {
+    db.prepare("ALTER TABLE purchase_orders ADD COLUMN notes TEXT").run();
+  }
+} catch (e) { /* ignorar */ }
+
 db.prepare(`
 CREATE TABLE IF NOT EXISTS purchase_order_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,6 +202,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
   quantity INTEGER NOT NULL,
   price REAL NOT NULL,
   subtotal REAL NOT NULL,
+  variant_id INTEGER,
   FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
 )`).run();
@@ -211,9 +244,19 @@ db.prepare(`
     amount REAL NOT NULL,
     received REAL, -- solo aplica si es efectivo
     change REAL,   -- solo aplica si es efectivo
+    reference TEXT, -- banco o referencia
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (sale_id) REFERENCES sales(id)
   )
 `).run();
+
+// MIGRACIÓN: Agregar created_at a sale_payments (Ejecutar DESPUÉS de crear la tabla para evitar errores)
+try {
+  const spColumns = db.prepare("PRAGMA table_info(sale_payments)").all();
+  if (!spColumns.some(c => c.name === "created_at")) {
+    db.prepare("ALTER TABLE sale_payments ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP").run();
+  }
+} catch (e) { /* ignorar */ }
 
 db.prepare(`
 CREATE TABLE IF NOT EXISTS quotes (
@@ -278,6 +321,29 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL DEFAULT 'user', -- 'admin' or 'user'
   name TEXT
 )`).run();
+
+// GASTOS (EXPENSES)
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT,
+    amount REAL,
+    category TEXT,
+    date TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`).run();
+
+// AUDITORÍA (LOGS DE MODIFICACIONES)
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_name TEXT,
+    action TEXT,
+    details TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`).run();
 
 // Crear usuario admin por defecto si no existe
 const adminExist = db.prepare("SELECT COUNT(*) as c FROM users").get();
@@ -534,7 +600,8 @@ function createSale({
   paid_amount = 0, 
   outstanding_balance = 0, 
   cash_payment = 0, 
-  transfer_payment = 0 
+  transfer_payment = 0,
+  transfer_reference = null
 }) {
   const insertSale = db.prepare(`
     INSERT INTO sales (
@@ -544,26 +611,27 @@ function createSale({
   `);
 
   const insertPayment = db.prepare(`
-    INSERT INTO sale_payments (sale_id, method, amount, received, change)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO sale_payments (sale_id, method, amount, received, change, reference, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertItem = db.prepare(`
-    INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal, conversion_factor, variant_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
   const getProduct = db.prepare("SELECT id, code, name, stock FROM products WHERE id = ?");
   const getVariant = db.prepare("SELECT * FROM product_variants WHERE id = ?");
 
-  const trx = db.transaction((client_id, items, cash_payment, transfer_payment) => {
+  const trx = db.transaction((client_id, items, cash_payment, transfer_payment, transfer_reference) => {
     const now = new Date();
     const formattedDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
 
     let total = 0;
     for (const it of items) {
       let price, stockToDecrement;
+      let conversionFactor = 1;
       
       // Si tiene product_id, es un producto físico y validamos stock
       if (it.product_id) {
@@ -574,7 +642,8 @@ function createSale({
           const variant = getVariant.get(it.variant_id);
           if (!variant) throw new Error(`Variante con id=${it.variant_id} no existe`);
           price = it.price ?? variant.sale_price;
-          stockToDecrement = it.quantity * variant.conversion_factor;
+          conversionFactor = variant.conversion_factor;
+          stockToDecrement = it.quantity * conversionFactor;
         } else {
           price = it.price ?? prod.sale_price;
           stockToDecrement = it.quantity;
@@ -605,38 +674,37 @@ function createSale({
 
     for (const it of items) {
       let prodCode = "";
+      let conversionFactor = 1; // Inicializar factor para este item
+
       if (it.product_id) {
         const prod = getProduct.get(it.product_id);
         prodCode = prod ? prod.code : "";
+        // Si es una variante, obtener su factor de conversión
+        if (it.variant_id) {
+          const variant = getVariant.get(it.variant_id);
+          if (variant) {
+            conversionFactor = variant.conversion_factor;
+          }
+        }
       }
 
       insertItem.run(
-        saleId,
-        it.product_id || null,
-        it.product_name,
-        prodCode,
-        it.quantity,
-        it.price,
-        it.subtotal
+        saleId, it.product_id || null, it.product_name, prodCode,
+        it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null
       );
 
-      if (it.product_id) {
-        if (it.variant_id) {
-        const variant = getVariant.get(it.variant_id);
-        if (variant) updateStock.run(it.quantity * variant.conversion_factor, it.product_id);
-        } else {
-          updateStock.run(it.quantity, it.product_id);
-        }
+      if (it.product_id && !it.skip_stock) {
+        updateStock.run(it.quantity * conversionFactor, it.product_id);
       }
     }
 
     // registrar pagos
     if (cash_payment > 0) {
       const change = Math.max((cash_payment + transfer_payment) - total, 0);
-      insertPayment.run(saleId, "cash", cash_payment, cash_payment, change);
+      insertPayment.run(saleId, "cash", cash_payment, cash_payment, change, null, formattedDate);
     }
     if (transfer_payment > 0) {
-      insertPayment.run(saleId, "transfer", transfer_payment, null, null);
+      insertPayment.run(saleId, "transfer", transfer_payment, null, null, transfer_reference, formattedDate);
     }
     // consecutivo factura
     const last = getLastInvoiceNumber();
@@ -653,16 +721,119 @@ function createSale({
   });
 
   try {
-    const id = trx(client_id, items, cash_payment, transfer_payment);
+    const id = trx(client_id, items, cash_payment, transfer_payment, transfer_reference);
     return { success: true, message: "Venta registrada", id };
   } catch (err) {
     return { success: false, message: String(err) };
   }
 }
 
-function getSales(limit = -1, offset = 0) {
-  const sales = db.prepare("SELECT id, client_id, sale_date, total_amount, invoice_number FROM sales ORDER BY sale_date DESC LIMIT ? OFFSET ?").all(limit, offset);
-  const itemsStmt = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal FROM sale_items WHERE sale_id = ?");
+function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
+    const trx = db.transaction(() => {
+        // 1. Get original sale and items
+        const originalSale = db.prepare("SELECT * FROM sales WHERE id = ?").get(saleId);
+        if (!originalSale) throw new Error("Venta no encontrada para editar.");
+
+        const originalItems = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(saleId);
+
+        // 2. Calculate and apply stock adjustments
+        const stockAdjustments = new Map();
+
+        // Add back original stock
+        for (const item of originalItems) {
+            if (item.product_id) {
+                const quantityToReturn = item.quantity * (item.conversion_factor || 1);
+                stockAdjustments.set(item.product_id, (stockAdjustments.get(item.product_id) || 0) + quantityToReturn);
+            }
+        }
+
+        // Decrement new stock
+        let newTotalAmount = 0;
+        for (const item of items) {
+            newTotalAmount += item.subtotal;
+            if (item.product_id) {
+                const conversionFactor = item.variant_id 
+                    ? (db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?").get(item.variant_id)?.conversion_factor || 1)
+                    : 1;
+                const quantityToDecrement = item.quantity * conversionFactor;
+                stockAdjustments.set(item.product_id, (stockAdjustments.get(item.product_id) || 0) - quantityToDecrement);
+            }
+        }
+
+        const updateStockStmt = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
+        for (const [productId, quantityChange] of stockAdjustments.entries()) {
+            if (quantityChange < 0) {
+                const product = db.prepare("SELECT name, stock FROM products WHERE id = ?").get(productId);
+                if (product.stock < Math.abs(quantityChange)) {
+                    throw new Error(`Stock insuficiente para '${product.name}' al editar la venta.`);
+                }
+            }
+            updateStockStmt.run(quantityChange, productId);
+        }
+
+        // 3. Update sale items
+        db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(saleId);
+        const insertItemStmt = db.prepare(`
+            INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal, conversion_factor, variant_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const getProduct = db.prepare("SELECT code FROM products WHERE id = ?");
+        const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
+
+        for (const it of items) {
+            let prodCode = it.product_code || "";
+            let conversionFactor = 1;
+            if (it.product_id) {
+                prodCode = getProduct.get(it.product_id)?.code || "";
+                if (it.variant_id) {
+                    conversionFactor = getVariant.get(it.variant_id)?.conversion_factor || 1;
+                }
+            }
+            insertItemStmt.run(saleId, it.product_id, it.product_name, prodCode, it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null);
+        }
+
+        // 4. Handle financial adjustments
+        let newPaidAmount = originalSale.paid_amount;
+        const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+        if (paymentAdjustment && paymentAdjustment.amount !== 0) {
+            newPaidAmount += paymentAdjustment.amount;
+            if (paymentAdjustment.amount > 0) { // Additional payment
+                db.prepare(`INSERT INTO sale_payments (sale_id, method, amount, reference, created_at) VALUES (?, ?, ?, ?, ?)`).run(saleId, paymentAdjustment.method, paymentAdjustment.amount, paymentAdjustment.reference, now);
+            } else { // Refund
+                db.prepare(`INSERT INTO expenses (description, amount, category, date) VALUES (?, ?, ?, ?)`).run(`Devolución Venta #${originalSale.invoice_number || saleId}`, Math.abs(paymentAdjustment.amount), 'Devolución', now.slice(0, 10));
+            }
+        }
+        
+        const newOutstandingBalance = Math.max(0, newTotalAmount - newPaidAmount);
+        const newSaleType = newOutstandingBalance > 0 ? 'credit' : 'paid';
+
+        // 5. Update the main sale record
+        db.prepare(`UPDATE sales SET client_id = ?, total_amount = ?, paid_amount = ?, outstanding_balance = ?, sale_type = ? WHERE id = ?`).run(clientId, newTotalAmount, newPaidAmount, newOutstandingBalance, newSaleType, saleId);
+
+        logAction(userName, 'Editar Venta', `Factura #${originalSale.invoice_number || saleId} modificada. Total: ${originalSale.total_amount} -> ${newTotalAmount}`);
+    });
+
+    try {
+        trx();
+        return { success: true, message: "Factura actualizada correctamente." };
+    } catch (err) {
+        console.error("Error en transacción updateSale:", err);
+        return { success: false, message: String(err) };
+    }
+}
+
+function getSales(limit = -1, offset = 0, clientId = null) {
+  let query = "SELECT id, client_id, sale_date, total_amount, invoice_number FROM sales";
+  const params = [];
+  if (clientId) {
+    query += " WHERE client_id = ?";
+    params.push(clientId);
+  }
+  query += " ORDER BY sale_date DESC LIMIT ? OFFSET ?";
+  params.push(limit, offset);
+  const sales = db.prepare(query).all(...params);
+  const itemsStmt = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?");
   for (const s of sales) s.items = itemsStmt.all(s.id);
   return sales;
 }
@@ -690,7 +861,8 @@ function deleteSale(id) {
       const items = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(id);
       for (const it of items) {
         if (it.product_id) {
-          db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(it.quantity, it.product_id);
+          const factor = it.conversion_factor || 1;
+          db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(it.quantity * factor, it.product_id);
         }
       }
       // Eliminar pagos asociados a la venta
@@ -712,7 +884,10 @@ function deleteSaleItem(id) {
   const item = db.prepare("SELECT * FROM sale_items WHERE id = ?").get(id);
   if (!item) return { success: false, message: "Item no encontrado" };
   const trx = db.transaction((itemId) => {
-    if (item.product_id) db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(item.quantity, item.product_id);
+    if (item.product_id) {
+      const factor = item.conversion_factor || 1;
+      db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(item.quantity * factor, item.product_id);
+    }
     db.prepare("DELETE FROM sale_items WHERE id = ?").run(itemId);
     const newTotalRow = db.prepare("SELECT SUM(subtotal) as total FROM sale_items WHERE sale_id = ?").get(item.sale_id);
     db.prepare("UPDATE sales SET total_amount = ? WHERE id = ?").run(newTotalRow.total || 0, item.sale_id);
@@ -747,7 +922,7 @@ function deleteSaleItem(id) {
     }
 
      // Registra un abono a un crédito.
-    function addCreditPayment(saleId, amount) {
+    function addCreditPayment(saleId, amount, method = 'cash', reference = null) {
         try {
             const sale = db.prepare("SELECT * FROM sales WHERE id = ?").get(saleId);
             if (!sale) {
@@ -767,6 +942,11 @@ function deleteSaleItem(id) {
                 newSaleType = 'paid';
             }
 
+            // Registrar el pago en sale_payments para que aparezca en el reporte del día
+            const now = new Date();
+            const formattedDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
+            db.prepare("INSERT INTO sale_payments (sale_id, method, amount, reference, created_at) VALUES (?, ?, ?, ?, ?)").run(saleId, method, amount, reference, formattedDate);
+
             db.prepare("UPDATE sales SET paid_amount = ?, outstanding_balance = ?, sale_type = ? WHERE id = ?")
                 .run(newPaidAmount, newOutstandingBalance, newSaleType, saleId);
 
@@ -777,12 +957,18 @@ function deleteSaleItem(id) {
     }
 
     // Marca un crédito como pagado.
-    function markCreditAsPaid(saleId) {
+    function markCreditAsPaid(saleId, method = 'cash', reference = null) {
         try {
             const sale = db.prepare("SELECT * FROM sales WHERE id = ?").get(saleId);
             if (!sale) {
                 return { success: false, message: "Venta no encontrada." };
             }
+
+            // Registrar el pago restante en sale_payments
+            const amount = sale.outstanding_balance;
+            const now = new Date();
+            const formattedDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
+            db.prepare("INSERT INTO sale_payments (sale_id, method, amount, reference, created_at) VALUES (?, ?, ?, ?, ?)").run(saleId, method, amount, reference, formattedDate);
 
             db.prepare("UPDATE sales SET paid_amount = total_amount, outstanding_balance = 0, sale_type = 'paid' WHERE id = ?")
                 .run(saleId);
@@ -831,8 +1017,15 @@ function createQuote({ client_id = null, items = [] }) {
   }
 }
 
-function getQuotes() {
-  const quotes = db.prepare("SELECT id, client_id, quote_date, total_amount, quote_number FROM quotes ORDER BY quote_date DESC").all();
+function getQuotes(clientId = null) {
+  let query = "SELECT id, client_id, quote_date, total_amount, quote_number FROM quotes";
+  const params = [];
+  if (clientId) {
+    query += " WHERE client_id = ?";
+    params.push(clientId);
+  }
+  query += " ORDER BY quote_date DESC";
+  const quotes = db.prepare(query).all(...params);
   const itemsStmt = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal FROM quote_items WHERE quote_id = ?");
   for (const q of quotes) q.items = itemsStmt.all(q.id);
   return quotes;
@@ -878,10 +1071,16 @@ function deleteQuote(id) {
 function getDashboardData() {
   const clients = db.prepare("SELECT COUNT(*) as c FROM clients").get().c;
   const products = db.prepare("SELECT COUNT(*) as c FROM products").get().c;
-  const sales = db.prepare("SELECT COUNT(*) as c FROM sales").get().c;
+  const salesCount = db.prepare("SELECT COUNT(*) as c FROM sales").get().c;
   const quotes = db.prepare("SELECT COUNT(*) as c FROM quotes").get().c;
   const services = db.prepare("SELECT COUNT(*) as c FROM services").get().c;
-  return { clients, products, sales, quotes, services };
+  
+  // Ventas de hoy (Dinero)
+  const today = new Date().toISOString().slice(0, 10);
+  const salesTodayRes = db.prepare("SELECT SUM(total_amount) as total FROM sales WHERE date(sale_date) = ?").get(today);
+  const salesToday = salesTodayRes ? (salesTodayRes.total || 0) : 0;
+
+  return { clients, products, salesCount, quotes, services, salesToday };
 }
 
 function getSalesLastDays(days = 7) {
@@ -934,6 +1133,49 @@ function saveCompanySettings(s) {
   return updateCompanySettings(s);
 }
 
+// GASTOS
+function getExpenses(startDate, endDate) {
+  let query = "SELECT * FROM expenses";
+  const params = [];
+  
+  if (startDate && endDate) {
+    query += " WHERE date BETWEEN ? AND ?";
+    params.push(startDate, endDate);
+  }
+  
+  query += " ORDER BY date DESC";
+  return db.prepare(query).all(...params);
+}
+
+function saveExpense(expense) {
+  const stmt = db.prepare(`
+    INSERT INTO expenses (description, amount, category, date)
+    VALUES (?, ?, ?, ?)
+  `);
+  const info = stmt.run(expense.description, expense.amount, expense.category, expense.date);
+  return { success: true, id: info.lastInsertRowid };
+}
+
+function deleteExpense(id) {
+  db.prepare("DELETE FROM expenses WHERE id = ?").run(id);
+  return { success: true };
+}
+
+// AUDITORÍA
+function logAction(userName, action, details) {
+  try {
+    db.prepare("INSERT INTO audit_logs (user_name, action, details) VALUES (?, ?, ?)").run(userName, action, details);
+  } catch (e) {
+    console.error("Error logging action:", e);
+  }
+}
+
+function getAuditLogs(startDate, endDate) {
+  const start = startDate + " 00:00:00";
+  const end = endDate + " 23:59:59";
+  return db.prepare("SELECT * FROM audit_logs WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC").all(start, end);
+}
+
 // INVENTARIO Y REPORTES
 // Función para obtener el valor total del inventario
 function getInventoryTotalValue() {
@@ -979,9 +1221,17 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
     `);
 
     const paymentsStmt = db.prepare(`
-      SELECT method, amount, received, change
+      SELECT method, amount, received, change, reference
       FROM sale_payments
       WHERE sale_id = ?
+    `);
+
+    // Consulta para obtener el total de ingresos REALES en el periodo (incluyendo abonos a créditos antiguos)
+    const incomeStmt = db.prepare(`
+      SELECT method, SUM(amount) as total
+      FROM sale_payments
+      WHERE created_at >= ? AND created_at <= ?
+      GROUP BY method
     `);
 
     let totalProfit = 0;
@@ -990,8 +1240,8 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
       const saleIds = r.sale_ids.split(",").map(id => parseInt(id));
       return saleIds.map(sid => {
         const sale = db.prepare(`
-          SELECT id, invoice_number, sale_date, total_amount,
-                 paid_amount, outstanding_balance, sale_type
+          SELECT id, invoice_number, sale_date, total_amount, sale_type,
+                 paid_amount, outstanding_balance, cash_payment, transfer_payment
           FROM sales WHERE id = ?
         `).get(sid);
 
@@ -1007,15 +1257,17 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
         
         totalProfit += saleProfit;
 
-        let cash_payment = 0;
-        let transfer_payment = 0;
+        let paid_cash = 0;
+        let paid_transfer = 0;
+        let transfer_reference = "";
 
         for (const p of payments) {
           if (p.method === "cash") {
             // efectivo real = recibido - cambio
-            cash_payment += (p.received || 0) - (p.change || 0);
+            paid_cash += (p.received || 0) - (p.change || 0);
           } else if (p.method === "transfer") {
-            transfer_payment += p.amount || 0;
+            paid_transfer += p.amount || 0;
+            if (p.reference) transfer_reference = p.reference;
           }
         }
 
@@ -1023,16 +1275,28 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
           ...sale,
           items,
           profit: saleProfit, // Añadir utilidad a la venta
-          cash_payment,
-          transfer_payment
+          paid_cash, // Total pagado históricamente (para detalle)
+          paid_transfer, // Total pagado históricamente (para detalle)
+          transfer_reference
         };
       });
     });
 
+    // Calcular totales basados en los pagos reales registrados en el periodo
+    const incomeRows = incomeStmt.all(start, end);
+    const realTotalCash = incomeRows.find(r => r.method === 'cash')?.total || 0;
+    const realTotalTransfer = incomeRows.find(r => r.method === 'transfer')?.total || 0;
+
     const totalGeneral = detailedSales.reduce((acc, s) => acc + s.total_amount, 0);
-    const totalCash = detailedSales.reduce((acc, s) => acc + (s.cash_payment || 0), 0);
-    const totalTransfer = detailedSales.reduce((acc, s) => acc + (s.transfer_payment || 0), 0);
-    const totalCredit = detailedSales.reduce((acc, s) => acc + (s.outstanding_balance || 0), 0);
+    
+    // Totales de VENTAS (según registro inicial)
+    const salesCash = detailedSales.reduce((acc, s) => acc + (s.cash_payment || 0), 0);
+    const salesTransfer = detailedSales.reduce((acc, s) => acc + (s.transfer_payment || 0), 0);
+    const salesCredit = detailedSales.reduce((acc, s) => acc + (s.total_amount - s.cash_payment - s.transfer_payment), 0);
+
+    // Usamos los totales reales de sale_payments en lugar de sumar las ventas
+    const totalCash = realTotalCash;
+    const totalTransfer = realTotalTransfer;
 
     return { 
       sales: detailedSales, 
@@ -1040,7 +1304,9 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
       totalProfit, // Añadir utilidad total
       totalCash, 
       totalTransfer, 
-      totalCredit 
+      salesCash,
+      salesTransfer,
+      salesCredit
     };
   } catch (err) {
     console.error("Error en getSalesReport:", err);
@@ -1053,8 +1319,13 @@ function createPurchaseOrder({ supplier_id, items = [] }) {
   const insertPO = db.prepare("INSERT INTO purchase_orders (supplier_id, total_amount) VALUES (?, ?)");
   const insertItem = db.prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
   const getProduct = db.prepare("SELECT id, code, name, purchase_price FROM products WHERE id = ?");
+  const updateNotes = db.prepare("UPDATE purchase_orders SET notes = ? WHERE id = ?");
 
-  const trx = db.transaction((supplier_id, items) => {
+  const trx = db.transaction((data) => {
+    const supplier_id = data.supplier_id;
+    const items = data.items || [];
+    const notes = data.notes || null;
+
     const po = insertPO.run(supplier_id, 0);
     const poId = po.lastInsertRowid;
     let total = 0;
@@ -1069,7 +1340,51 @@ function createPurchaseOrder({ supplier_id, items = [] }) {
     }
     db.prepare("UPDATE purchase_orders SET total_amount = ? WHERE id = ?").run(total, poId);
     
+    if (notes) updateNotes.run(notes, poId);
+
     // Generar número consecutivo para la orden de compra
+    const poNumber = nextConsecutive("OC", "po_number", "purchase_orders");
+    db.prepare("UPDATE purchase_orders SET po_number = ? WHERE id = ?").run(poNumber, poId);
+    
+    return poId;
+  });
+  try {
+    const id = trx({ supplier_id, items, notes: items.notes /* bug fix: pass full object or extract before */ });
+    // Correction: The caller passes an object. Let's fix the signature in index.js or here.
+    // Actually, createPurchaseOrder receives `data`.
+    // Let's adjust the function signature to match usage: createPurchaseOrder(data)
+    return { success: true, message: "Orden de Compra creada", id };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+// Fix signature to match usage in index.js: db.createPurchaseOrder(data)
+// The previous implementation had destructuring in signature which is fine, but let's be explicit for the transaction
+function createPurchaseOrderWrapper(data) {
+    return createPurchaseOrder(data);
+}
+// Redefining createPurchaseOrder to handle the notes correctly
+function createPurchaseOrder(data) {
+  const insertPO = db.prepare("INSERT INTO purchase_orders (supplier_id, total_amount, notes) VALUES (?, ?, ?)");
+  const insertItem = db.prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
+  const getProduct = db.prepare("SELECT id, code, name, purchase_price FROM products WHERE id = ?");
+
+  const trx = db.transaction((data) => {
+    const po = insertPO.run(data.supplier_id, 0, data.notes || null);
+    const poId = po.lastInsertRowid;
+    let total = 0;
+    for (const it of data.items) {
+      const prod = getProduct.get(it.product_id);
+      const prodName = prod ? prod.name : "Producto no encontrado";
+      const prodCode = prod ? prod.code : "";
+      const price = (it.price != null) ? it.price : (prod ? prod.purchase_price : 0);
+      const subtotal = price * it.quantity;
+      total += subtotal;
+      insertItem.run(poId, it.product_id, prodName, prodCode, it.quantity, price, subtotal);
+    }
+    db.prepare("UPDATE purchase_orders SET total_amount = ? WHERE id = ?").run(total, poId);
+    
     const poNumber = nextConsecutive("OC", "po_number", "purchase_orders");
     db.prepare("UPDATE purchase_orders SET po_number = ? WHERE id = ?").run(poNumber, poId);
     
@@ -1077,7 +1392,7 @@ function createPurchaseOrder({ supplier_id, items = [] }) {
   });
 
   try {
-    const id = trx(supplier_id, items);
+    const id = trx(data);
     return { success: true, message: "Orden de Compra creada", id };
   } catch (err) {
     return { success: false, message: String(err) };
@@ -1145,18 +1460,18 @@ function deletePurchaseOrder(id) {
   }
 }
 
-function updatePurchaseOrder({ id, supplier_id, order_date, items = [] }) {
-    const updatePO = db.prepare("UPDATE purchase_orders SET supplier_id = ?, order_date = ?, total_amount = ? WHERE id = ?");
+function updatePurchaseOrder({ id, supplier_id, order_date, items = [], notes = null }) {
+    const updatePO = db.prepare("UPDATE purchase_orders SET supplier_id = ?, order_date = ?, total_amount = ?, notes = ? WHERE id = ?");
     const deleteItems = db.prepare("DELETE FROM purchase_order_items WHERE purchase_order_id = ?");
     const insertItem = db.prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
     const getProduct = db.prepare("SELECT id, code, name FROM products WHERE id = ?");
 
-    const trx = db.transaction((id, supplier_id, order_date, items) => {
+    const trx = db.transaction((id, supplier_id, order_date, items, notes) => {
         let total = 0;
         for (const it of items) {
             total += it.subtotal;
         }
-        updatePO.run(supplier_id, order_date, total, id);
+        updatePO.run(supplier_id, order_date, total, notes, id);
         deleteItems.run(id);
         for (const it of items) {
             const prod = getProduct.get(it.product_id);
@@ -1168,7 +1483,7 @@ function updatePurchaseOrder({ id, supplier_id, order_date, items = [] }) {
     });
 
     try {
-        const updatedId = trx(id, supplier_id, order_date, items);
+        const updatedId = trx(id, supplier_id, order_date, items, notes);
         return { success: true, message: "Orden de Compra actualizada", id: updatedId };
     } catch (err) {
         return { success: false, message: String(err) };
@@ -1206,6 +1521,7 @@ function getServiceById(id) {
 function createService(data) {
   const insert = db.prepare("INSERT INTO services (name, description, price) VALUES (?, ?, ?)");
   const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity) VALUES (?, ?, ?)");
+  const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
   
   const trx = db.transaction((data) => {
     const info = insert.run(data.name, data.description, data.price);
@@ -1213,6 +1529,8 @@ function createService(data) {
     if (data.products && data.products.length > 0) {
       for (const p of data.products) {
         insertItem.run(serviceId, p.product_id, p.quantity);
+        // Descontar del inventario (Reserva)
+        updateStock.run(p.quantity, p.product_id);
       }
     }
     return serviceId;
@@ -1250,8 +1568,17 @@ function updateService(data) {
 }
 
 function deleteService(id) {
+  const getItems = db.prepare("SELECT product_id, quantity FROM service_products WHERE service_id = ?");
+  const updateStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
+  const delService = db.prepare("DELETE FROM services WHERE id = ?");
+
+  const trx = db.transaction((id) => {
+    const items = getItems.all(id);
+    for(const item of items) updateStock.run(item.quantity, item.product_id);
+    delService.run(id);
+  });
   try {
-    db.prepare("DELETE FROM services WHERE id = ?").run(id);
+    trx(id);
     return { success: true, message: "Servicio eliminado" };
   } catch (err) {
     return { success: false, message: String(err) };
@@ -1314,7 +1641,7 @@ module.exports = {
   // categorias
   getCategories, addCategory, updateCategory, deleteCategory,
   // productos
-  getProducts, getProductById, addProduct, updateProduct, deleteProduct,
+  getProducts, getProductById, addProduct, updateProduct, deleteProduct, updateSale,
   // ventas
   createSale, getSales, getSaleById, getSaleItems, deleteSale, deleteSaleItem,
   getLastInvoiceNumber, setInvoiceNumber,
@@ -1329,6 +1656,8 @@ module.exports = {
   getCompanySettings, updateCompanySettings, saveCompanySettings,
   // inventario
   getInventory, getInventoryTotalValue,
+  // gastos
+  getExpenses, saveExpense, deleteExpense,
   // reportes
   getSalesReport
   // Ordenes de compra,
@@ -1337,5 +1666,7 @@ module.exports = {
   getServices, getServiceById, createService, updateService, deleteService,
   // Usuarios
   login, getUsers, createUser, deleteUser, updateUser,
-  getSalesLastDays
+  getSalesLastDays,
+  // Auditoría
+  logAction, getAuditLogs
 };

@@ -4,6 +4,7 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
+    icon: './src/logo/gestorfx_logof.ico', // Icono del ejecutable
     extraResource: [ // <-- Esta es la línea que agregué.
       "./database.sqlite" // <-- Esto le dice a Electron Forge que incluya el archivo de la base de datos.
     ]
@@ -12,7 +13,9 @@ module.exports = {
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
-      config: {},
+      config: {
+        setupIcon: './logo/gestorfx_logof.ico', // Icono del instalador
+      },
     },
     {
       name: '@electron-forge/maker-zip',

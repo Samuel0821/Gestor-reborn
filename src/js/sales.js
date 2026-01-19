@@ -2,6 +2,7 @@ console.log('sales.js cargado');
 
 let saleItems = [];
 let allProducts = [];
+let editingSaleId = null;
 
 function saveCart() {
   sessionStorage.setItem('shoppingCart', JSON.stringify(saleItems));
@@ -31,7 +32,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     const sidebar = document.createElement('div');
     sidebar.className = 'sidebar';
     sidebar.innerHTML = `
-      <div class="sidebar-brand"><i class="fa fa-cubes"></i> <span class="brand-text ms-2">GestorFX</span></div>
+      <div class="sidebar-brand">
+        <img src="../logo/gestorfx_logof.ico" alt="Logo" style="height: 100px; width: auto; margin-right: 10px;">
+      </div>
       <nav class="sidebar-menu">
         <a href="index.html" class="sidebar-link ${currentPage === 'index.html' ? 'active' : ''}"><i class="fa fa-home"></i> <span class="link-text">Dashboard</span></a>
         <a href="sales.html" class="sidebar-link ${currentPage === 'sales.html' ? 'active' : ''}"><i class="fa fa-shopping-cart"></i> <span class="link-text">Ventas</span></a>
@@ -42,6 +45,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         <a href="purchase_orders.html" class="sidebar-link ${currentPage === 'purchase_orders.html' ? 'active' : ''}"><i class="fa fa-clipboard-list"></i> <span class="link-text">Órdenes Compra</span></a>
         <a href="services.html" class="sidebar-link ${currentPage === 'services.html' ? 'active' : ''}"><i class="fa fa-concierge-bell"></i> <span class="link-text">Servicios</span></a>
         <a href="reports.html" class="sidebar-link ${currentPage === 'reports.html' ? 'active' : ''}"><i class="fa fa-chart-line"></i> <span class="link-text">Reportes</span></a>
+        <a href="expenses.html" class="sidebar-link ${currentPage === 'expenses.html' ? 'active' : ''}"><i class="fa fa-money-bill-wave"></i> <span class="link-text">Gastos</span></a>
         <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
         <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
       </nav>
@@ -121,6 +125,20 @@ document.addEventListener("DOMContentLoaded", async () => {
   const creditSearchInput = document.getElementById("credit-search-input");
   const creditSearchBtn = document.getElementById("credit-search-btn");
   const barcodeInput = document.getElementById("barcode-input");
+
+  function cancelEdit() {
+    editingSaleId = null;
+    saleItems = [];
+    renderSaleItems();
+    clientSelect.value = "";
+    saleTypeSelect.value = "cash";
+    finalizeBtn.textContent = "Finalizar Venta";
+    finalizeBtn.classList.remove('btn-warning');
+    finalizeBtn.classList.add('btn-primary');
+    const cancelBtn = document.getElementById('cancel-edit-btn');
+    if(cancelBtn) cancelBtn.remove();
+    productInput.focus();
+  }
 
   renderSaleItems();
 
@@ -482,6 +500,10 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <label>Transferencia</label>
                 <input type="number" id="transferAmount" class="form-control" value="0" min="0">
               </div>
+              <div class="mb-2" id="bankReferenceContainer" style="display:none;">
+                <label>Banco / Referencia</label>
+                <input type="text" id="transferReference" class="form-control" placeholder="Ej: Bancolombia, Nequi...">
+              </div>
               <div id="changeInfo" class="mt-2 fw-bold text-success"></div>
             </div>
             <div class="modal-footer">
@@ -502,6 +524,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     const cashInput = document.getElementById("cashReceived");
     const transferInput = document.getElementById("transferAmount");
+    const transferRefInput = document.getElementById("transferReference");
     const changeInfo = document.getElementById("changeInfo");
 
     function updateChange() {
@@ -514,6 +537,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       } else {
         changeInfo.textContent = `Falta: ${formatCOP(-change)}`;
       }
+      
+      // Mostrar campo de banco si hay transferencia
+      document.getElementById("bankReferenceContainer").style.display = transfer > 0 ? "block" : "none";
     }
     cashInput.addEventListener("input", updateChange);
     transferInput.addEventListener("input", updateChange);
@@ -522,6 +548,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("confirmPaymentBtn").addEventListener("click", async () => {
       const cash = parseFloat(cashInput.value) || 0;
       const transfer = parseFloat(transferInput.value) || 0;
+      const transferRef = document.getElementById("transferReference").value.trim();
       const totalPaid = cash + transfer;
 
       if (totalPaid < totalAmount && saleType !== "credit") {
@@ -540,7 +567,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         outstanding_balance: outstandingBalance,
         sale_type: saleType,
         cash_payment: cash,
-        transfer_payment: transfer
+        transfer_payment: transfer,
+        transfer_reference: transferRef
       };
 
       const res = await window.api.createSale(saleData);
@@ -570,27 +598,125 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Finalizar venta (ajustado)
  
   finalizeBtn.addEventListener("click", async () => {
-    if (saleItems.length === 0) {
-      alert("No hay items en la venta.");
-      return;
-    }
-    const clientId = clientSelect.value ? Number(clientSelect.value) : null;
-    const saleType = saleTypeSelect.value;
-    const totalAmount = saleItems.reduce((sum, item) => sum + item.subtotal, 0);
-
-    if (saleType === 'credit' && !clientId) {
-      alert("Para una venta a crédito, debes seleccionar un cliente.");
-      return;
-    }
-
-    showPaymentModal(totalAmount, clientId, saleType);
+      if (editingSaleId) {
+          await handleUpdateSale();
+      } else {
+          await handleCreateSale();
+      }
   });
+
+  async function handleCreateSale() {
+      if (saleItems.length === 0) {
+          alert("No hay items en la venta.");
+          return;
+      }
+      const clientId = clientSelect.value ? Number(clientSelect.value) : null;
+      const saleType = saleTypeSelect.value;
+      const totalAmount = saleItems.reduce((sum, item) => sum + item.subtotal, 0);
+
+      if (saleType === 'credit') {
+          if (!clientId) {
+              alert("Para una venta a crédito, debes seleccionar un cliente.");
+              return;
+          }
+          if (confirm(`¿Confirmar venta a crédito por ${formatCOP(totalAmount)}?`)) {
+              const saleData = {
+                  client_id: clientId,
+                  items: saleItems,
+                  total_amount: totalAmount,
+                  paid_amount: 0,
+                  outstanding_balance: totalAmount,
+                  sale_type: saleType,
+                  cash_payment: 0,
+                  transfer_payment: 0,
+                  transfer_reference: null
+              };
+              const res = await window.api.createSale(saleData);
+              if (!res.success) {
+                  alert(res.message);
+                  return;
+              }
+              alert(res.message || "Venta a crédito registrada exitosamente.");
+              sessionStorage.removeItem('shoppingCart');
+              saleItems = [];
+              renderSaleItems();
+              await loadSales();
+              await loadProducts();
+              await loadCredits();
+          }
+          return;
+      }
+      showPaymentModal(totalAmount, clientId, saleType);
+  }
+
+  async function handleUpdateSale() {
+      if (!editingSaleId) return;
+
+      const originalSale = await window.api.getSaleById(editingSaleId);
+      const newTotalAmount = saleItems.reduce((sum, item) => sum + item.subtotal, 0);
+      const difference = newTotalAmount - originalSale.total_amount;
+
+      let paymentAdjustment = null;
+
+      if (Math.abs(difference) > 0.1 && saleTypeSelect.value !== 'credit') {
+          if (difference > 0) {
+              const paymentResult = await showDifferenceModal('pay', difference);
+              if (!paymentResult) return;
+              paymentAdjustment = {
+                  amount: difference,
+                  method: paymentResult.method,
+                  reference: paymentResult.reference
+              };
+          } else {
+              const refundResult = await showDifferenceModal('refund', Math.abs(difference));
+              if (!refundResult) return;
+              paymentAdjustment = {
+                  amount: -Math.abs(difference),
+                  method: refundResult.method,
+                  reference: null
+              };
+          }
+      }
+
+      const updateData = {
+          saleId: editingSaleId,
+          clientId: clientSelect.value ? Number(clientSelect.value) : null,
+          items: saleItems,
+          paymentAdjustment: paymentAdjustment,
+          userName: localStorage.getItem('user_name') || 'system'
+      };
+
+      const res = await window.api.updateSale(updateData);
+      alert(res.message);
+
+      if (res.success) {
+          cancelEdit();
+          await loadSales(false);
+          await loadProducts();
+          await loadCredits();
+      }
+  }
 
   // Cargar ventas
 
   let currentOffset = 0;
   const SALES_LIMIT = 10;
   let loadMoreBtn;
+
+  // --- FILTRO POR CLIENTE ---
+  const filterContainer = document.createElement("div");
+  filterContainer.className = "mb-3 d-flex align-items-center";
+  filterContainer.innerHTML = `
+    <label class="me-2 fw-bold">Filtrar por Cliente:</label>
+    <select id="filter-client" class="form-select w-auto">
+        <option value="">-- Todos --</option>
+    </select>
+  `;
+  if (salesList && salesList.parentNode) {
+      salesList.parentNode.insertBefore(filterContainer, salesList);
+  }
+  const filterClientSelect = document.getElementById('filter-client');
+  // --------------------------
 
   // Crear botón de "Cargar más"
   const btnContainer = document.createElement("div");
@@ -621,6 +747,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       alert(res.message || JSON.stringify(res));
     } else if (target.classList.contains("print-sale")) {
       await handlePrintSale(Number(target.dataset.id));
+    } else if (target.classList.contains("edit-sale")) {
+        const saleId = Number(target.dataset.id);
+        await handleEditSale(saleId);
     }
   });
 
@@ -658,14 +787,26 @@ document.addEventListener("DOMContentLoaded", async () => {
     await window.api.printInvoice({ printer: selectedPrinter, paperSize: "A4", htmlContent });
   }
 
+  // Cargar clientes en el filtro
+  async function loadFilterClients() {
+      const clients = await window.api.getClients();
+      clients.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = c.name;
+          filterClientSelect.appendChild(opt);
+      });
+  }
+  filterClientSelect.addEventListener('change', () => loadSales(false));
+
   async function loadSales(append = false) {
     if (!append) {
       currentOffset = 0;
       salesList.innerHTML = "";
       loadMoreBtn.style.display = "none";
     }
-
-    const sales = await window.api.getSales(SALES_LIMIT, currentOffset);
+    const selectedClientId = filterClientSelect.value ? Number(filterClientSelect.value) : null;
+    const sales = await window.api.getSales(SALES_LIMIT, currentOffset, selectedClientId);
     
     if (!sales || sales.length === 0) {
       if (!append) salesList.innerHTML = '<div class="alert alert-secondary">No hay ventas</div>';
@@ -686,6 +827,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             <div class="float-end">
               <button class="btn btn-sm btn-primary export-invoice" data-id="${s.id}">Descargar Factura</button>
               <button class="btn btn-sm btn-success ms-1 print-sale" data-id="${s.id}">Imprimir Factura</button>
+              <button class="btn btn-sm btn-warning ms-1 edit-sale" data-id="${s.id}">Editar</button>
               <button class="btn btn-sm btn-danger ms-1 delete-sale" data-id="${s.id}">Eliminar Factura</button>
             </div>
           </div>
@@ -704,6 +846,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const role = localStorage.getItem('user_role');
     if (role !== 'admin') {
       salesList.querySelectorAll('.delete-sale').forEach(btn => btn.remove());
+      salesList.querySelectorAll('.edit-sale').forEach(btn => btn.remove()); // Solo admin puede editar por ahora
     }
 
     currentOffset += sales.length;
@@ -715,6 +858,56 @@ document.addEventListener("DOMContentLoaded", async () => {
       loadMoreBtn.style.display = "none";
     }
   }
+
+    async function handleEditSale(saleId) {
+        const sale = await window.api.getSaleById(saleId);
+        const items = await window.api.getSaleItems(saleId);
+        if (!sale || !items) {
+            alert("No se pudo cargar la venta para editar.");
+            return;
+        }
+
+        if (sale.sale_type === 'paid' || sale.paid_amount > 0) {
+            if (!confirm("ADVERTENCIA: Esta factura ya tiene pagos registrados. Editarla modificará el inventario y podría requerir ajustes de caja (devoluciones o cobros adicionales).\n\n¿Está seguro de que desea continuar?")) {
+                return;
+            }
+        }
+
+        editingSaleId = saleId;
+        clientSelect.value = sale.client_id || "";
+        saleTypeSelect.value = sale.sale_type;
+        
+        const detailedItems = [];
+        for (const item of items) {
+            if (item.product_id) {
+                const product = allProducts.find(p => p.id === item.product_id);
+                if (product) {
+                    detailedItems.push({
+                        ...item,
+                        sale_price: product.sale_price,
+                        special_price: product.special_price,
+                    });
+                }
+            } else {
+                // Servicios o ítems sin producto asociado
+                detailedItems.push({ ...item, sale_price: item.price, special_price: 0 });
+            }
+        }
+        saleItems = detailedItems;
+
+        renderSaleItems();
+
+        finalizeBtn.textContent = "Guardar Cambios";
+        finalizeBtn.classList.remove('btn-primary');
+        finalizeBtn.classList.add('btn-warning');
+
+        const cancelBtnHtml = `<button type="button" id="cancel-edit-btn" class="btn btn-secondary ms-2">Cancelar Edición</button>`;
+        if(!document.getElementById('cancel-edit-btn')) finalizeBtn.insertAdjacentHTML('afterend', cancelBtnHtml);
+        document.getElementById('cancel-edit-btn').addEventListener('click', cancelEdit);
+
+        window.scrollTo(0, 0);
+        productInput.focus();
+    }
 
     // -----------------------------
     // Generar HTML de factura
@@ -1005,6 +1198,62 @@ document.addEventListener("DOMContentLoaded", async () => {
     loadCredits(searchTerm);
   });
 
+  function showDifferenceModal(type, amount) {
+      return new Promise((resolve) => {
+          const title = type === 'pay' ? 'Pagar Diferencia' : 'Confirmar Devolución';
+          const actionButtonText = type === 'pay' ? 'Confirmar Pago' : 'Confirmar Devolución';
+          const amountText = type === 'pay' ? `Se debe pagar una diferencia de <strong>${formatCOP(amount)}</strong>.` : `Se debe devolver al cliente <strong>${formatCOP(amount)}</strong>.`;
+
+          const modalHtml = `
+          <div class="modal fade" id="differenceModal" tabindex="-1">
+              <div class="modal-dialog">
+              <div class="modal-content">
+                  <div class="modal-header">
+                      <h5 class="modal-title">${title}</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                  </div>
+                  <div class="modal-body">
+                      <p>${amountText}</p>
+                      <label class="form-label">Método de ${type === 'pay' ? 'pago' : 'devolución'}</label>
+                      <select id="diff-method" class="form-select">
+                          <option value="cash">Efectivo</option>
+                          <option value="transfer">Transferencia</option>
+                      </select>
+                      <div id="diff-ref-container" style="display:none;" class="mt-2">
+                          <label class="form-label">Referencia</label>
+                          <input type="text" id="diff-ref" class="form-control">
+                      </div>
+                  </div>
+                  <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" id="cancel-diff-btn">Cancelar</button>
+                      <button type="button" class="btn btn-primary" id="confirm-diff-btn">${actionButtonText}</button>
+                  </div>
+              </div>
+              </div>
+          </div>
+          `;
+
+          const existing = document.getElementById("differenceModal");
+          if (existing) existing.remove();
+          document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+          const modal = new bootstrap.Modal(document.getElementById("differenceModal"));
+          modal.show();
+
+          const methodSelect = document.getElementById('diff-method');
+          const refContainer = document.getElementById('diff-ref-container');
+          methodSelect.addEventListener('change', () => {
+              refContainer.style.display = methodSelect.value === 'transfer' ? 'block' : 'none';
+          });
+
+          document.getElementById('confirm-diff-btn').addEventListener('click', () => {
+              modal.hide();
+              resolve({ method: methodSelect.value, reference: document.getElementById('diff-ref').value });
+          });
+          document.getElementById('cancel-diff-btn').addEventListener('click', () => { modal.hide(); resolve(null); });
+          document.querySelector('#differenceModal .btn-close').addEventListener('click', () => resolve(null));
+      });
+  }
 
   // Modal de detalles de crédito
 
@@ -1036,6 +1285,15 @@ document.addEventListener("DOMContentLoaded", async () => {
               <p><strong>Saldo Pendiente:</strong> <span id="modal-outstanding-balance" class="fw-bold text-danger">${formatCOP(sale.outstanding_balance)}</span></p>
 
               <h6 class="mt-4">Registrar Abono</h6>
+              <div class="mb-2">
+                <select class="form-select" id="abono-method">
+                    <option value="cash">Efectivo</option>
+                    <option value="transfer">Transferencia</option>
+                </select>
+              </div>
+              <div class="mb-2" id="abono-ref-container" style="display:none;">
+                <input type="text" class="form-control" id="abono-ref" placeholder="Banco / Referencia">
+              </div>
               <div class="input-group">
                 <input type="number" class="form-control" id="abono-amount" placeholder="Monto del abono">
                 <button class="btn btn-primary" type="button" id="add-abono-btn">Abonar</button>
@@ -1053,21 +1311,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     const modal = new bootstrap.Modal(document.getElementById('creditDetailsModal'));
     modal.show();
 
+    // Mostrar/ocultar referencia según método
+    const methodSelect = document.getElementById('abono-method');
+    const refContainer = document.getElementById('abono-ref-container');
+    methodSelect.addEventListener('change', () => {
+        refContainer.style.display = methodSelect.value === 'transfer' ? 'block' : 'none';
+    });
+
     document.getElementById("add-abono-btn").addEventListener("click", async () => {
       const abonoAmount = Number(document.getElementById("abono-amount").value);
+      const method = methodSelect.value;
+      const reference = document.getElementById("abono-ref").value;
+
       if (abonoAmount <= 0 || abonoAmount > sale.outstanding_balance) {
         alert("Monto de abono inválido o superior al saldo pendiente.");
         return;
       }
 
-      const res = await window.api.addCreditPayment(saleId, abonoAmount);
+      const res = await window.api.addCreditPayment(saleId, abonoAmount, method, reference);
       alert(res.message);
       modal.hide();
       await loadCredits();
     });
 
     document.getElementById("mark-paid-btn").addEventListener("click", async () => {
-      const res = await window.api.markCreditAsPaid(saleId);
+      const method = methodSelect.value;
+      const reference = document.getElementById("abono-ref").value;
+      const res = await window.api.markCreditAsPaid(saleId, method, reference);
       alert(res.message);
       modal.hide();
       await loadCredits();
@@ -1078,6 +1348,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   await loadProducts();
   await loadClients();
+  await loadFilterClients();
   await loadSales();
   await loadCredits();
 

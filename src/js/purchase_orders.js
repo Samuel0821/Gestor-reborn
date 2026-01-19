@@ -14,7 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const sidebar = document.createElement('div');
         sidebar.className = 'sidebar';
         sidebar.innerHTML = `
-          <div class="sidebar-brand"><i class="fa fa-cubes"></i> <span class="brand-text ms-2">GestorFX</span></div>
+            <div class="sidebar-brand">
+              <img src="../logo/gestorfx_logof.ico" alt="Logo" style="height: 100px; width: auto; margin-right: 10px;">
+            </div>         
           <nav class="sidebar-menu">
             <a href="index.html" class="sidebar-link ${currentPage === 'index.html' ? 'active' : ''}"><i class="fa fa-home"></i> <span class="link-text">Dashboard</span></a>
             <a href="sales.html" class="sidebar-link ${currentPage === 'sales.html' ? 'active' : ''}"><i class="fa fa-shopping-cart"></i> <span class="link-text">Ventas</span></a>
@@ -25,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <a href="purchase_orders.html" class="sidebar-link ${currentPage === 'purchase_orders.html' ? 'active' : ''}"><i class="fa fa-clipboard-list"></i> <span class="link-text">Órdenes Compra</span></a>
             <a href="services.html" class="sidebar-link ${currentPage === 'services.html' ? 'active' : ''}"><i class="fa fa-concierge-bell"></i> <span class="link-text">Servicios</span></a>
             <a href="reports.html" class="sidebar-link ${currentPage === 'reports.html' ? 'active' : ''}"><i class="fa fa-chart-line"></i> <span class="link-text">Reportes</span></a>
+            <a href="expenses.html" class="sidebar-link ${currentPage === 'expenses.html' ? 'active' : ''}"><i class="fa fa-money-bill-wave"></i> <span class="link-text">Gastos</span></a>
             <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
             <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
           </nav>
@@ -107,6 +110,15 @@ document.addEventListener('DOMContentLoaded', () => {
         products = prods;
     });
 
+    // Agregar campo de Notas al formulario dinámicamente
+    const notesContainer = document.createElement('div');
+    notesContainer.className = 'mb-3';
+    notesContainer.innerHTML = `
+        <label class="form-label">Notas / Observaciones</label>
+        <textarea id="order-notes" class="form-control" rows="2" placeholder="Ej: Entregar en bodega trasera..."></textarea>
+    `;
+    document.getElementById('product-items').before(notesContainer);
+
     // Agregar item de producto
     addProductItemBtn.addEventListener('click', () => {
         const itemDiv = document.createElement('div');
@@ -160,6 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const purchaseOrderId = document.getElementById('purchase-order-id').value;
         const supplierId = supplierSelect.value;
         const orderDate = document.getElementById('order-date').value;
+        const notes = document.getElementById('order-notes').value;
         const items = [];
         productItemsContainer.querySelectorAll('.product-item').forEach(item => {
             const productId = item.querySelector('.product-id').value;
@@ -178,7 +191,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const purchaseOrderData = {
             supplier_id: supplierId,
             order_date: orderDate,
-            items: items
+            items: items,
+            notes: notes
         };
 
         if (purchaseOrderId) {
@@ -270,6 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="modal-body">
                                 <p><strong>Proveedor:</strong> ${po.supplier_name}</p>
                                 <p><strong>Fecha:</strong> ${new Date(po.order_date).toLocaleDateString()}</p>
+                                ${po.notes ? `<div class="alert alert-info p-2 mb-3"><small><strong>Nota:</strong> ${po.notes}</small></div>` : ''}
                                 <table class="table">
                                     <thead><tr><th>Código</th><th>Producto</th><th class="text-end">Cantidad</th><th class="text-end">Precio</th><th class="text-end">Subtotal</th></tr></thead>
                                     <tbody>${itemsHtml}</tbody>
@@ -309,6 +324,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('purchase-order-id').value = po.id;
             supplierSelect.value = po.supplier_id;
             document.getElementById('order-date').value = po.order_date.split('T')[0];
+            document.getElementById('order-notes').value = po.notes || '';
             productItemsContainer.innerHTML = '';
             po.items.forEach(item => {
                 const itemDiv = document.createElement('div');
@@ -357,6 +373,7 @@ document.addEventListener('DOMContentLoaded', () => {
         purchaseOrderForm.reset();
         productItemsContainer.innerHTML = '';
         document.getElementById('purchase-order-id').value = '';
+        document.getElementById('order-notes').value = '';
         savePurchaseOrderBtn.textContent = 'Guardar';
         cancelEditBtn.style.display = 'none';
     });

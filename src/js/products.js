@@ -14,7 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const sidebar = document.createElement('div');
         sidebar.className = 'sidebar';
         sidebar.innerHTML = `
-          <div class="sidebar-brand"><i class="fa fa-cubes"></i> <span class="brand-text ms-2">GestorFX</span></div>
+          <div class="sidebar-brand">
+            <img src="../logo/gestorfx_logof.ico" alt="Logo" style="height: 100px; width: auto; margin-right: 10px;">
+          </div>          
           <nav class="sidebar-menu">
             <a href="index.html" class="sidebar-link ${currentPage === 'index.html' ? 'active' : ''}"><i class="fa fa-home"></i> <span class="link-text">Dashboard</span></a>
             <a href="sales.html" class="sidebar-link ${currentPage === 'sales.html' ? 'active' : ''}"><i class="fa fa-shopping-cart"></i> <span class="link-text">Ventas</span></a>
@@ -25,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <a href="purchase_orders.html" class="sidebar-link ${currentPage === 'purchase_orders.html' ? 'active' : ''}"><i class="fa fa-clipboard-list"></i> <span class="link-text">Órdenes Compra</span></a>
             <a href="services.html" class="sidebar-link ${currentPage === 'services.html' ? 'active' : ''}"><i class="fa fa-concierge-bell"></i> <span class="link-text">Servicios</span></a>
             <a href="reports.html" class="sidebar-link ${currentPage === 'reports.html' ? 'active' : ''}"><i class="fa fa-chart-line"></i> <span class="link-text">Reportes</span></a>
+            <a href="expenses.html" class="sidebar-link ${currentPage === 'expenses.html' ? 'active' : ''}"><i class="fa fa-money-bill-wave"></i> <span class="link-text">Gastos</span></a>
             <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
             <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
           </nav>
@@ -122,10 +125,20 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Cargar productos
     
+    let allProducts = []; // Almacena TODOS los productos traídos de BD
+    let filteredProducts = []; // Almacena los productos filtrados por búsqueda
+    let currentRenderedCount = 0; // Cuántos se han pintado en pantalla
+    const ITEMS_PER_BATCH = 50; // Cantidad a cargar por bloque
+
     async function loadProducts() {
         const { products: fetchedProducts, totalInventoryValue } = await window.api.getInventory();
-        products = fetchedProducts;
-        renderTable(products);
+        allProducts = fetchedProducts;
+        filteredProducts = fetchedProducts; // Al inicio, el filtro es todo
+        
+        // Reiniciar renderizado
+        table.innerHTML = '';
+        currentRenderedCount = 0;
+        renderBatch();
         
         const totalValueElement = document.getElementById('total-inventory-value');
         if (totalValueElement) {
@@ -133,8 +146,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function renderTable(list) {
-        table.innerHTML = '';
+    function renderBatch() {
+        const batch = filteredProducts.slice(currentRenderedCount, currentRenderedCount + ITEMS_PER_BATCH);
+        renderTableRows(batch);
+        currentRenderedCount += batch.length;
+        updateLoadMoreButton();
+    }
+
+    function updateLoadMoreButton() {
+        let loadMoreBtn = document.getElementById('load-more-products-btn');
+        if (!loadMoreBtn) return; // Si no se ha creado el botón aún (se crea dinámicamente abajo)
+        
+        // Mostrar botón solo si quedan productos por mostrar
+        loadMoreBtn.style.display = (currentRenderedCount < filteredProducts.length) ? 'block' : 'none';
+    }
+
+    function renderTableRows(list) {
         list.forEach(p => {
             const tr = document.createElement('tr');
             const stockAlert = (p.stock <= p.min_stock) ? `<span class="badge bg-danger ms-2">Stock mínimo</span>` : '';
@@ -257,7 +284,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const search = document.getElementById('search-product');
     const codeErrorMessageSpan = document.getElementById('code-error-message');
 
-    let products = [];
+    // Crear botón "Cargar más" dinámicamente después de la tabla
+    const tableContainer = table.parentElement; // El div que contiene la tabla (o el tbody si no hay div)
+    // Buscamos un mejor lugar, idealmente después de la tabla
+    const loadMoreContainer = document.createElement('div');
+    loadMoreContainer.className = 'text-center my-3';
+    loadMoreContainer.innerHTML = `<button id="load-more-products-btn" class="btn btn-outline-primary"><i class="fa fa-arrow-down me-2"></i>Cargar más productos</button>`;
+    // Insertar después de la tabla
+    table.closest('table').after(loadMoreContainer);
+    
+    document.getElementById('load-more-products-btn').addEventListener('click', () => {
+        renderBatch();
+    });
 
     async function loadCategories() {
         const cats = await window.api.getCategories();
@@ -348,7 +386,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     search.addEventListener('input', () => {
         const q = search.value.toLowerCase();
-        renderTable(products.filter(p => p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q)));
+        // Filtrar sobre la lista completa
+        filteredProducts = allProducts.filter(p => p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q));
+        // Reiniciar vista
+        table.innerHTML = '';
+        currentRenderedCount = 0;
+        renderBatch();
     });
 
    

@@ -37,10 +37,11 @@ contextBridge.exposeInMainWorld("api", {
 
   // sales
   createSale: (data) => ipcRenderer.invoke("create-sale", data),
-  getSales: (limit, offset) => ipcRenderer.invoke("get-sales", limit, offset),
+  getSales: (limit, offset, clientId) => ipcRenderer.invoke("get-sales", limit, offset, clientId),
   getSaleById: (id) => ipcRenderer.invoke("get-sale-by-id", id),
   getSaleItems: (id) => ipcRenderer.invoke("get-sale-items", id),
   deleteSale: (id) => ipcRenderer.invoke("delete-sale", id),
+  updateSale: (data) => ipcRenderer.invoke("update-sale", data),
   deleteSaleItem: (id) => ipcRenderer.invoke("delete-sale-item", id),
   getLastInvoiceNumber: () => ipcRenderer.invoke("get-last-invoice-number"),
   setInvoiceNumber: (id, invoiceNumber) =>
@@ -50,8 +51,8 @@ contextBridge.exposeInMainWorld("api", {
 
   // credits ⚠️ <-- AGREGAR ESTO
 getCredits: (searchTerm = "") => ipcRenderer.invoke("get-credits", searchTerm),
-addCreditPayment: (saleId, amount) => ipcRenderer.invoke("add-credit-payment", saleId, amount),
-markCreditAsPaid: (saleId) => ipcRenderer.invoke("mark-credit-as-paid", saleId),
+addCreditPayment: (saleId, amount, method, reference) => ipcRenderer.invoke("add-credit-payment", saleId, amount, method, reference),
+markCreditAsPaid: (saleId, method, reference) => ipcRenderer.invoke("mark-credit-as-paid", saleId, method, reference),
 
   // Purchase Orders
   createPurchaseOrder: (data) => ipcRenderer.invoke("create-purchase-order", data),
@@ -65,7 +66,7 @@ markCreditAsPaid: (saleId) => ipcRenderer.invoke("mark-credit-as-paid", saleId),
 
   // quotes
   createQuote: (data) => ipcRenderer.invoke("create-quote", data),
-  getQuotes: () => ipcRenderer.invoke("get-quotes"),
+  getQuotes: (clientId) => ipcRenderer.invoke("get-quotes", clientId),
   getQuoteById: (id) => ipcRenderer.invoke("get-quote-by-id", id),
   getQuoteItems: (id) => ipcRenderer.invoke("get-quote-items", id),
   deleteQuote: (id) => ipcRenderer.invoke("delete-quote", id),
@@ -106,6 +107,15 @@ markCreditAsPaid: (saleId) => ipcRenderer.invoke("mark-credit-as-paid", saleId),
   // reports
   getSalesReport: (params) => ipcRenderer.invoke("get-sales-report", params),
   exportSalesReportPDF: (params) => ipcRenderer.invoke("export-sales-report-pdf", params),
+
+  // expenses
+  getExpenses: (startDate, endDate) => ipcRenderer.invoke('get-expenses', startDate, endDate),
+  saveExpense: (expense) => ipcRenderer.invoke('save-expense', expense),
+  deleteExpense: (id) => ipcRenderer.invoke('delete-expense', id),
+
+  // Auditoría
+  getAuditLogs: (params) => ipcRenderer.invoke("get-audit-logs", params),
+  logAction: (data) => ipcRenderer.invoke("log-action", data),
 
   //Impresión
   getPrinters: () => ipcRenderer.invoke("get-printers"),

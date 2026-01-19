@@ -16,8 +16,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sidebar = document.createElement('div');
     sidebar.className = 'sidebar';
     sidebar.innerHTML = `
-      <div class="sidebar-brand"><i class="fa fa-cubes"></i> <span class="brand-text ms-2">GestorFX</span></div>
-      <nav class="sidebar-menu">
+        <div class="sidebar-brand">
+          <img src="../logo/gestorfx_logof.ico" alt="Logo" style="height: 100px; width: auto; margin-right: 10px;">
+        </div>     
+       <nav class="sidebar-menu">
         <a href="index.html" class="sidebar-link ${currentPage === 'index.html' ? 'active' : ''}"><i class="fa fa-home"></i> <span class="link-text">Dashboard</span></a>
         <a href="sales.html" class="sidebar-link ${currentPage === 'sales.html' ? 'active' : ''}"><i class="fa fa-shopping-cart"></i> <span class="link-text">Ventas</span></a>
         <a href="products.html" class="sidebar-link ${currentPage === 'products.html' ? 'active' : ''}"><i class="fa fa-box"></i> <span class="link-text">Productos</span></a>
@@ -27,6 +29,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <a href="purchase_orders.html" class="sidebar-link ${currentPage === 'purchase_orders.html' ? 'active' : ''}"><i class="fa fa-clipboard-list"></i> <span class="link-text">Órdenes Compra</span></a>
         <a href="services.html" class="sidebar-link ${currentPage === 'services.html' ? 'active' : ''}"><i class="fa fa-concierge-bell"></i> <span class="link-text">Servicios</span></a>
         <a href="reports.html" class="sidebar-link ${currentPage === 'reports.html' ? 'active' : ''}"><i class="fa fa-chart-line"></i> <span class="link-text">Reportes</span></a>
+        <a href="expenses.html" class="sidebar-link ${currentPage === 'expenses.html' ? 'active' : ''}"><i class="fa fa-money-bill-wave"></i> <span class="link-text">Gastos</span></a>
         <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
         <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
       </nav>
@@ -213,6 +216,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // --- FILTRO POR CLIENTE ---
+  const filterContainer = document.createElement("div");
+  filterContainer.className = "mb-3 d-flex align-items-center";
+  filterContainer.innerHTML = `
+    <label class="me-2 fw-bold">Filtrar por Cliente:</label>
+    <select id="filter-client-quote" class="form-select w-auto">
+        <option value="">-- Todos --</option>
+    </select>
+  `;
+  if (quotesList && quotesList.parentNode) {
+      quotesList.parentNode.insertBefore(filterContainer, quotesList);
+  }
+  const filterClientSelect = document.getElementById('filter-client-quote');
+  filterClientSelect.addEventListener('change', () => loadQuotes());
+
   // --- Cargar clientes
   async function loadClients() {
     const clients = await window.api.getClients();
@@ -222,6 +240,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       opt.value = c.id;
       opt.textContent = `${c.name} (${c.id_card_or_nit})`;
       clientSelect.appendChild(opt);
+      
+      // Llenar también el filtro
+      const optFilter = document.createElement("option");
+      optFilter.value = c.id;
+      optFilter.textContent = c.name;
+      filterClientSelect.appendChild(optFilter);
     });
   }
 
@@ -313,7 +337,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- Cargar cotizaciones
   async function loadQuotes(){
-    const quotes = await window.api.getQuotes();
+    const clientId = filterClientSelect.value ? Number(filterClientSelect.value) : null;
+    const quotes = await window.api.getQuotes(clientId);
     if(!quotes.length){
       quotesList.innerHTML='<div class="alert alert-secondary">No hay cotizaciones</div>';
       return;

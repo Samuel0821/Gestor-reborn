@@ -57,11 +57,12 @@ Al finalizar, se abrirá una ventana de pago:
 Debajo del área de venta verá las últimas transacciones.
 *   **Descargar PDF:** Genera la factura digital.
 *   **Imprimir:** Envía la factura a la impresora térmica o láser configurada.
+*   **Editar:** (Solo Administrador) Permite modificar una venta existente. El sistema ajustará automáticamente el inventario y los saldos. Si la venta ya tenía pagos, se gestionarán las diferencias (cobro adicional o devolución).
 *   **Eliminar:** (Solo Administrador) Permite anular una venta, devolviendo automáticamente los productos al inventario.
 
 ### 4.4. Gestión de Créditos
 En la pestaña lateral o sección inferior, puede ver las ventas a crédito pendientes.
-*   **Abonar:** Registre pagos parciales a una deuda.
+*   **Abonar:** Registre pagos parciales a una deuda, especificando si es en **Efectivo** o **Transferencia** (con referencia).
 *   **Historial:** Vea el saldo pendiente y el total abonado por cliente.
 
 ---
@@ -112,19 +113,20 @@ Bases de datos para gestionar la información de contacto de sus terceros.
 ---
 
 ## 10. Reportes y Estadísticas
-Analice la salud financiera de su negocio.
+Analice la salud financiera de su negocio mediante pestañas especializadas:
 
-*   **Generar Reporte:** Seleccione un rango de fechas y el tipo (Diario, Semanal, Mensual).
-*   **Información Detallada:**
-    *   Total vendido.
+*   **Reporte de Ventas:**
+    *   **Resumen de Ventas:** Total facturado (Contado + Crédito).
+    *   **Ingresos Reales (Caja):** Dinero realmente recibido en el periodo (incluye abonos a créditos antiguos).
     *   **Utilidad Real:** (Precio Venta - Precio Compra).
-    *   Desglose por medios de pago (Efectivo vs Transferencia).
-*   **Exportar:** Descargue el reporte detallado en PDF para su contabilidad.
+*   **Reporte de Egresos:** Listado detallado de gastos registrados.
+*   **Reporte de Modificaciones:** (Solo Admin) Auditoría de cambios importantes en el sistema (ej. edición de facturas).
+*   **Exportar:** Descargue los reportes en PDF.
 
 ---
 
 ## 11. Configuración (Ajustes)
-Personalice el sistema a su medida.
+Personalice el sistema a su medida mediante una interfaz de pestañas:
 
 *   **Datos de Empresa:** Configure Nombre, NIT, Dirección, Teléfono y cargue su **Logo**. Estos datos aparecerán en todas las facturas y reportes PDF.
 *   **Impresión:** Seleccione su impresora predeterminada y el tamaño de papel (Ticket 80mm, 57mm o Carta A4).

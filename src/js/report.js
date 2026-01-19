@@ -14,7 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const sidebar = document.createElement('div');
         sidebar.className = 'sidebar';
         sidebar.innerHTML = `
-          <div class="sidebar-brand"><i class="fa fa-cubes"></i> <span class="brand-text ms-2">GestorFX</span></div>
+          <div class="sidebar-brand">
+        <img src="../logo/gestorfx_logof.ico" alt="Logo" style="height: 100px; width: auto; margin-right: 10px;">
+      </div>
           <nav class="sidebar-menu">
             <a href="index.html" class="sidebar-link ${currentPage === 'index.html' ? 'active' : ''}"><i class="fa fa-home"></i> <span class="link-text">Dashboard</span></a>
             <a href="sales.html" class="sidebar-link ${currentPage === 'sales.html' ? 'active' : ''}"><i class="fa fa-shopping-cart"></i> <span class="link-text">Ventas</span></a>
@@ -25,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <a href="purchase_orders.html" class="sidebar-link ${currentPage === 'purchase_orders.html' ? 'active' : ''}"><i class="fa fa-clipboard-list"></i> <span class="link-text">Órdenes Compra</span></a>
             <a href="services.html" class="sidebar-link ${currentPage === 'services.html' ? 'active' : ''}"><i class="fa fa-concierge-bell"></i> <span class="link-text">Servicios</span></a>
             <a href="reports.html" class="sidebar-link ${currentPage === 'reports.html' ? 'active' : ''}"><i class="fa fa-chart-line"></i> <span class="link-text">Reportes</span></a>
+            <a href="expenses.html" class="sidebar-link ${currentPage === 'expenses.html' ? 'active' : ''}"><i class="fa fa-money-bill-wave"></i> <span class="link-text">Gastos</span></a>
             <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
             <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
           </nav>
@@ -86,6 +89,57 @@ document.addEventListener('DOMContentLoaded', () => {
     const startDateInput = document.getElementById('startDate');
     const endDateInput = document.getElementById('endDate');
     const container = document.getElementById("report-container");
+    
+    // Inyectar botones de navegación
+    const navDiv = document.createElement('div');
+    navDiv.className = 'btn-group mb-4 w-100 shadow-sm';
+    navDiv.role = 'group';
+    navDiv.innerHTML = `
+        <button type="button" class="btn btn-primary active" id="btn-rep-sales"><i class="fa fa-shopping-cart me-2"></i>Reporte Ventas</button>
+        <button type="button" class="btn btn-outline-primary" id="btn-rep-expenses"><i class="fa fa-money-bill-wave me-2"></i>Reporte Egresos</button>
+        ${role === 'admin' ? '<button type="button" class="btn btn-outline-primary" id="btn-rep-audit"><i class="fa fa-user-shield me-2"></i>Reporte Modificaciones</button>' : ''}
+    `;
+    
+    // Insertar antes del formulario de fechas
+    const formRow = document.querySelector('.row.g-3');
+    if (formRow) {
+        formRow.parentNode.insertBefore(navDiv, formRow);
+    } else {
+        container.before(navDiv);
+    }
+
+    let activeTab = 'sales'; // 'sales', 'expenses', 'audit'
+
+    // Manejadores de eventos para las pestañas
+    const btnSales = document.getElementById('btn-rep-sales');
+    const btnExpenses = document.getElementById('btn-rep-expenses');
+    const btnAudit = document.getElementById('btn-rep-audit');
+
+    function setActiveTab(tab, btn) {
+        activeTab = tab;
+        [btnSales, btnExpenses, btnAudit].forEach(b => {
+            if(b) {
+                b.classList.remove('btn-primary', 'active');
+                b.classList.add('btn-outline-primary');
+            }
+        });
+        btn.classList.remove('btn-outline-primary');
+        btn.classList.add('btn-primary', 'active');
+        
+        // Ocultar selector de tipo de reporte si no es ventas (opcional, pero mejora UX)
+        if (tab === 'sales') {
+            reportTypeSelect.parentElement.style.display = 'block';
+        } else {
+            reportTypeSelect.parentElement.style.display = 'none';
+        }
+        
+        // Limpiar contenedor
+        container.innerHTML = '<div class="text-center text-muted mt-5">Seleccione un rango de fechas y haga clic en "Generar Reporte"</div>';
+    }
+
+    btnSales.addEventListener('click', () => setActiveTab('sales', btnSales));
+    btnExpenses.addEventListener('click', () => setActiveTab('expenses', btnExpenses));
+    if(btnAudit) btnAudit.addEventListener('click', () => setActiveTab('audit', btnAudit));
 
     let currentSalesReport = [];
 
@@ -115,8 +169,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function loadReport(startDate, endDate, reportType) {
+        if (activeTab === 'sales') {
+            await loadSalesReport(startDate, endDate, reportType);
+        } else if (activeTab === 'expenses') {
+            await loadExpensesReport(startDate, endDate);
+        } else if (activeTab === 'audit') {
+            await loadAuditReport(startDate, endDate);
+        }
+    }
+
+    async function loadSalesReport(startDate, endDate, reportType) {
         try {
             const report = await window.api.getSalesReport({ startDate, endDate, reportType });
+            const expenses = await window.api.getExpenses(startDate, endDate); // Requiere backend
             currentSalesReport = report.sales || [];
             
             // Elimina el botón de exportar PDF si ya existe
@@ -162,7 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let pagosHtml = `
                     <div class="mt-2 small text-muted">
                         Efectivo: ${formatCOP(s.cash_payment || 0)} | 
-                        Transferencia: ${formatCOP(s.transfer_payment || 0)} | 
+                        Transferencia: ${formatCOP(s.transfer_payment || 0)} ${s.transfer_reference ? `(${s.transfer_reference})` : ''} | 
                         Crédito: ${s.sale_type === "credit" ? formatCOP(s.outstanding_balance || 0) : formatCOP(0)}
                     </div>
                 `;
@@ -181,14 +246,72 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
             });
 
+            // Calcular totales financieros
+            const totalSales = report.totalGeneral || 0;
+            const totalCost = totalSales - (report.totalProfit || 0);
+            const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+            const netProfit = (report.totalProfit || 0) - totalExpenses;
+
+            // Agrupar transferencias por banco
+            const transfersByBank = {};
+            currentSalesReport.forEach(s => {
+                if (s.paid_transfer > 0) {
+                    const bank = s.transfer_reference || "Otros/Sin Ref";
+                    transfersByBank[bank] = (transfersByBank[bank] || 0) + s.paid_transfer;
+                }
+            });
+
+            let transfersBreakdownHtml = '';
+            if (Object.keys(transfersByBank).length > 0) {
+                for (const [bank, amount] of Object.entries(transfersByBank)) {
+                    transfersBreakdownHtml += `
+                        <div class="d-flex justify-content-between ms-3 text-muted" style="font-size: 0.9em;">
+                            <span>- ${bank}:</span>
+                            <span>${formatCOP(amount)}</span>
+                        </div>`;
+                }
+            }
+
+            const totalIngresado = (report.totalCash || 0) + (report.totalTransfer || 0);
+            const totalVentasCalculado = (report.salesCash || 0) + (report.salesTransfer || 0) + (report.salesCredit || 0);
+
             tableHtml += `
                     </tbody>
                 </table>
-                <div class="fw-bold text-end fs-5 mt-2">
-                    UTILIDAD TOTAL: ${formatCOP(report.totalProfit)}
-                </div>
-                <div class="fw-bold text-end fs-5">
-                    TOTAL GENERAL: ${formatCOP(report.totalGeneral)}
+                
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h5 class="card-title border-bottom pb-2">Resumen de Ventas</h5>
+                                <div class="d-flex justify-content-between"><span>Ventas en Efectivo:</span> <strong>${formatCOP(report.salesCash || 0)}</strong></div>
+                                <div class="d-flex justify-content-between mt-1"><span>Ventas en Transferencia:</span> <strong>${formatCOP(report.salesTransfer || 0)}</strong></div>
+                                <div class="d-flex justify-content-between mt-1 text-warning"><span>Ventas a Crédito:</span> <strong>${formatCOP(report.salesCredit || 0)}</strong></div>
+                                <div class="d-flex justify-content-between fw-bold fs-5 mt-3 border-top pt-2">
+                                    <span>Total Ventas:</span> 
+                                    <span>${formatCOP(totalVentasCalculado)}</span>
+                                </div>
+
+                                <h6 class="card-title border-bottom pb-2 mt-4">Ingresos Reales (Caja)</h6>
+                                <div class="d-flex justify-content-between"><span>Total Recibido (Efectivo + Transf):</span> <strong class="text-success">${formatCOP(totalIngresado)}</strong></div>
+                                <small class="text-muted">* Incluye abonos a créditos anteriores.</small>
+                                ${transfersBreakdownHtml}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h5 class="card-title border-bottom pb-2">Balance Financiero</h5>
+                                <div class="d-flex justify-content-between"><span>(+) Total Ventas:</span> <strong>${formatCOP(totalSales)}</strong></div>
+                                <div class="d-flex justify-content-between text-muted"><span>(-) Costo Mercancía:</span> <span>${formatCOP(totalCost)}</span></div>
+                                <div class="d-flex justify-content-between fw-bold text-primary"><span>(=) Utilidad Bruta:</span> <span>${formatCOP(report.totalProfit)}</span></div>
+                                <div class="d-flex justify-content-between text-danger"><span>(-) Total Gastos:</span> <span>${formatCOP(totalExpenses)}</span></div>
+                                <div class="d-flex justify-content-between fw-bold fs-5 mt-2 border-top pt-2 ${netProfit >= 0 ? 'text-success' : 'text-danger'}"><span>(=) UTILIDAD NETA REAL:</span> <span>${formatCOP(netProfit)}</span></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             `;
 
@@ -213,7 +336,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     const result = await window.api.exportSalesReportPDF({
                         salesReport: currentSalesReport,
                         companyInfo,
-                        filename: `Reporte_Ventas_${new Date().toISOString().slice(0, 10)}.pdf`
+                        filename: `Reporte_Ventas_${new Date().toISOString().slice(0, 10)}.pdf`,
+                        financialSummary: {
+                            totalSales,
+                            totalCost,
+                            grossProfit: report.totalProfit,
+                            totalExpenses,
+                            netProfit
+                        },
+                        paymentMethodsSummary: {
+                            transfersByBank
+                        }
                     });
                     if (result.success) {
                         showAlert("Reporte exportado correctamente: " + result.filePath, "success");
@@ -229,6 +362,94 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error("Error al cargar el reporte:", err);
             showAlert("Ocurrió un error al generar el reporte.", 'danger');
+        }
+    }
+
+    async function loadExpensesReport(startDate, endDate) {
+        try {
+            const expenses = await window.api.getExpenses(startDate, endDate);
+            
+            if (expenses.length === 0) {
+                container.innerHTML = `<h5>Reporte de Egresos del ${startDate} al ${endDate}</h5><div class="alert alert-info">No hay gastos registrados en este período.</div>`;
+                return;
+            }
+
+            let totalExpenses = 0;
+            let rows = expenses.map(exp => {
+                totalExpenses += exp.amount;
+                return `
+                    <tr>
+                        <td>${exp.date}</td>
+                        <td>${exp.description}</td>
+                        <td><span class="badge bg-secondary">${exp.category}</span></td>
+                        <td class="text-end">${formatCOP(exp.amount)}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            container.innerHTML = `
+                <h5>Reporte de Egresos del ${startDate} al ${endDate}</h5>
+                <table class="table table-striped table-hover">
+                    <thead class="table-danger">
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Descripción</th>
+                            <th>Categoría</th>
+                            <th class="text-end">Monto</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                    <tfoot>
+                        <tr class="fw-bold fs-5">
+                            <td colspan="3" class="text-end">TOTAL EGRESOS:</td>
+                            <td class="text-end text-danger">${formatCOP(totalExpenses)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            `;
+        } catch (err) {
+            console.error(err);
+            showAlert("Error al cargar reporte de egresos.", "danger");
+        }
+    }
+
+    async function loadAuditReport(startDate, endDate) {
+        try {
+            const logs = await window.api.getAuditLogs({ startDate, endDate });
+            
+            if (logs.length === 0) {
+                container.innerHTML = `<h5>Reporte de Modificaciones del ${startDate} al ${endDate}</h5><div class="alert alert-info">No hay registros de actividad en este período.</div>`;
+                return;
+            }
+
+            let rows = logs.map(log => `
+                <tr>
+                    <td>${new Date(log.timestamp).toLocaleString()}</td>
+                    <td><strong>${log.user_name}</strong></td>
+                    <td>${log.action}</td>
+                    <td>${log.details || '-'}</td>
+                </tr>
+            `).join('');
+
+            container.innerHTML = `
+                <h5>Reporte de Modificaciones (Auditoría)</h5>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Fecha/Hora</th>
+                                <th>Usuario</th>
+                                <th>Acción</th>
+                                <th>Detalles</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        } catch (err) {
+            console.error(err);
+            showAlert("Error al cargar reporte de auditoría.", "danger");
         }
     }
 

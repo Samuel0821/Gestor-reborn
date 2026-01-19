@@ -1,20 +1,25 @@
-/* Estilos Generales para GestorFX */
+/* ===============================
+   ESTILOS GENERALES - GESTORFX
+================================ */
 
 :root {
-    --primary-color: #1E3A8A; /* Azul oscuro corporativo */
-    --secondary-color: #6B7280; /* Gris secundario */
-    --light-bg: #F3F4F6; /* Gris claro fondo */
-    --text-color: #111827; /* Negro suave texto */
-    --card-bg: #FFFFFF; /* Blanco tarjetas */
-    --success-color: #27ae60;
-    --danger-color: #c0392b;
-    --primary-btn: #1E3A8A; /* Botón primario igual al corporativo */
-    --primary-btn-hover: #1e40af;
+    --primary-color: #0D2A57;      /* Azul corporativo GestorFX */
+    --primary-hover: #1F4FD8;      /* Azul acento */
+    --secondary-color: #2C3E50;    /* Texto principal */
+    --light-bg: #F5F7FA;           /* Fondo general */
+    --card-bg: #FFFFFF;            /* Tarjetas */
+    --success-color: #2ECC71;      /* Verde éxito */
+    --warning-color: #F39C12;      /* Naranja inventario */
+    --danger-color: #E74C3C;       /* Rojo controlado */
+    --muted-text: #7F8C8D;
+
+    --primary-btn: var(--primary-color);
+    --primary-btn-hover: var(--primary-hover);
 }
 
 body {
     background-color: var(--light-bg);
-    color: var(--text-color);
+    color: var(--secondary-color);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -22,13 +27,19 @@ h1, h2, h3, h4, h5, h6 {
     font-weight: 700;
 }
 
+/* ===============================
+   TARJETAS
+================================ */
 .card {
     border: none;
     border-radius: 0.75rem;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
     background-color: var(--card-bg);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.08);
 }
 
+/* ===============================
+   BOTONES
+================================ */
 .btn-primary {
     background-color: var(--primary-btn);
     border-color: var(--primary-btn);
@@ -38,13 +49,29 @@ h1, h2, h3, h4, h5, h6 {
     border-color: var(--primary-btn-hover);
 }
 
+.btn-success {
+    background-color: var(--success-color);
+    border-color: var(--success-color);
+}
+
+.btn-warning {
+    background-color: var(--warning-color);
+    border-color: var(--warning-color);
+    color: #fff;
+}
+
+/* ===============================
+   TABLAS
+================================ */
 .table th {
     color: var(--primary-color);
 }
 
-/* --- LOGIN PROFESIONAL ERP --- */
+/* ===============================
+   LOGIN
+================================ */
 .login-page {
-    background: linear-gradient(135deg, #0f172a 0%, var(--primary-color) 100%);
+    background: linear-gradient(135deg, #081A38 0%, var(--primary-color) 100%);
     min-height: 100vh;
     display: flex;
     align-items: center;
@@ -53,11 +80,11 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .login-card {
-    background: white;
+    background: #ffffff;
     border-radius: 16px;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-    width: 100%;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.25);
     max-width: 420px;
+    width: 100%;
     overflow: hidden;
     animation: slideUp 0.5s ease-out;
 }
@@ -70,150 +97,14 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .login-header h2 {
-    color: white;
-    margin: 0;
     font-size: 26px;
-    letter-spacing: 1px;
 }
 
 .login-header p {
-    margin: 8px 0 0;
-    opacity: 0.8;
-    font-size: 14px;
-}
-
-.login-body {
-    padding: 40px 30px;
-}
-
-@keyframes slideUp {
-    from { opacity: 0; transform: translateY(30px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-/* --- LAYOUT ERP (SIDEBAR + NAVBAR) --- */
-.app-wrapper {
-    display: flex;
-    height: 100vh;
-    overflow: hidden;
-}
-
-.sidebar {
-    width: 260px;
-    background: #111827; /* Fondo oscuro profesional */
-    color: #9ca3af;
-    display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
-    transition: width 0.3s;
-}
-
-.sidebar-brand {
-    height: 64px;
-    display: flex;
-    align-items: center;
-    padding: 0 24px;
-    font-size: 20px;
-    font-weight: 700;
-    color: white;
-    background: rgba(0,0,0,0.2);
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-}
-
-.sidebar-menu {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px 0;
-}
-
-.sidebar-link {
-    display: flex;
-    align-items: center;
-    padding: 12px 24px;
-    color: inherit;
-    text-decoration: none;
-    transition: all 0.2s;
-    border-left: 3px solid transparent;
+    opacity: 0.85;
     font-size: 15px;
 }
 
-.sidebar-link i {
-    width: 24px;
-    margin-right: 12px;
-    text-align: center;
-}
-
-.sidebar-link:hover, .sidebar-link.active {
-    background: rgba(255,255,255,0.05);
-    color: white;
-    border-left-color: var(--primary-color);
-}
-
-.main-content-wrapper {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    background: #f3f4f6;
-    overflow: hidden;
-}
-
-.top-navbar {
-    height: 64px;
-    background: white;
-    border-bottom: 1px solid #e5e7eb;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 32px;
-    flex-shrink: 0;
-}
-
-.content-container {
-    flex: 1;
-    overflow-y: auto;
-    padding: 24px 32px;
-}
-
-/* --- LOGIN PROFESIONAL ERP --- */
-.login-page {
-    background: linear-gradient(135deg, #0f172a 0%, var(--primary-color) 100%);
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-}
-
-.login-card {
-    background: white;
-    border-radius: 16px;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-    width: 100%;
-    max-width: 420px;
-    overflow: hidden;
-    animation: slideUp 0.5s ease-out;
-}
-
-.login-header {
-    background: var(--primary-color);
-    padding: 40px 30px;
-    text-align: center;
-    color: white;
-}
-
-.login-header h2 {
-    color: white;
-    margin: 0;
-    font-size: 26px;
-    letter-spacing: 1px;
-}
-
-.login-header p {
-    margin: 8px 0 0;
-    opacity: 0.8;
-    font-size: 14px;
-}
-
 .login-body {
     padding: 40px 30px;
 }
@@ -223,27 +114,30 @@ h1, h2, h3, h4, h5, h6 {
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* --- LAYOUT ERP (SIDEBAR + NAVBAR) --- */
+/* ===============================
+   LAYOUT ERP
+================================ */
 .app-wrapper {
     display: flex;
     height: 100vh;
     overflow: hidden;
 }
 
+/* ===== SIDEBAR ===== */
 .sidebar {
     width: 260px;
-    background: #111827; /* Fondo oscuro profesional */
-    color: #9ca3af;
+    background: var(--primary-color);
+    color: #cbd5e1;
     display: flex;
     flex-direction: column;
-    flex-shrink: 0;
     transition: width 0.3s;
 }
 
-/* Sidebar Colapsado */
 .sidebar.collapsed {
     width: 80px;
 }
+
+/* Estilos específicos para sidebar colapsado (Preservados para funcionalidad) */
 .sidebar.collapsed .brand-text,
 .sidebar.collapsed .link-text {
     display: none;
@@ -269,13 +163,11 @@ h1, h2, h3, h4, h5, h6 {
     font-size: 20px;
     font-weight: 700;
     color: white;
-    background: rgba(0,0,0,0.2);
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: rgba(0,0,0,0.15);
 }
 
 .sidebar-menu {
     flex: 1;
-    overflow-y: auto;
     padding: 16px 0;
 }
 
@@ -283,76 +175,72 @@ h1, h2, h3, h4, h5, h6 {
     display: flex;
     align-items: center;
     padding: 12px 24px;
-    color: inherit;
     text-decoration: none;
-    transition: all 0.2s;
-    border-left: 3px solid transparent;
+    color: inherit;
     font-size: 15px;
+    border-left: 4px solid transparent;
+    transition: all 0.2s ease;
 }
 
 .sidebar-link i {
     width: 24px;
     margin-right: 12px;
-    text-align: center;
 }
 
-.sidebar-link:hover, .sidebar-link.active {
-    background: rgba(255,255,255,0.05);
+.sidebar-link:hover,
+.sidebar-link.active {
+    background: rgba(255,255,255,0.08);
     color: white;
-    border-left-color: var(--primary-color);
+    border-left-color: var(--success-color);
 }
 
+/* ===== CONTENIDO ===== */
 .main-content-wrapper {
     flex: 1;
     display: flex;
     flex-direction: column;
-    background: #f3f4f6;
-    overflow: hidden;
+    background: var(--light-bg);
 }
 
+/* ===== NAVBAR ===== */
 .top-navbar {
     height: 64px;
-    background: var(--primary-color); /* Color corporativo */
+    background: var(--primary-color);
     color: white;
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0 32px;
-    flex-shrink: 0;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    z-index: 100;
-}
-
-#sidebar-toggle {
-    font-size: 1.2rem;
-    cursor: pointer;
-    background: rgba(255,255,255,0.1);
-    border-radius: 4px;
-    padding: 4px 10px;
-    border: none;
-    margin-right: 15px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
 .page-title {
     font-size: 1.25rem;
     font-weight: 600;
-    letter-spacing: 0.5px;
 }
 
+#sidebar-toggle {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: white;
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+/* ===== USUARIO ===== */
 .user-profile {
     display: flex;
     align-items: center;
 }
 
 .user-info {
-    margin-right: 16px;
     text-align: right;
-    line-height: 1.2;
+    margin-right: 15px;
 }
 
 .user-name {
     font-weight: 700;
-    font-size: 0.95rem;
 }
 
 .user-role {
@@ -360,30 +248,33 @@ h1, h2, h3, h4, h5, h6 {
     opacity: 0.8;
 }
 
-/* Ajuste del botón de salir para fondo oscuro */
-.top-navbar .btn-outline-danger {
-    color: white;
-    border-color: rgba(255,255,255,0.4);
-}
-
-.top-navbar .btn-outline-danger:hover {
-    background-color: rgba(255,255,255,0.15);
-    border-color: white;
-    color: #fff;
-}
-
-.content-container {
-    flex: 1;
-    overflow-y: auto;
-    padding: 24px 32px;
-}
-
-/* --- DASHBOARD CARDS --- */
+/* ===============================
+   DASHBOARD
+================================ */
 .dashboard-card {
-    border-left: 5px solid var(--primary-color) !important;
+    border-left: 5px solid var(--primary-color);
     transition: transform 0.2s ease;
 }
 
+.dashboard-card.success { border-left-color: var(--success-color); }
+.dashboard-card.warning { border-left-color: var(--warning-color); }
+.dashboard-card.danger  { border-left-color: var(--danger-color); }
+
 .dashboard-card:hover {
-    transform: translateY(-3px);
+    transform: translateY(-4px);
+}
+
+/* ===============================
+   FORMULARIOS
+================================ */
+.form-control,
+.form-select {
+    border: 1px solid #94a3b8;
+    background-color: #ffffff;
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--primary-hover);
+    box-shadow: 0 0 0 0.25rem rgba(31,79,216,0.2);
 }

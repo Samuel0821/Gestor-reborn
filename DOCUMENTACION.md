@@ -20,6 +20,7 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
     - Manejo de variantes de productos (Unidades de medida).
     - Pagos mixtos (Efectivo + Transferencia).
     - Ventas a crédito y gestión de abonos.
+    - **Edición de Facturas:** Permite modificar ventas existentes recalculando inventario y saldos automáticamente.
 3.  **Inventario Avanzado:**
     - Gestión de productos, categorías y proveedores.
     - Control de stock y alertas de reabastecimiento.
@@ -38,6 +39,8 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
     - Apertura y cierre de caja (Arqueo ciego).
     - Registro de movimientos de efectivo.
     - Reportes de utilidad real (Ventas - Costos).
+    - **Reporte de Egresos:** Control detallado de gastos.
+    - **Auditoría:** Registro de modificaciones sensibles (ej. edición de ventas).
 8.  **Soporte Técnico:**
     - Módulo integrado para envío de reportes de error directamente al desarrollador.
 
