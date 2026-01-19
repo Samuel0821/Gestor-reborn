@@ -14,7 +14,7 @@ module.exports = {
     {
       name: '@electron-forge/maker-squirrel',
       config: {
-        setupIcon: './logo/gestorfx_logof.ico', // Icono del instalador
+        setupIcon: './src/logo/gestorfx_logof.ico', // Icono del instalador
       },
     },
     {
