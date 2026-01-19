@@ -200,6 +200,7 @@ h1, h2, h3, h4, h5, h6 {
     display: flex;
     flex-direction: column;
     background: var(--light-bg);
+    overflow-y: auto; /* Allow this container to scroll */
 }
 
 /* ===== NAVBAR ===== */
@@ -212,6 +213,9 @@ h1, h2, h3, h4, h5, h6 {
     justify-content: space-between;
     padding: 0 32px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    position: sticky; /* Make it stick to the top of the scrolling container */
+    top: 0;
+    z-index: 1020;
 }
 
 .page-title {
