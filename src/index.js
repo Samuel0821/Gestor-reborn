@@ -418,6 +418,12 @@
                 const invoiceNumber = sale.invoice_number || "-";
                 const saleDate = sale.sale_date ? sale.sale_date.split(" ")[0] : "-";
                 const saleTotal = sale.total_amount || 0;
+                
+                // Calcular efectivo real para esta venta
+                const tendered = sale.cash_payment || 0;
+                const transfer = sale.transfer_payment || 0;
+                const change = Math.max(0, (tendered + transfer) - saleTotal);
+                const realCash = Math.max(0, tendered - change);
 
                 for (const item of sale.items) {
                   // Verificar salto de página
@@ -457,7 +463,7 @@
 
                 // 🔹 Mostrar detalle de métodos de pago
                 doc.font("Helvetica").fontSize(9);
-                doc.text(`Efectivo: ${formatCOP(sale.cash_payment || 0)}`, 350, y, { width: 200 });
+                doc.text(`Efectivo: ${formatCOP(realCash)}`, 350, y, { width: 200 });
                 y += 12;
                 doc.text(`Transferencia: ${formatCOP(sale.transfer_payment || 0)}`, 350, y, { width: 200 });
                 y += 12;
@@ -470,7 +476,7 @@
 
                 // Acumular totales
                 totalGeneral += saleTotal;
-                totalCash += sale.cash_payment || 0;
+                totalCash += realCash;
                 totalTransfer += sale.transfer_payment || 0;
                 totalCredit += sale.outstanding_balance || 0;
               }

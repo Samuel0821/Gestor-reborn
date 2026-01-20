@@ -254,9 +254,12 @@ db.prepare(`
 try {
   const spColumns = db.prepare("PRAGMA table_info(sale_payments)").all();
   if (!spColumns.some(c => c.name === "created_at")) {
-    db.prepare("ALTER TABLE sale_payments ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP").run();
+    // SQLite restringe el uso de DEFAULT CURRENT_TIMESTAMP en ALTER TABLE.
+    // Solución: Agregar columna sin default y actualizar registros existentes.
+    db.prepare("ALTER TABLE sale_payments ADD COLUMN created_at DATETIME").run();
+    db.prepare("UPDATE sale_payments SET created_at = (SELECT sale_date FROM sales WHERE sales.id = sale_payments.sale_id) WHERE created_at IS NULL").run();
   }
-} catch (e) { /* ignorar */ }
+} catch (e) { console.error("Error en migración sale_payments (created_at):", e); }
 
 db.prepare(`
 CREATE TABLE IF NOT EXISTS quotes (
@@ -657,7 +660,7 @@ function createSale({
       total += price * it.quantity;
     }
 
-    const finalPaid = (sale_type === 'credit') ? paid_amount : (cash_payment + transfer_payment);
+    const finalPaid = (sale_type === 'credit') ? paid_amount : total;
     const finalOutstanding = (sale_type === 'credit') ? outstanding_balance : 0;
 
     const saleRes = insertSale.run(
@@ -665,7 +668,7 @@ function createSale({
       total,
       formattedDate,
       sale_type,
-      finalPaid,
+      finalPaid, // Establecer el total pagado al costo total de la venta
       finalOutstanding,
       cash_payment,
       transfer_payment
@@ -1228,7 +1231,7 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
 
     // Consulta para obtener el total de ingresos REALES en el periodo (incluyendo abonos a créditos antiguos)
     const incomeStmt = db.prepare(`
-      SELECT method, SUM(amount) as total
+      SELECT method, SUM(amount - COALESCE(change, 0)) as total
       FROM sale_payments
       WHERE created_at >= ? AND created_at <= ?
       GROUP BY method
@@ -1290,9 +1293,18 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
     const totalGeneral = detailedSales.reduce((acc, s) => acc + s.total_amount, 0);
     
     // Totales de VENTAS (según registro inicial)
-    const salesCash = detailedSales.reduce((acc, s) => acc + (s.cash_payment || 0), 0);
+    const salesCash = detailedSales.reduce((acc, s) => {
+      const tendered = s.cash_payment || 0;
+      const transfer = s.transfer_payment || 0;
+      const total = s.total_amount || 0;
+      // Calcular cambio para restar del efectivo ingresado y obtener el efectivo real de la venta
+      const change = Math.max(0, (tendered + transfer) - total);
+      const realCash = Math.max(0, tendered - change);
+      return acc + realCash;
+    }, 0);
+
     const salesTransfer = detailedSales.reduce((acc, s) => acc + (s.transfer_payment || 0), 0);
-    const salesCredit = detailedSales.reduce((acc, s) => acc + (s.total_amount - s.cash_payment - s.transfer_payment), 0);
+    const salesCredit = detailedSales.reduce((acc, s) => acc + (s.outstanding_balance || 0), 0);
 
     // Usamos los totales reales de sale_payments en lugar de sumar las ventas
     const totalCash = realTotalCash;
@@ -1315,56 +1327,6 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
 }
 
 // ORDENES DE COMPRA (Purchase Orders)
-function createPurchaseOrder({ supplier_id, items = [] }) {
-  const insertPO = db.prepare("INSERT INTO purchase_orders (supplier_id, total_amount) VALUES (?, ?)");
-  const insertItem = db.prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
-  const getProduct = db.prepare("SELECT id, code, name, purchase_price FROM products WHERE id = ?");
-  const updateNotes = db.prepare("UPDATE purchase_orders SET notes = ? WHERE id = ?");
-
-  const trx = db.transaction((data) => {
-    const supplier_id = data.supplier_id;
-    const items = data.items || [];
-    const notes = data.notes || null;
-
-    const po = insertPO.run(supplier_id, 0);
-    const poId = po.lastInsertRowid;
-    let total = 0;
-    for (const it of items) {
-      const prod = getProduct.get(it.product_id);
-      const prodName = prod ? prod.name : "Producto no encontrado";
-      const prodCode = prod ? prod.code : "";
-      const price = (it.price != null) ? it.price : (prod ? prod.purchase_price : 0);
-      const subtotal = price * it.quantity;
-      total += subtotal;
-      insertItem.run(poId, it.product_id, prodName, prodCode, it.quantity, price, subtotal);
-    }
-    db.prepare("UPDATE purchase_orders SET total_amount = ? WHERE id = ?").run(total, poId);
-    
-    if (notes) updateNotes.run(notes, poId);
-
-    // Generar número consecutivo para la orden de compra
-    const poNumber = nextConsecutive("OC", "po_number", "purchase_orders");
-    db.prepare("UPDATE purchase_orders SET po_number = ? WHERE id = ?").run(poNumber, poId);
-    
-    return poId;
-  });
-  try {
-    const id = trx({ supplier_id, items, notes: items.notes /* bug fix: pass full object or extract before */ });
-    // Correction: The caller passes an object. Let's fix the signature in index.js or here.
-    // Actually, createPurchaseOrder receives `data`.
-    // Let's adjust the function signature to match usage: createPurchaseOrder(data)
-    return { success: true, message: "Orden de Compra creada", id };
-  } catch (err) {
-    return { success: false, message: String(err) };
-  }
-}
-
-// Fix signature to match usage in index.js: db.createPurchaseOrder(data)
-// The previous implementation had destructuring in signature which is fine, but let's be explicit for the transaction
-function createPurchaseOrderWrapper(data) {
-    return createPurchaseOrder(data);
-}
-// Redefining createPurchaseOrder to handle the notes correctly
 function createPurchaseOrder(data) {
   const insertPO = db.prepare("INSERT INTO purchase_orders (supplier_id, total_amount, notes) VALUES (?, ?, ?)");
   const insertItem = db.prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
