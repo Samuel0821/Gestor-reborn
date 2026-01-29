@@ -388,7 +388,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }).join('');
 
             container.innerHTML = `
-                <h5>Reporte de Egresos del ${startDate} al ${endDate}</h5>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5>Reporte de Egresos del ${startDate} al ${endDate}</h5>
+                    <button id="btn-export-expenses-pdf" class="btn btn-success"><i class="fa fa-file-pdf me-2"></i>Exportar PDF</button>
+                </div>
                 <table class="table table-striped table-hover">
                     <thead class="table-danger">
                         <tr>
@@ -407,6 +410,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     </tfoot>
                 </table>
             `;
+
+            document.getElementById('btn-export-expenses-pdf').addEventListener('click', async () => {
+                const res = await window.api.exportExpensesReportPDF(startDate, endDate);
+                if (res.success) {
+                    showAlert(`Reporte exportado: ${res.filePath}`, 'success');
+                } else {
+                    showAlert(res.message, 'danger');
+                }
+            });
         } catch (err) {
             console.error(err);
             showAlert("Error al cargar reporte de egresos.", "danger");

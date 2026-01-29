@@ -83,6 +83,34 @@ document.addEventListener('DOMContentLoaded', () => {
     // Establecer fecha de hoy por defecto
     document.getElementById('expense-date').valueAsDate = new Date();
 
+    // Modal de detalle
+    const modalHtml = `
+      <div class="modal fade" id="expenseDetailModal" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Detalle de Egreso</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p><strong>Fecha:</strong> <span id="detail-date"></span></p>
+              <p><strong>Categoría:</strong> <span id="detail-category"></span></p>
+              <p><strong>Descripción:</strong> <span id="detail-desc"></span></p>
+              <p><strong>Monto:</strong> <span id="detail-amount" class="text-danger fw-bold"></span></p>
+              <p><strong>Registrado:</strong> <span id="detail-created"></span></p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+              <button type="button" class="btn btn-primary" id="btn-export-modal">Exportar PDF</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const detailModal = new bootstrap.Modal(document.getElementById('expenseDetailModal'));
+    let currentDetailId = null;
+
     function formatCOP(value) {
         return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
     }
@@ -100,12 +128,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${exp.description}</td>
                 <td><span class="badge bg-secondary">${exp.category}</span></td>
                 <td class="text-end text-danger fw-bold">-${formatCOP(exp.amount)}</td>
-                <td><button class="btn btn-sm btn-outline-danger delete-expense" data-id="${exp.id}"><i class="fa fa-trash"></i></button></td>
+                <td>
+                    <button class="btn btn-sm btn-info view-expense me-1" data-id="${exp.id}" title="Ver Detalle"><i class="fa fa-eye"></i></button>
+                    <button class="btn btn-sm btn-secondary export-expense me-1" data-id="${exp.id}" title="Exportar PDF"><i class="fa fa-file-pdf"></i></button>
+                    <button class="btn btn-sm btn-outline-danger delete-expense" data-id="${exp.id}" title="Eliminar"><i class="fa fa-trash"></i></button>
+                </td>
             `;
             tableBody.appendChild(tr);
         });
 
         totalDisplay.textContent = `Total: ${formatCOP(total)}`;
+
+        // Eventos botones
+        document.querySelectorAll('.view-expense').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const id = e.currentTarget.dataset.id;
+                const exp = await window.api.getExpenseById(id);
+                if(exp) {
+                    currentDetailId = id;
+                    document.getElementById('detail-date').textContent = exp.date;
+                    document.getElementById('detail-category').textContent = exp.category;
+                    document.getElementById('detail-desc').textContent = exp.description;
+                    document.getElementById('detail-amount').textContent = formatCOP(exp.amount);
+                    document.getElementById('detail-created').textContent = exp.created_at || '-';
+                    detailModal.show();
+                }
+            });
+        });
+
+        document.querySelectorAll('.export-expense').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const id = e.currentTarget.dataset.id;
+                const res = await window.api.exportExpensePDF(id);
+                if(res.success) alert(`PDF exportado: ${res.filePath}`);
+                else alert(res.message);
+            });
+        });
 
         document.querySelectorAll('.delete-expense').forEach(btn => {
             btn.addEventListener('click', async (e) => {
@@ -116,6 +174,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
     }
+
+    document.getElementById('btn-export-modal').addEventListener('click', async () => {
+        if(currentDetailId) {
+            const res = await window.api.exportExpensePDF(currentDetailId);
+            if(res.success) alert(`PDF exportado: ${res.filePath}`);
+            else alert(res.message);
+        }
+    });
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();

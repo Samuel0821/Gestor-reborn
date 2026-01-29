@@ -93,6 +93,42 @@
     doc.moveDown();
   }
 
+  // Función auxiliar para convertir números a letras (Pesos Colombianos)
+  function numeroALetras(num) {
+    const unidades = ['', 'UN', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
+    const decenas = ['', 'DIEZ', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
+    const diez = ['DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISEIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE'];
+    const centenas = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
+
+    function convertGroup(n) {
+        let output = '';
+        if (n === 100) return 'CIEN ';
+        if (n >= 100) { output += centenas[Math.floor(n / 100)] + ' '; n %= 100; }
+        if (n >= 10 && n <= 19) { output += diez[n - 10] + ' '; return output; }
+        if (n >= 20) { output += decenas[Math.floor(n / 10)] + ' '; n %= 10; if (n > 0) output = output.trim() + ' Y '; }
+        if (n > 0) output += unidades[n] + ' ';
+        return output;
+    }
+
+    let integerPart = Math.floor(num);
+    if (integerPart === 0) return 'CERO PESOS';
+    
+    let str = '';
+    if (integerPart >= 1000000) {
+        const millions = Math.floor(integerPart / 1000000);
+        str += (millions === 1 ? 'UN MILLON ' : convertGroup(millions) + ' MILLONES ');
+        integerPart %= 1000000;
+    }
+    if (integerPart >= 1000) {
+        const thousands = Math.floor(integerPart / 1000);
+        str += (thousands === 1 ? 'MIL ' : convertGroup(thousands) + ' MIL ');
+        integerPart %= 1000;
+    }
+    if (integerPart > 0) str += convertGroup(integerPart);
+    
+    return str.trim() + ' PESOS COLOMBIANOS';
+  }
+
   // ---------- REGISTRAR MANEJADORES IPC ----------
 
   function registerIpcHandlers() {
@@ -189,6 +225,8 @@
       ipcMain.handle("delete-quote", (event, id) => db.deleteQuote(id));
       ipcMain.handle("get-last-quote-number", () => db.getLastQuoteNumber());
       ipcMain.handle("set-quote-number", (event, { id, quoteNumber }) => db.setQuoteNumber(id, quoteNumber));
+      ipcMain.handle("create-sale-from-quote", (event, data) => db.createSaleFromQuote(data));
+      ipcMain.handle("update-quote-details", (event, data) => db.updateQuoteDetails(data));
 
       // Servicios
       ipcMain.handle("get-services", () => db.getServices());
@@ -221,8 +259,137 @@
 
       // Gastos
       ipcMain.handle('get-expenses', async (event, startDate, endDate) => db.getExpenses(startDate, endDate));
+      ipcMain.handle('get-expense-by-id', async (event, id) => db.getExpenseById(id));
       ipcMain.handle('save-expense', async (event, expense) => db.saveExpense(expense));
       ipcMain.handle('delete-expense', async (event, id) => db.deleteExpense(id));
+      
+      ipcMain.handle('export-expense-pdf', async (event, id) => {
+        try {
+            const expense = db.getExpenseById(id);
+            if (!expense) return { success: false, message: "Gasto no encontrado" };
+            
+            const company = db.getCompanySettings() || {};
+            
+            const { filePath, canceled } = await dialog.showSaveDialog({
+                title: "Guardar Comprobante de Egreso",
+                defaultPath: `Egreso-${String(id).padStart(3, '0')}.pdf`,
+                filters: [{ name: "PDF", extensions: ["pdf"] }],
+            });
+            
+            if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
+            
+            const doc = new PDFDocument({ margin: 40, size: "A4" });
+            const stream = fs.createWriteStream(filePath);
+            doc.pipe(stream);
+            
+            renderPdfHeader(doc, company, `Comprobante de Egreso #${String(id).padStart(3, '0')}`);
+            
+            doc.fontSize(12).font("Helvetica-Bold").text("Detalles del Egreso", { underline: true });
+            doc.moveDown(0.5);
+            
+            doc.fontSize(10).font("Helvetica");
+            const labelX = 40;
+            const valueX = 150;
+            
+            const drawField = (label, value, color = "black") => {
+                doc.font("Helvetica-Bold").fillColor("black").text(label, labelX, doc.y);
+                doc.font("Helvetica").fillColor(color).text(value, valueX, doc.y, { width: 400 });
+                doc.moveDown(0.5);
+            };
+
+            drawField("Fecha:", expense.date);
+            drawField("Categoría:", expense.category || "General");
+            drawField("Descripción:", expense.description || "-");
+            drawField("Monto:", formatCOP(expense.amount), "red");
+            if (expense.created_at) drawField("Fecha Registro:", expense.created_at);
+
+            // Espacio para firma
+            doc.moveDown(4);
+            doc.moveTo(40, doc.y).lineTo(200, doc.y).stroke();
+            doc.fillColor("black").text("Firma Autorizado", 40, doc.y + 5);
+            
+            doc.end();
+            await new Promise((res, rej) => { stream.on("finish", res); stream.on("error", rej); });
+            
+            return { success: true, filePath };
+        } catch (err) {
+            return { success: false, message: "Error al exportar PDF: " + err.message };
+        }
+      });
+      
+      ipcMain.handle('export-expenses-report-pdf', async (event, { startDate, endDate }) => {
+        try {
+            const expenses = db.getExpenses(startDate, endDate);
+            const company = db.getCompanySettings() || {};
+            
+            if (!expenses || expenses.length === 0) {
+                return { success: false, message: "No hay egresos para exportar en este rango de fechas." };
+            }
+
+            const { filePath, canceled } = await dialog.showSaveDialog({
+                title: "Guardar Reporte de Egresos",
+                defaultPath: `Reporte_Egresos_${startDate}_${endDate}.pdf`,
+                filters: [{ name: "PDF", extensions: ["pdf"] }],
+            });
+            
+            if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
+            
+            const doc = new PDFDocument({ margin: 40, size: "A4" });
+            const stream = fs.createWriteStream(filePath);
+            doc.pipe(stream);
+            
+            renderPdfHeader(doc, company, `Reporte de Egresos`);
+            doc.fontSize(10).text(`Periodo: ${startDate} al ${endDate}`, { align: 'center' });
+            doc.moveDown();
+
+            const tableTop = doc.y;
+            const itemX = 40;
+            const descX = 120;
+            const catX = 320;
+            const amountX = 450;
+
+            doc.fontSize(10).font("Helvetica-Bold");
+            doc.text("Fecha", itemX, tableTop);
+            doc.text("Descripción", descX, tableTop);
+            doc.text("Categoría", catX, tableTop);
+            doc.text("Monto", amountX, tableTop, { align: "right", width: 100 });
+            
+            doc.moveTo(40, tableTop + 15).lineTo(550, tableTop + 15).stroke();
+            doc.font("Helvetica").fontSize(9);
+            
+            let y = tableTop + 25;
+            let total = 0;
+
+            for (const exp of expenses) {
+                if (y > 700) {
+                    doc.addPage();
+                    y = 40;
+                    // Repetir encabezado si se desea, o continuar
+                }
+                doc.fillColor("black").text(exp.date, itemX, y);
+                doc.text(exp.description, descX, y, { width: 190 });
+                doc.text(exp.category, catX, y, { width: 120 });
+                doc.text(formatCOP(exp.amount), amountX, y, { align: "right", width: 100 });
+                
+                total += exp.amount;
+                y += 20;
+            }
+
+            doc.moveDown();
+            doc.moveTo(40, y).lineTo(550, y).stroke();
+            y += 10;
+            doc.fontSize(12).font("Helvetica-Bold");
+            doc.text("TOTAL EGRESOS:", 300, y);
+            doc.fillColor("red").text(formatCOP(total), amountX, y, { align: "right", width: 100 });
+            
+            doc.end();
+            await new Promise((res, rej) => { stream.on("finish", res); stream.on("error", rej); });
+            
+            return { success: true, filePath };
+        } catch (err) {
+            return { success: false, message: "Error al exportar PDF: " + err.message };
+        }
+      });
 
       // Auditoría
       ipcMain.handle("get-audit-logs", (event, { startDate, endDate }) => db.getAuditLogs(startDate, endDate));
@@ -750,6 +917,11 @@
             doc.text(`Email: ${client.email || ""}`);
             doc.text(`Teléfono: ${client.phone || ""}`);
             doc.moveDown(1);
+          } else {
+            doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 40, doc.y + 10);
+            doc.font("Helvetica").fontSize(10);
+            doc.text("Consumidor final");
+            doc.moveDown(1);
           }
 
           let y = doc.y + 10;
@@ -863,6 +1035,87 @@
         }
       });
         
+      // Exportar Recibo de Caja PDF
+      ipcMain.handle("export-sale-receipt-pdf", async (event, { id, receivedBy }) => {
+        try {
+          const sale = db.getSaleById(id);
+          if (!sale) return { success: false, message: "Venta no encontrada" };
+          
+          // Asignar consecutivo si no tiene
+          const receiptNumber = db.assignReceiptNumber(id);
+          
+          const company = db.getCompanySettings() || {};
+          const client = sale.client_id ? db.getClientById(sale.client_id) : null;
+          const clientName = client ? client.name : "Consumidor Final";
+
+          const { filePath, canceled } = await dialog.showSaveDialog({
+            defaultPath: `Recibo-${receiptNumber}.pdf`,
+            filters: [{ name: "PDF", extensions: ["pdf"] }],
+          });
+          if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
+
+          const doc = new PDFDocument({ margin: 40, size: "A4" }); // Tamaño carta/A4 para recibo formal
+          const stream = fs.createWriteStream(filePath);
+          doc.pipe(stream);
+
+          // Encabezado
+          renderPdfHeader(doc, company, "RECIBO DE CAJA");
+
+          // Caja del recibo
+          const boxTop = doc.y + 10;
+          doc.rect(40, boxTop, 515, 250).stroke();
+          
+          let y = boxTop + 20;
+          const leftX = 60;
+          const valueX = 160;
+
+          // Número y Fecha
+          doc.fontSize(12).font("Helvetica-Bold").fillColor("red");
+          doc.text(`No. ${receiptNumber}`, 400, y);
+          doc.fillColor("black").font("Helvetica");
+          doc.text(`Fecha: ${sale.sale_date}`, 400, y + 20);
+
+          // Datos del recibo
+          doc.fontSize(11).font("Helvetica-Bold");
+          doc.text("Recibido de:", leftX, y);
+          doc.font("Helvetica").text(clientName, valueX, y);
+          
+          if (client && client.id_card_or_nit) {
+            y += 20;
+            doc.font("Helvetica-Bold").text("NIT/CC:", leftX, y);
+            doc.font("Helvetica").text(client.id_card_or_nit, valueX, y);
+          }
+          y += 30;
+
+          const totalPaid = (sale.cash_payment || 0) + (sale.transfer_payment || 0);
+          const valueInWords = numeroALetras(totalPaid);
+
+          doc.font("Helvetica-Bold").text("La suma de:", leftX, y);
+          doc.font("Helvetica-Oblique").text(valueInWords, valueX, y, { width: 350 });
+          doc.font("Helvetica-Bold").text(`${formatCOP(totalPaid).replace(/\$/g, '').trim()} COP`, 450, y); // Valor numérico a la derecha
+          y += 30;
+
+          doc.font("Helvetica-Bold").text("Por concepto de:", leftX, y);
+          doc.font("Helvetica").text(`Pago de Factura de Venta No. ${sale.invoice_number || sale.id}`, valueX, y);
+          y += 30;
+
+          doc.font("Helvetica-Bold").text("Forma de pago:", leftX, y);
+          const paymentMethod = (sale.cash_payment > 0 && sale.transfer_payment > 0) ? "Mixto (Efectivo/Transf)" : (sale.cash_payment > 0 ? "Efectivo" : "Transferencia");
+          doc.font("Helvetica").text(paymentMethod, valueX, y);
+          y += 40;
+
+          // Firma
+          doc.moveTo(60, y + 40).lineTo(250, y + 40).stroke();
+          doc.fontSize(10).text(`Recibido por: ${receivedBy || 'Administración'}`, 60, y + 45);
+          doc.text("Firma y Sello", 60, y + 58);
+
+          doc.end();
+          await new Promise((res, rej) => { stream.on("finish", res); stream.on("error", rej); });
+          return { success: true, message: "Recibo de caja generado correctamente", filePath };
+        } catch (err) {
+          return { success: false, message: "Error al generar recibo: " + err.message };
+        }
+      });
 
       // Exportación cotizaciones pdf
       ipcMain.handle("export-quote-pdf", async (event, { id, quote_number, includeIva = false } = {}) => {

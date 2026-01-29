@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("set-invoice-number", { id, invoiceNumber }),
   exportInvoicePDF: (id, includeIva) =>
     ipcRenderer.invoke("export-invoice-pdf", { id, includeIva }),
+  exportSaleReceiptPDF: (id, receivedBy) =>
+    ipcRenderer.invoke("export-sale-receipt-pdf", { id, receivedBy }),
 
   // credits ⚠️ <-- AGREGAR ESTO
 getCredits: (searchTerm = "") => ipcRenderer.invoke("get-credits", searchTerm),
@@ -75,6 +77,10 @@ markCreditAsPaid: (saleId, method, reference) => ipcRenderer.invoke("mark-credit
     ipcRenderer.invoke("set-quote-number", { id, quoteNumber }),
   exportQuotePDF: (id, quote_number, includeIva = false) =>
     ipcRenderer.invoke("export-quote-pdf", { id, quote_number, includeIva }),
+  createSaleFromQuote: (data) => 
+    ipcRenderer.invoke("create-sale-from-quote", data),
+  updateQuoteDetails: (data) => 
+    ipcRenderer.invoke("update-quote-details", data),
 
   // services
   getServices: () => ipcRenderer.invoke("get-services"),
@@ -110,6 +116,9 @@ markCreditAsPaid: (saleId, method, reference) => ipcRenderer.invoke("mark-credit
 
   // expenses
   getExpenses: (startDate, endDate) => ipcRenderer.invoke('get-expenses', startDate, endDate),
+  getExpenseById: (id) => ipcRenderer.invoke('get-expense-by-id', id),
+  exportExpensePDF: (id) => ipcRenderer.invoke('export-expense-pdf', id),
+  exportExpensesReportPDF: (startDate, endDate) => ipcRenderer.invoke('export-expenses-report-pdf', { startDate, endDate }),
   saveExpense: (expense) => ipcRenderer.invoke('save-expense', expense),
   deleteExpense: (id) => ipcRenderer.invoke('delete-expense', id),
 

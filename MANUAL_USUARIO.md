@@ -1,6 +1,6 @@
 # Manual de Usuario - GestorFX
 
-**Versión del Sistema:** 1.0.1   
+**Versión del Sistema:** 1.0.2   
 **Desarrollado por:** Grisalis Technologies
 
 ---
@@ -55,7 +55,8 @@ Al finalizar, se abrirá una ventana de pago:
 
 ### 4.3. Historial de Facturas
 Debajo del área de venta verá las últimas transacciones.
-*   **Descargar PDF:** Genera la factura digital.
+*   **Descargar Factura:** Genera la factura digital (PDF).
+*   **Recibo:** Genera un **Recibo de Caja** oficial en PDF con el valor en letras, ideal para soportes contables.
 *   **Imprimir:** Envía la factura a la impresora térmica o láser configurada.
 *   **Editar:** (Solo Administrador) Permite modificar una venta existente. El sistema ajustará automáticamente el inventario y los saldos. Si la venta ya tenía pagos, se gestionarán las diferencias (cobro adicional o devolución).
 *   **Eliminar:** (Solo Administrador) Permite anular una venta, devolviendo automáticamente los productos al inventario.
@@ -80,7 +81,7 @@ Administre todo su catálogo de artículos.
 ## 6. Módulo de Servicios
 Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 
-*   **Crear Servicio:** Defina el nombre del servicio (ej. "Mantenimiento PC") y su precio de mano de obra.
+*   **Crear Servicio:** Defina el nombre, precio y asocie un **Cliente** específico para llevar un mejor control.
 *   **Asociar Materiales:** Puede vincular productos del inventario al servicio (ej. "Pasta térmica"). Al vender el servicio, estos productos se descontarán automáticamente del stock.
 *   **Acciones Rápidas:** Desde la lista de servicios puede enviarlos directamente a la pantalla de **Ventas** o **Cotizaciones** con un solo clic.
 
@@ -89,9 +90,10 @@ Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 ## 7. Módulo de Cotizaciones
 Genere propuestas comerciales profesionales sin descontar inventario.
 
-*   **Crear:** Seleccione cliente y productos igual que en una venta.
+*   **Crear:** Seleccione cliente y productos. El sistema guarda automáticamente su progreso si cambia de pantalla.
+*   **Editar:** Puede modificar cotizaciones guardadas previamente.
 *   **Exportar:** Genere un PDF formal con el logo de su empresa para enviar al cliente.
-*   **Aprobar:** Cuando el cliente acepte, haga clic en "Aprobar". La cotización se convertirá automáticamente en una Venta real y se descontará el inventario.
+*   **Aprobar:** Cuando el cliente acepte, haga clic en "Aprobar". El sistema verificará el stock disponible y abrirá la ventana de pago para convertirla en una Venta real inmediatamente.
 
 ---
 
@@ -119,7 +121,7 @@ Analice la salud financiera de su negocio mediante pestañas especializadas:
     *   **Resumen de Ventas:** Total facturado (Contado + Crédito).
     *   **Ingresos Reales (Caja):** Dinero realmente recibido en el periodo (incluye abonos a créditos antiguos).
     *   **Utilidad Real:** (Precio Venta - Precio Compra).
-*   **Reporte de Egresos:** Listado detallado de gastos registrados.
+*   **Reporte de Egresos:** Listado detallado de gastos registrados. Puede ver el detalle de cada gasto, descargar su comprobante individual o exportar el reporte completo a PDF.
 *   **Reporte de Modificaciones:** (Solo Admin) Auditoría de cambios importantes en el sistema (ej. edición de facturas).
 *   **Exportar:** Descargue los reportes en PDF.
 

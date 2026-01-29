@@ -94,14 +94,14 @@ El sistema utiliza un modelo relacional robusto. Las tablas principales son:
 4.  **categories:** Categorización de productos.
 5.  **clients:** Base de datos de clientes.
 6.  **suppliers:** Base de datos de proveedores.
-7.  **sales:** Cabecera de ventas (total, fecha, cliente, tipo de pago, estado de crédito).
+7.  **sales:** Cabecera de ventas (total, fecha, cliente, tipo de pago, estado de crédito, `receipt_number`).
 8.  **sale_items:** Detalle de productos vendidos (incluye `variant_id` y `conversion_factor` para manejo de unidades).
 9.  **sale_payments:** Desglose de métodos de pago (efectivo, transferencia, referencia bancaria, fecha real de ingreso).
 10. **cash_register_sessions:** Control de turnos de caja (apertura/cierre).
 11. **cash_movements:** Auditoría de movimientos de dinero en caja.
 12. **quotes / quote_items:** Gestión de cotizaciones.
 13. **purchase_orders / purchase_order_items:** Gestión de compras y reabastecimiento.
-14. **services / service_products:** Definición de servicios y recetas de materiales.
+14. **services / service_products:** Definición de servicios (incluye `client_id`) y recetas de materiales.
 15. **company_settings:** Configuración global (Logo, NIT, Datos de contacto).
 16. **audit_logs:** Registro de acciones críticas para auditoría (usuario, acción, detalles, fecha).
 

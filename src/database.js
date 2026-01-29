@@ -187,8 +187,18 @@ CREATE TABLE IF NOT EXISTS sales (
   invoice_number TEXT UNIQUE,
   cash_payment REAL NOT NULL DEFAULT 0,
   transfer_payment REAL NOT NULL DEFAULT 0,
+  receipt_number TEXT UNIQUE,
   FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
 )`).run();
+
+// MIGRACIÓN: Agregar receipt_number a sales para recibos de caja
+try {
+  const sCols = db.prepare("PRAGMA table_info(sales)").all();
+  if (!sCols.some(c => c.name === "receipt_number")) {
+    db.prepare("ALTER TABLE sales ADD COLUMN receipt_number TEXT").run();
+    try { db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_receipt_number ON sales(receipt_number)").run(); } catch(e) {}
+  }
+} catch (e) { console.error("Error migración receipt_number:", e); }
 
 
 
@@ -304,6 +314,14 @@ CREATE TABLE IF NOT EXISTS services (
   description TEXT,
   price REAL NOT NULL DEFAULT 0
 )`).run();
+
+// MIGRACIÓN: Agregar client_id a services
+try {
+  const sCols = db.prepare("PRAGMA table_info(services)").all();
+  if (!sCols.some(c => c.name === "client_id")) {
+    db.prepare("ALTER TABLE services ADD COLUMN client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL").run();
+  }
+} catch (e) { /* ignorar */ }
 
 db.prepare(`
 CREATE TABLE IF NOT EXISTS service_products (
@@ -731,6 +749,26 @@ function createSale({
   }
 }
 
+function createSaleFromQuote(data) {
+  const { quote_id, ...saleData } = data;
+  const trx = db.transaction(() => {
+    const result = createSale(saleData);
+    if (!result.success) throw new Error(result.message);
+    
+    // Asegurar columna status en quotes (por si no existe)
+    try { db.prepare("ALTER TABLE quotes ADD COLUMN status TEXT DEFAULT 'pending'").run(); } catch (e) {}
+
+    db.prepare("UPDATE quotes SET status = 'approved' WHERE id = ?").run(quote_id);
+    return result;
+  });
+
+  try {
+    return trx();
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
 function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
     const trx = db.transaction(() => {
         // 1. Get original sale and items
@@ -856,6 +894,28 @@ function getLastInvoiceNumber() {
 
 function setInvoiceNumber(id, invoiceNumber) {
   db.prepare("UPDATE sales SET invoice_number = ? WHERE id = ?").run(invoiceNumber, id);
+}
+
+function assignReceiptNumber(saleId) {
+  let sale;
+  try {
+    sale = db.prepare("SELECT receipt_number FROM sales WHERE id = ?").get(saleId);
+  } catch (error) {
+    // Si falla por falta de columna, intentamos agregarla y reintentar al vuelo
+    if (error.message.includes("no such column: receipt_number")) {
+      try {
+        db.prepare("ALTER TABLE sales ADD COLUMN receipt_number TEXT").run();
+        try { db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_receipt_number ON sales(receipt_number)").run(); } catch(e) {}
+        sale = db.prepare("SELECT receipt_number FROM sales WHERE id = ?").get(saleId);
+      } catch (e) { console.error("No se pudo corregir la tabla sales:", e); throw error; }
+    } else { throw error; }
+  }
+
+  if (sale && sale.receipt_number) return sale.receipt_number;
+  
+  const next = nextConsecutive("RC", "receipt_number", "sales");
+  db.prepare("UPDATE sales SET receipt_number = ? WHERE id = ?").run(next, saleId);
+  return next;
 }
 
 function deleteSale(id) {
@@ -1034,7 +1094,13 @@ function getQuotes(clientId = null) {
   return quotes;
 }
 
-function getQuoteById(id) { return db.prepare("SELECT * FROM quotes WHERE id = ?").get(id); }
+function getQuoteById(id) {
+  const quote = db.prepare("SELECT * FROM quotes WHERE id = ?").get(id);
+  if (quote) {
+    quote.items = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal FROM quote_items WHERE quote_id = ?").all(id);
+  }
+  return quote;
+}
 
 function getQuoteItems(quoteId) { return db.prepare("SELECT * FROM quote_items WHERE quote_id = ?").all(quoteId); }
 
@@ -1056,6 +1122,43 @@ function updateQuote({ id, status }) {
   const update = db.prepare("UPDATE quotes SET status = ? WHERE id = ?");
   const info = update.run(status, id);
   return info.changes > 0;
+}
+
+function updateQuoteDetails({ id, client_id, items }) {
+  const updateHeader = db.prepare("UPDATE quotes SET client_id = ?, total_amount = ? WHERE id = ?");
+  const deleteItems = db.prepare("DELETE FROM quote_items WHERE quote_id = ?");
+  const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
+  const getProduct = db.prepare("SELECT id, code, name, sale_price FROM products WHERE id = ?");
+
+  const trx = db.transaction((id, client_id, items) => {
+    let total = 0;
+    // Calcular total y preparar items
+    for (const it of items) {
+      const prod = it.product_id ? getProduct.get(it.product_id) : null;
+      const price = (it.price !== undefined && it.price !== null) ? it.price : (prod ? prod.sale_price : 0);
+      total += price * it.quantity;
+    }
+    
+    updateHeader.run(client_id || null, total, id);
+    deleteItems.run(id);
+
+    for (const it of items) {
+       const prod = it.product_id ? getProduct.get(it.product_id) : null;
+       const prodName = it.product_name || (prod ? prod.name : "Producto eliminado");
+       const prodCode = it.product_code || (prod ? prod.code : "");
+       const price = (it.price !== undefined && it.price !== null) ? it.price : (prod ? prod.sale_price : 0);
+       const subtotal = price * it.quantity;
+       
+       insertItem.run(id, it.product_id || null, prodName, prodCode, it.quantity, price, subtotal);
+    }
+    return { success: true, message: "Cotización actualizada correctamente" };
+  });
+
+  try {
+    return trx(id, client_id, items);
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
 }
 
 function setQuoteNumber(id, quoteNumber) { db.prepare("UPDATE quotes SET quote_number = ? WHERE id = ?").run(quoteNumber, id); }
@@ -1148,6 +1251,10 @@ function getExpenses(startDate, endDate) {
   
   query += " ORDER BY date DESC";
   return db.prepare(query).all(...params);
+}
+
+function getExpenseById(id) {
+  return db.prepare("SELECT * FROM expenses WHERE id = ?").get(id);
 }
 
 function saveExpense(expense) {
@@ -1455,13 +1562,14 @@ function updatePurchaseOrder({ id, supplier_id, order_date, items = [], notes = 
 // GESTIÓN DE SERVICIOS
 function getServices() {
   return db.prepare(`
-    SELECT s.*, 
+    SELECT s.*, c.name as client_name,
       (SELECT COALESCE(SUM(sp.quantity * p.sale_price), 0)
        FROM service_products sp 
        JOIN products p ON sp.product_id = p.id 
        WHERE sp.service_id = s.id
       ) as materials_cost
     FROM services s 
+    LEFT JOIN clients c ON s.client_id = c.id
     ORDER BY s.name
   `).all();
 }
@@ -1481,12 +1589,12 @@ function getServiceById(id) {
 }
 
 function createService(data) {
-  const insert = db.prepare("INSERT INTO services (name, description, price) VALUES (?, ?, ?)");
+  const insert = db.prepare("INSERT INTO services (name, description, price, client_id) VALUES (?, ?, ?, ?)");
   const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity) VALUES (?, ?, ?)");
   const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
   
   const trx = db.transaction((data) => {
-    const info = insert.run(data.name, data.description, data.price);
+    const info = insert.run(data.name, data.description, data.price, data.client_id || null);
     const serviceId = info.lastInsertRowid;
     if (data.products && data.products.length > 0) {
       for (const p of data.products) {
@@ -1507,12 +1615,12 @@ function createService(data) {
 }
 
 function updateService(data) {
-  const update = db.prepare("UPDATE services SET name = ?, description = ?, price = ? WHERE id = ?");
+  const update = db.prepare("UPDATE services SET name = ?, description = ?, price = ?, client_id = ? WHERE id = ?");
   const deleteItems = db.prepare("DELETE FROM service_products WHERE service_id = ?");
   const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity) VALUES (?, ?, ?)");
 
   const trx = db.transaction((data) => {
-    update.run(data.name, data.description, data.price, data.id);
+    update.run(data.name, data.description, data.price, data.client_id || null, data.id);
     deleteItems.run(data.id);
     if (data.products && data.products.length > 0) {
       for (const p of data.products) {
@@ -1605,12 +1713,12 @@ module.exports = {
   // productos
   getProducts, getProductById, addProduct, updateProduct, deleteProduct, updateSale,
   // ventas
-  createSale, getSales, getSaleById, getSaleItems, deleteSale, deleteSaleItem,
+  createSale, createSaleFromQuote, getSales, getSaleById, getSaleItems, deleteSale, deleteSaleItem, assignReceiptNumber,
   getLastInvoiceNumber, setInvoiceNumber,
   // creditos
   getCredits, addCreditPayment, markCreditAsPaid,
   // cotizaciones
-  createQuote, getQuotes, getQuoteById, getQuoteItems, deleteQuote, updateQuote,
+  createQuote, getQuotes, getQuoteById, getQuoteItems, deleteQuote, updateQuote, updateQuoteDetails,
   getLastQuoteNumber, setQuoteNumber,
   // dashboard
   getDashboardData,
@@ -1619,7 +1727,7 @@ module.exports = {
   // inventario
   getInventory, getInventoryTotalValue,
   // gastos
-  getExpenses, saveExpense, deleteExpense,
+  getExpenses, getExpenseById, saveExpense, deleteExpense,
   // reportes
   getSalesReport
   // Ordenes de compra,

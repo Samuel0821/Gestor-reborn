@@ -750,6 +750,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     } else if (target.classList.contains("edit-sale")) {
         const saleId = Number(target.dataset.id);
         await handleEditSale(saleId);
+    } else if (target.classList.contains("export-receipt")) {
+        const saleId = Number(target.dataset.id);
+        const currentUser = localStorage.getItem('user_name') || 'Usuario';
+        const res = await window.api.exportSaleReceiptPDF(saleId, currentUser);
+        alert(res.message || (res.success ? "Recibo exportado" : "Error"));
     }
   });
 
@@ -827,6 +832,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             <div class="float-end">
               <button class="btn btn-sm btn-primary export-invoice" data-id="${s.id}">Descargar Factura</button>
               <button class="btn btn-sm btn-success ms-1 print-sale" data-id="${s.id}">Imprimir Factura</button>
+              <button class="btn btn-sm btn-info ms-1 export-receipt" data-id="${s.id}" title="Generar Recibo de Caja"><i class="fa fa-file-invoice-dollar"></i> Recibo</button>
               <button class="btn btn-sm btn-warning ms-1 edit-sale" data-id="${s.id}">Editar</button>
               <button class="btn btn-sm btn-danger ms-1 delete-sale" data-id="${s.id}">Eliminar Factura</button>
             </div>
@@ -1083,7 +1089,9 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <p><strong>NIT/Cédula:</strong> ${client.id_card_or_nit}</p>
                 <p><strong>Dirección:</strong> ${client.address}</p>
                 <p><strong>Teléfono:</strong> ${client.phone}</p>
-                ` : ''}
+                ` : `
+                <p><strong>Cliente:</strong> Consumidor final</p>
+                `}
               </div>
 
               <table class="items-table">

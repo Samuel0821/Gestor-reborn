@@ -20,6 +20,7 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
     - Manejo de variantes de productos (Unidades de medida).
     - Pagos mixtos (Efectivo + Transferencia).
     - Ventas a crédito y gestión de abonos.
+    - **Recibos de Caja:** Generación de comprobantes de ingreso numerados y exportables a PDF.
     - **Edición de Facturas:** Permite modificar ventas existentes recalculando inventario y saldos automáticamente.
 3.  **Inventario Avanzado:**
     - Gestión de productos, categorías y proveedores.
@@ -27,6 +28,7 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
     - Exportación de inventario a Excel y PDF.
 4.  **Servicios:**
     - Creación de paquetes de servicios (Mano de obra + Insumos).
+    - Vinculación de clientes a las órdenes de servicio.
     - Descuento automático de materiales del inventario al vender un servicio.
 5.  **Compras y Proveedores:**
     - Generación de Órdenes de Compra.
@@ -34,12 +36,15 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
     - Base de datos de proveedores.
 6.  **Cotizaciones:**
     - Generación de cotizaciones profesionales en PDF.
-    - Conversión de cotización a venta con un solo clic.
+    - Persistencia de datos (guardado automático al cambiar de pantalla).
+    - Edición de cotizaciones existentes.
+    - Conversión de cotización a venta con validación de stock y gestión de pagos.
 7.  **Finanzas y Caja:**
     - Apertura y cierre de caja (Arqueo ciego).
     - Registro de movimientos de efectivo.
     - Reportes de utilidad real (Ventas - Costos).
-    - **Reporte de Egresos:** Control detallado de gastos.
+    - **Gestión de Gastos:** Registro, visualización de detalles y generación de Comprobantes de Egreso en PDF.
+    - **Reporte de Egresos:** Control detallado de gastos con exportación a PDF.
     - **Auditoría:** Registro de modificaciones sensibles (ej. edición de ventas).
 8.  **Soporte Técnico:**
     - Módulo integrado para envío de reportes de error directamente al desarrollador.

@@ -105,6 +105,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentServiceProducts = []; // { product_id, name, price, quantity }
   let allServices = [];
 
+  // --- INYECTAR SELECTOR DE CLIENTE ---
+  const clientContainer = document.createElement('div');
+  clientContainer.className = 'mb-3';
+  clientContainer.innerHTML = `
+    <label class="form-label">Cliente Asociado</label>
+    <select class="form-select" id="service-client">
+        <option value="">-- Ninguno --</option>
+    </select>
+  `;
+  // Insertar antes del campo de nombre
+  form.prepend(clientContainer);
+  const clientSelect = document.getElementById('service-client');
+  // ------------------------------------
+
   function formatCOP(value) {
     return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
   }
@@ -120,6 +134,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       opt.dataset.price = p.sale_price;
       productDatalist.appendChild(opt);
     });
+  }
+
+  // Cargar clientes
+  async function loadClients() {
+      const clients = await window.api.getClients();
+      clientSelect.innerHTML = '<option value="">-- Ninguno --</option>';
+      clients.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = c.name;
+          clientSelect.appendChild(opt);
+      });
   }
 
   // Agregar producto a la lista temporal del servicio
@@ -179,6 +205,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       id: idInput.value ? Number(idInput.value) : null,
       name: nameInput.value,
       price: Number(priceInput.value) || 0,
+      client_id: clientSelect.value ? Number(clientSelect.value) : null,
       description: descInput.value,
       products: currentServiceProducts
     };
@@ -196,6 +223,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function resetForm() {
     form.reset();
     idInput.value = "";
+    clientSelect.value = "";
     currentServiceProducts = [];
     renderServiceProducts();
     cancelBtn.style.display = "none";
@@ -210,6 +238,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderServicesTable(list) {
+    // Inyectar encabezado de Cliente si no existe
+    const tableEl = servicesTable.closest('table');
+    if(tableEl) {
+        const thead = tableEl.querySelector('thead tr');
+        if(thead && !thead.querySelector('.th-client')) {
+            const th = document.createElement('th');
+            th.className = 'th-client';
+            th.textContent = 'Cliente';
+            if(thead.children.length > 0) thead.insertBefore(th, thead.children[1]); // Insertar después de Nombre
+        }
+    }
+
     servicesTable.innerHTML = "";
     list.forEach(s => {
       const materialsCost = Number(s.materials_cost) || 0;
@@ -218,6 +258,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><strong>${s.name}</strong></td>
+        <td>${s.client_name || '<span class="text-muted">-</span>'}</td>
         <td>${s.description || '-'}</td>
         <td>${formatCOP(s.price)}</td>
         <td>${formatCOP(materialsCost)}</td>
@@ -251,6 +292,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       nameInput.value = service.name;
       priceInput.value = service.price;
       descInput.value = service.description;
+      clientSelect.value = service.client_id || "";
       
       currentServiceProducts = service.products.map(p => ({
         product_id: p.product_id,
@@ -360,10 +402,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   searchInput.addEventListener("input", (e) => {
     const q = e.target.value.toLowerCase();
-    const filtered = allServices.filter(s => s.name.toLowerCase().includes(q));
+    const filtered = allServices.filter(s => 
+        s.name.toLowerCase().includes(q) || 
+        (s.client_name && s.client_name.toLowerCase().includes(q))
+    );
     renderServicesTable(filtered);
   });
 
   await loadProducts();
+  await loadClients();
   await loadServices();
 });

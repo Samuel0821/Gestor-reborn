@@ -99,6 +99,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let quoteItems = [];
   let allProducts = [];
+  let editingQuoteId = null;
+
+  // Función para guardar el estado del carrito en localStorage
+  function saveQuoteState() {
+    localStorage.setItem('persistentQuoteCart', JSON.stringify(quoteItems));
+  }
 
   // Verificar si hay ítems transferidos desde Servicios
   const savedQuoteCart = sessionStorage.getItem('quoteCart');
@@ -106,7 +112,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       quoteItems = JSON.parse(savedQuoteCart);
       sessionStorage.removeItem('quoteCart'); // Limpiar después de cargar
+      saveQuoteState();
     } catch (e) { console.error(e); }
+  } else {
+    // Si no hay transferencia, intentar cargar del almacenamiento local
+    const persistentCart = localStorage.getItem('persistentQuoteCart');
+    if (persistentCart) {
+      try {
+        quoteItems = JSON.parse(persistentCart);
+      } catch (e) { console.error(e); }
+    }
   }
 
   function formatCOP(value) {
@@ -251,6 +266,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- Renderizar ítems
   function renderQuoteItems() {
+    saveQuoteState(); // Guardar estado cada vez que se renderiza (cambios en items)
+    totalDiv.textContent = `TOTAL: ${formatCOP(quoteItems.reduce((sum, item) => sum + item.subtotal, 0))}`;
     quoteItemsTbody.innerHTML = "";
     let total = 0;
     quoteItems.forEach((it, i) => {
@@ -282,8 +299,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderQuoteItems();
       });
     });
-
-    totalDiv.textContent = `TOTAL: ${formatCOP(total)}`;
 
     quoteItemsTbody.querySelectorAll(".remove").forEach(b=>{
       b.addEventListener('click', e=>{
@@ -325,15 +340,38 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Finalizar cotización
   finalizeBtn.addEventListener("click", async ()=>{
     if(quoteItems.length===0){ alert("No hay items"); return;}
-    const clientId = clientSelect.value?Number(clientSelect.value):null;
-    const res = await window.api.createQuote({client_id:clientId,items:quoteItems});
+    const clientId = clientSelect.value ? Number(clientSelect.value) : null;
+    
+    let res;
+    if (editingQuoteId) {
+      // Actualizar cotización existente
+      res = await window.api.updateQuoteDetails({ id: editingQuoteId, client_id: clientId, items: quoteItems });
+    } else {
+      // Crear nueva cotización
+      res = await window.api.createQuote({ client_id: clientId, items: quoteItems });
+    }
+
     if(!res.success){ alert(res.message); return; }
-    alert(res.message||"Cotización creada");
+    alert(res.message || (editingQuoteId ? "Cotización actualizada" : "Cotización creada"));
+    
+    cancelEdit(); // Limpiar estado de edición y formulario
     quoteItems=[];
     renderQuoteItems();
     await loadQuotes();
     await loadProducts();
   });
+
+  function cancelEdit() {
+    editingQuoteId = null;
+    quoteItems = [];
+    renderQuoteItems();
+    clientSelect.value = "";
+    finalizeBtn.textContent = "Finalizar Cotización";
+    finalizeBtn.classList.remove('btn-warning');
+    finalizeBtn.classList.add('btn-primary');
+    const cancelBtn = document.getElementById('cancel-edit-quote-btn');
+    if(cancelBtn) cancelBtn.remove();
+  }
 
   // --- Cargar cotizaciones
   async function loadQuotes(){
@@ -349,6 +387,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div><strong>${q.quote_number||`COT-${String(q.id).padStart(3,'0')}`}</strong> — ${q.quote_date} — Total: ${formatCOP(q.total_amount)}
           <div class="float-end">
             <button class="btn btn-sm btn-success export-quote" data-id="${q.id}" data-quote_number="${q.quote_number}">Exportar PDF</button>
+            <button class="btn btn-sm btn-warning ms-1 edit-quote" data-id="${q.id}">Editar</button>
             <button class="btn btn-sm btn-primary ms-1 approve-quote" data-id="${q.id}">Aprobar</button>
             <button class="btn btn-sm btn-danger ms-1 delete-quote" data-id="${q.id}">Eliminar</button>
           </div>
@@ -358,12 +397,54 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     quotesList.querySelectorAll('.approve-quote').forEach(b=>{
       b.addEventListener('click', async e=>{
-        if(!confirm('¿Aprobar esta cotización y convertirla en venta?')) return;
+        if (!confirm('¿Aprobar esta cotización y convertirla en venta?')) return; // Mensaje de confirmación
         const quoteId = Number(e.target.dataset.id);
-        const res = await window.api.approveQuote(quoteId);
-        alert(res.message||JSON.stringify(res));
-        await loadQuotes();
-        await loadProducts();
+        await processQuoteApproval(quoteId); // Llamar a la nueva función de procesamiento
+      });
+    });
+
+    quotesList.querySelectorAll('.edit-quote').forEach(b=>{
+      b.addEventListener('click', async e=>{
+        const quoteId = Number(e.target.dataset.id);
+        const quote = await window.api.getQuoteById(quoteId);
+        if(!quote) { alert("Error al cargar cotización"); return; }
+
+        editingQuoteId = quoteId;
+        clientSelect.value = quote.client_id || "";
+        
+        // Reconstruir items con detalles de producto para permitir edición de precios/variantes
+        const detailedItems = [];
+        for (const item of quote.items) {
+            if (item.product_id) {
+                const product = allProducts.find(p => p.id === item.product_id);
+                if (product) {
+                    detailedItems.push({
+                        ...item,
+                        sale_price: product.sale_price,
+                        special_price: product.special_price,
+                    });
+                } else {
+                   detailedItems.push({ ...item, sale_price: item.price, special_price: 0 });
+                }
+            } else {
+                detailedItems.push({ ...item, sale_price: item.price, special_price: 0 });
+            }
+        }
+        quoteItems = detailedItems;
+        renderQuoteItems();
+
+        finalizeBtn.textContent = "Actualizar Cotización";
+        finalizeBtn.classList.remove('btn-primary');
+        finalizeBtn.classList.add('btn-warning');
+
+        // Agregar botón cancelar si no existe
+        if(!document.getElementById('cancel-edit-quote-btn')) {
+          const cancelBtnHtml = `<button type="button" id="cancel-edit-quote-btn" class="btn btn-secondary ms-2">Cancelar Edición</button>`;
+          finalizeBtn.insertAdjacentHTML('afterend', cancelBtnHtml);
+          document.getElementById('cancel-edit-quote-btn').addEventListener('click', cancelEdit);
+        }
+        
+        window.scrollTo(0, 0);
       });
     });
 
@@ -377,11 +458,203 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     quotesList.querySelectorAll('.export-quote').forEach(b=>{
       b.addEventListener('click', async e=>{
-        const includeIva = confirm('¿Incluir IVA 19% en la cotización?\nAceptar = Sí, Cancelar = No');
+        const includeIva = confirm('¿Incluir IVA 19% en la cotización?\nAceptar = Sí, Cancelar = No'); // Confirmación de IVA
         // 👇 Aquí ya viaja el product_name con variante si aplica
-        const res = await window.api.exportQuotePDF(Number(e.target.dataset.id),e.target.dataset.quote_number,includeIva);
-        alert(res.message||JSON.stringify(res));
+        const res = await window.api.exportQuotePDF(Number(e.target.dataset.id), e.target.dataset.quote_number, includeIva);
+        alert(res.message || JSON.stringify(res));
       });
+    });
+  }
+
+  // Nueva función para manejar el proceso de aprobación de cotización
+  async function processQuoteApproval(quoteId) {
+    const quote = await window.api.getQuoteById(quoteId);
+    if (!quote) {
+      alert("No se pudo cargar la cotización para aprobar.");
+      return;
+    }
+
+    // Re-obtener todos los productos para asegurar el stock más reciente
+    const currentAllProducts = await window.api.getProducts();
+
+    let insufficientStockItems = [];
+    for (const item of quote.items) {
+      const product = currentAllProducts.find(p => p.id === item.product_id);
+      // Si el producto no se encuentra o el stock es menor a la cantidad requerida
+      if (!product || product.stock < item.quantity) {
+        insufficientStockItems.push({
+          name: item.product_name,
+          required: item.quantity,
+          available: product ? product.stock : 0
+        });
+      }
+    }
+
+    if (insufficientStockItems.length > 0) {
+      let alertMessage = "No se puede aprobar la cotización. Stock insuficiente para los siguientes productos:\n\n";
+      insufficientStockItems.forEach(item => {
+        alertMessage += `- ${item.name}: Requerido ${item.required}, Disponible ${item.available}\n`;
+      });
+      alert(alertMessage + "\nPor favor, actualice el inventario y reintente.");
+      return;
+    }
+
+    // Si el stock es suficiente, proceder al modal de pago
+    const totalAmount = quote.items.reduce((sum, item) => sum + item.subtotal, 0);
+    const clientId = quote.client_id;
+
+    showPaymentModalForQuote(totalAmount, clientId, quote.items, quoteId);
+  }
+
+  // Nueva función para el modal de pago, adaptada de sales.js
+  function showPaymentModalForQuote(totalAmount, clientId, quoteItems, quoteId) {
+    const modalHtml = `
+      <div class="modal fade" id="paymentModalForQuote" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Registrar Pago de Cotización</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p><strong>Total de la Venta:</strong> ${formatCOP(totalAmount)}</p>
+              <div class="mb-2">
+                <label>Tipo de Venta</label>
+                <select class="form-select" id="sale-type-quote">
+                    <option value="cash">Contado (Efectivo)</option>
+                    <option value="transfer">Contado (Transferencia)</option>
+                    <option value="credit">Crédito</option>
+                </select>
+              </div>
+              <div class="mb-2" id="cashReceivedContainer">
+                <label>Efectivo recibido</label>
+                <input type="number" id="cashReceivedQuote" class="form-control" value="0" min="0">
+              </div>
+              <div class="mb-2" id="transferAmountContainer">
+                <label>Transferencia</label>
+                <input type="number" id="transferAmountQuote" class="form-control" value="0" min="0">
+              </div>
+              <div class="mb-2" id="bankReferenceContainerQuote" style="display:none;">
+                <label>Banco / Referencia</label>
+                <input type="text" id="transferReferenceQuote" class="form-control" placeholder="Ej: Bancolombia, Nequi...">
+              </div>
+              <div id="changeInfoQuote" class="mt-2 fw-bold text-success"></div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-primary" id="confirmPaymentBtnQuote">Confirmar Venta</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const existing = document.getElementById("paymentModalForQuote");
+    if (existing) existing.remove();
+    document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+    const modal = new bootstrap.Modal(document.getElementById("paymentModalForQuote"));
+    modal.show();
+
+    const saleTypeSelect = document.getElementById("sale-type-quote");
+    const cashInput = document.getElementById("cashReceivedQuote");
+    const transferInput = document.getElementById("transferAmountQuote");
+    const transferRefInput = document.getElementById("transferReferenceQuote");
+    const cashReceivedContainer = document.getElementById("cashReceivedContainer");
+    const transferAmountContainer = document.getElementById("transferAmountContainer");
+    const bankReferenceContainer = document.getElementById("bankReferenceContainerQuote");
+    const changeInfo = document.getElementById("changeInfoQuote");
+
+    function updatePaymentFields() {
+      const selectedType = saleTypeSelect.value;
+      cashReceivedContainer.style.display = (selectedType === 'cash' || selectedType === 'transfer') ? 'block' : 'none';
+      transferAmountContainer.style.display = (selectedType === 'transfer') ? 'block' : 'none';
+      bankReferenceContainer.style.display = (selectedType === 'transfer' && parseFloat(transferInput.value) > 0) ? 'block' : 'none';
+      
+      if (selectedType === 'credit') {
+          cashInput.value = 0;
+          transferInput.value = 0;
+          changeInfo.textContent = '';
+      } else if (selectedType === 'cash') {
+          cashInput.value = totalAmount; // Pre-llenar efectivo con el total
+          transferInput.value = 0;
+      } else if (selectedType === 'transfer') {
+          transferInput.value = totalAmount; // Pre-llenar transferencia con el total
+          cashInput.value = 0;
+      }
+      updateChange();
+    }
+
+    function updateChange() {
+      const cash = parseFloat(cashInput.value) || 0;
+      const transfer = parseFloat(transferInput.value) || 0;
+      const totalPaid = cash + transfer;
+      const change = totalPaid - totalAmount;
+      if (change >= 0) {
+        changeInfo.textContent = `Cambio a devolver: ${formatCOP(change)}`;
+        changeInfo.classList.remove('text-danger');
+        changeInfo.classList.add('text-success');
+      } else {
+        changeInfo.textContent = `Falta: ${formatCOP(-change)}`;
+        changeInfo.classList.remove('text-success');
+        changeInfo.classList.add('text-danger');
+      }
+
+      // Mostrar campo de banco si hay monto de transferencia
+      bankReferenceContainer.style.display = (saleTypeSelect.value === 'transfer' && transfer > 0) ? "block" : "none";
+    }
+
+    saleTypeSelect.addEventListener("change", updatePaymentFields);
+    cashInput.addEventListener("input", updateChange);
+    transferInput.addEventListener("input", updateChange);
+    updatePaymentFields(); // Estado inicial
+
+    document.getElementById("confirmPaymentBtnQuote").addEventListener("click", async () => {
+      const saleType = saleTypeSelect.value;
+      const cash = parseFloat(cashInput.value) || 0;
+      const transfer = parseFloat(transferInput.value) || 0;
+      const transferRef = transferRefInput.value.trim();
+      const totalPaid = cash + transfer;
+
+      if (saleType !== "credit" && totalPaid < totalAmount) {
+        alert("El monto pagado es insuficiente.");
+        return;
+      }
+      if (saleType === "credit" && !clientId) {
+        alert("Para una venta a crédito, debes seleccionar un cliente.");
+        return;
+      }
+
+      const outstandingBalance = saleType === "credit" ? totalAmount : Math.max(0, totalAmount - totalPaid);
+      const paidAmount = saleType === "credit" ? 0 : totalPaid;
+
+      const saleData = {
+        quote_id: quoteId, // Enlazar a la cotización original
+        client_id: clientId,
+        items: quoteItems,
+        total_amount: totalAmount,
+        paid_amount: paidAmount,
+        outstanding_balance: outstandingBalance,
+        sale_type: saleType,
+        cash_payment: cash,
+        transfer_payment: transfer,
+        transfer_reference: transferRef
+      };
+
+      // Se asume que window.api.createSaleFromQuote está implementado en el proceso principal
+      const res = await window.api.createSaleFromQuote(saleData);
+      if (!res.success) {
+        alert(res.message);
+        return;
+      }
+
+      alert(res.message || "Cotización aprobada y convertida a venta exitosamente.");
+      localStorage.removeItem('persistentQuoteCart'); // Limpiar el carrito persistente de cotizaciones
+      quoteItems = []; // Limpiar los ítems de la cotización actual
+      renderQuoteItems(); // Actualizar la interfaz de usuario
+      modal.hide(); // Cerrar el modal de pago
+      await loadQuotes(); // Recargar la lista de cotizaciones
+      await loadProducts(); // Recargar productos para reflejar los cambios de stock
     });
   }
 
