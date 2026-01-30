@@ -65,6 +65,11 @@ markCreditAsPaid: (saleId, method, reference) => ipcRenderer.invoke("mark-credit
   receivePurchaseOrder: (id) => ipcRenderer.invoke("receive-purchase-order", id),
   deletePurchaseOrder: (id) => ipcRenderer.invoke("delete-purchase-order", id),
   getPurchaseOrdersCount: () => ipcRenderer.invoke("get-purchase-orders-count"),
+  
+  // --- GESTIÓN DE PAGOS A PROVEEDORES (NUEVO) ---
+  updatePurchaseInvoiceNumber: (id, invoiceNumber) => ipcRenderer.invoke("update-purchase-invoice-number", { id, invoiceNumber }),
+  addPurchasePayment: (data) => ipcRenderer.invoke("add-purchase-payment", data),
+  getPurchasePayments: (orderId) => ipcRenderer.invoke("get-purchase-payments", orderId),
 
   // quotes
   createQuote: (data) => ipcRenderer.invoke("create-quote", data),

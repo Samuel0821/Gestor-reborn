@@ -225,6 +225,11 @@
       ipcMain.handle("export-purchase-order-pdf", (event, id) => exportPurchaseOrderPDF(id));
       ipcMain.handle("get-purchase-orders-count", () => db.getPurchaseOrders().length);
       ipcMain.handle("receive-purchase-order", (event, id) => db.receivePurchaseOrder(id));
+      
+      // --- GESTIÓN DE PAGOS A PROVEEDORES ---
+      ipcMain.handle("update-purchase-invoice-number", (event, { id, invoiceNumber }) => db.updatePurchaseInvoiceNumber(id, invoiceNumber));
+      ipcMain.handle("add-purchase-payment", (event, data) => db.addPurchasePayment(data));
+      ipcMain.handle("get-purchase-payments", (event, orderId) => db.getPurchasePayments(orderId));
 
       // Cotizaciones
       ipcMain.handle("create-quote", (event, data) => db.createQuote(data));

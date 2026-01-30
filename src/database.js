@@ -200,6 +200,36 @@ try {
   }
 } catch (e) { console.error("Error migración receipt_number:", e); }
 
+// MIGRACIÓN: Tabla de pagos de compras y columnas financieras en purchase_orders
+try {
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS purchase_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      purchase_order_id INTEGER,
+      date TEXT,
+      amount REAL,
+      method TEXT,
+      reference TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(purchase_order_id) REFERENCES purchase_orders(id)
+    )
+  `).run();
+
+  const poColumns = db.prepare("PRAGMA table_info(purchase_orders)").all();
+  if (!poColumns.some(c => c.name === 'supplier_invoice_number')) {
+    db.prepare("ALTER TABLE purchase_orders ADD COLUMN supplier_invoice_number TEXT").run();
+  }
+  if (!poColumns.some(c => c.name === 'payment_status')) {
+    db.prepare("ALTER TABLE purchase_orders ADD COLUMN payment_status TEXT DEFAULT 'pending'").run(); // pending, partial, paid
+  }
+  if (!poColumns.some(c => c.name === 'paid_amount')) {
+    db.prepare("ALTER TABLE purchase_orders ADD COLUMN paid_amount REAL DEFAULT 0").run();
+  }
+  if (!poColumns.some(c => c.name === 'outstanding_balance')) {
+    db.prepare("ALTER TABLE purchase_orders ADD COLUMN outstanding_balance REAL DEFAULT 0").run();
+  }
+} catch (e) { console.error("Error migración purchase_payments:", e); }
 
 
 db.prepare(`
@@ -1492,7 +1522,13 @@ function receivePurchaseOrder(orderId) {
   const getOrder = db.prepare("SELECT * FROM purchase_orders WHERE id = ?");
   const getOrderItems = db.prepare("SELECT * FROM purchase_order_items WHERE purchase_order_id = ?");
   const updateProductStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
-  const updateOrderStatus = db.prepare("UPDATE purchase_orders SET status = 'completed' WHERE id = ?");
+  
+  // Actualizamos estado y establecemos la deuda inicial igual al total de la orden
+  const updateOrderStatus = db.prepare(`
+    UPDATE purchase_orders 
+    SET status = 'completed', outstanding_balance = ?, payment_status = 'pending' 
+    WHERE id = ?
+  `);
 
   const trx = db.transaction((id) => {
     const order = getOrder.get(id);
@@ -1508,7 +1544,7 @@ function receivePurchaseOrder(orderId) {
       updateProductStock.run(item.quantity, item.product_id);
     }
 
-    updateOrderStatus.run(id);
+    updateOrderStatus.run(order.total_amount, id);
     return { success: true, message: "Orden de compra recibida y stock actualizado." };
   });
 
@@ -1557,6 +1593,78 @@ function updatePurchaseOrder({ id, supplier_id, order_date, items = [], notes = 
     } catch (err) {
         return { success: false, message: String(err) };
     }
+}
+
+// --- GESTIÓN DE PAGOS A PROVEEDORES ---
+
+function updatePurchaseInvoiceNumber(id, invoiceNumber) {
+  try {
+    const stmt = db.prepare("UPDATE purchase_orders SET supplier_invoice_number = ? WHERE id = ?");
+    stmt.run(invoiceNumber, id);
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+function getPurchasePayments(orderId) {
+  try {
+    return db.prepare("SELECT * FROM purchase_payments WHERE purchase_order_id = ? ORDER BY date DESC").all(orderId);
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+}
+
+function addPurchasePayment({ orderId, amount, method, reference, date, notes }) {
+  try {
+    const order = getPurchaseOrderById(orderId);
+    if (!order) return { success: false, message: "Orden de compra no encontrada" };
+
+    if (amount <= 0) return { success: false, message: "El monto debe ser mayor a 0" };
+
+    const transaction = db.transaction(() => {
+      // A. Insertar el pago
+      db.prepare(`
+        INSERT INTO purchase_payments (purchase_order_id, date, amount, method, reference, notes)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(orderId, date, amount, method, reference, notes);
+
+      // B. Actualizar la Orden de Compra
+      const newPaid = (order.paid_amount || 0) + amount;
+      
+      // Si el saldo era 0 y el estado pendiente (migración de datos viejos), asumimos saldo inicial = total
+      let currentBalance = order.outstanding_balance;
+      // Corrección para órdenes antiguas que ya estaban recibidas pero sin saldo calculado
+      if ((currentBalance === 0 || currentBalance === null) && order.status === 'completed' && (!order.payment_status || order.payment_status === 'pending')) {
+          currentBalance = order.total_amount;
+      }
+      
+      const newBalance = currentBalance - amount;
+      const newStatus = newBalance <= 50 ? 'paid' : 'partial'; // Margen de error pequeño por decimales
+
+      db.prepare(`
+        UPDATE purchase_orders 
+        SET paid_amount = ?, outstanding_balance = ?, payment_status = ?
+        WHERE id = ?
+      `).run(newPaid, Math.max(0, newBalance), newStatus, orderId);
+
+      // C. Crear el Egreso Automáticamente
+      const expenseDesc = `Pago Factura Prov. ${order.supplier_invoice_number || 'S/N'} - OC #${order.po_number || order.id} - ${order.supplier_name}`;
+      
+      db.prepare(`
+        INSERT INTO expenses (description, amount, category, date, created_at)
+        VALUES (?, ?, 'Pago Proveedores', ?, datetime('now'))
+      `).run(expenseDesc, amount, date);
+    });
+
+    transaction();
+    return { success: true };
+
+  } catch (err) {
+    console.error("Error al registrar pago de compra:", err);
+    return { success: false, message: err.message };
+  }
 }
 
 // GESTIÓN DE SERVICIOS
@@ -1731,7 +1839,9 @@ module.exports = {
   // reportes
   getSalesReport
   // Ordenes de compra,
-  ,createPurchaseOrder, getPurchaseOrders, getPurchaseOrderById, receivePurchaseOrder, deletePurchaseOrder, updatePurchaseOrder,
+  ,createPurchaseOrder, getPurchaseOrders, getPurchaseOrderById, receivePurchaseOrder, deletePurchaseOrder, updatePurchaseOrder, 
+  // Pagos compras
+  updatePurchaseInvoiceNumber, addPurchasePayment, getPurchasePayments,
   // Servicios
   getServices, getServiceById, createService, updateService, deleteService,
   // Usuarios

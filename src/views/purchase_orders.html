@@ -1,69 +1,289 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Órdenes de Compra - GestorFX</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link rel="stylesheet" href="../styles.css">
-    <script>
-      if (!localStorage.getItem('logueado')) {
-        window.location.href = 'login.html';
-      }
-    </script>
-    <script defer src="../js/purchase_orders.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Órdenes de Compra - GestorFX</title>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    .badge-status { font-size: 0.85em; padding: 6px 10px; }
+    .cursor-pointer { cursor: pointer; }
+  </style>
 </head>
 <body>
-    <div class="container py-4">
-        <h1>Órdenes de Compra</h1>
-        <a href="index.html" class="btn btn-secondary mb-3"><i class="fa fa-arrow-left me-2"></i>Volver</a>
+  <!-- El contenido debe estar dentro de un container para que el JS lo capture y lo envuelva en el layout -->
+  <div class="container mt-4">
+      
+      <!-- Encabezado -->
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h2 class="fw-bold"><i class="fas fa-file-invoice-dollar me-2"></i> Gestión de Compras</h2>
+          <p class="text-muted mb-0">Administra pedidos a proveedores y pagos de facturas.</p>
+        </div>
+        <button class="btn btn-primary btn-lg shadow-sm" onclick="openCreateModal()">
+          <i class="fas fa-plus me-2"></i> Nueva Orden
+        </button>
+      </div>
 
-        <div class="card p-4 mb-4">
-            <h5 class="mb-3">Registrar / Editar Orden de Compra</h5>
-            <form id="purchase-order-form" class="row g-3">
-                <input type="hidden" id="purchase-order-id">
+      <!-- Filtros y Buscador -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-5">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white border-end-0"><i class="fas fa-search text-muted"></i></span>
+                        <input type="text" id="searchInput" class="form-control border-start-0" placeholder="Buscar por proveedor, # OC o factura...">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <select id="filterStatus" class="form-select">
+                        <option value="all">Estado Entrega: Todos</option>
+                        <option value="pending">Pendientes de Recibir</option>
+                        <option value="completed">Recibidas (Stock OK)</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select id="filterPayment" class="form-select">
+                        <option value="all">Estado Pago: Todos</option>
+                        <option value="pending">Pendiente de Pago</option>
+                        <option value="partial">Pago Parcial</option>
+                        <option value="paid">Pagado</option>
+                    </select>
+                </div>
+                <div class="col-md-1">
+                    <button class="btn btn-outline-secondary w-100" onclick="loadOrders()" title="Refrescar"><i class="fas fa-sync-alt"></i></button>
+                </div>
+            </div>
+        </div>
+      </div>
+
+      <!-- Tabla de Órdenes -->
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th class="ps-4"># OC</th>
+                  <th>Proveedor</th>
+                  <th>Fecha</th>
+                  <th>Factura Prov.</th>
+                  <th class="text-end">Total</th>
+                  <th class="text-end">Saldo Pendiente</th>
+                  <th class="text-center">Entrega</th>
+                  <th class="text-center">Pago</th>
+                  <th class="text-end pe-4">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="ordersTableBody">
+                <!-- Se llena dinámicamente con JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+  </div>
+
+  <!-- ================= MODALES ================= -->
+
+  <!-- 1. Modal Registrar Pago -->
+  <div class="modal fade" id="paymentModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header bg-success text-white">
+          <h5 class="modal-title"><i class="fas fa-money-bill-wave me-2"></i> Registrar Pago a Proveedor</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="paymentForm">
+            <input type="hidden" id="payOrderId">
+            
+            <div class="alert alert-light border d-flex justify-content-between align-items-center mb-3">
+                <span><strong>Orden:</strong> <span id="payOrderDisplay"></span></span>
+                <span class="badge bg-danger fs-6">Deuda: <span id="payCurrentBalance"></span></span>
+            </div>
+
+            <div class="row g-3">
                 <div class="col-md-6">
-                    <label class="form-label">Proveedor</label>
-                    <select id="supplier-id" class="form-select" required></select>
+                    <label class="form-label fw-bold">Monto a Pagar</label>
+                    <div class="input-group">
+                        <span class="input-group-text">$</span>
+                        <input type="number" class="form-control" id="payAmount" required min="1">
+                    </div>
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label">Fecha de Orden</label>
-                    <input type="date" id="order-date" class="form-control" required>
+                    <label class="form-label">Fecha</label>
+                    <input type="date" class="form-control" id="payDate" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Método</label>
+                    <select class="form-select" id="payMethod">
+                        <option value="Efectivo">Efectivo</option>
+                        <option value="Transferencia">Transferencia</option>
+                        <option value="Cheque">Cheque</option>
+                        <option value="Tarjeta">Tarjeta Crédito/Débito</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Referencia / Comprobante</label>
+                    <input type="text" class="form-control" id="payReference" placeholder="Ej: #12345">
                 </div>
                 <div class="col-12">
-                    <h6>Productos</h6>
-                    <div id="product-items"></div>
-                    <button type="button" id="add-product-item" class="btn btn-success btn-sm mt-2">Agregar Producto</button>
+                    <label class="form-label">Notas / Observaciones</label>
+                    <textarea class="form-control" id="payNotes" rows="2" placeholder="Detalles adicionales del pago..."></textarea>
                 </div>
-                <div class="col-12 d-flex gap-2">
-                    <button id="save-purchase-order" class="btn btn-primary px-4">Guardar</button>
-                    <button id="cancel-edit" class="btn btn-secondary px-4" type="button" style="display:none">Cancelar</button>
-                </div>
-            </form>
-        </div>
-
-        <div class="card p-4">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="mb-0">Listado de Órdenes de Compra</h5>
-                <input id="search-purchase-order" class="form-control" style="width: 250px;" placeholder="Buscar...">
             </div>
-            <table class="table table-striped">
-                <thead>
-                    <tr>
-                        <th># Orden</th>
-                        <th>Proveedor</th>
-                        <th>Fecha</th>
-                        <th>Total</th>
-                        <th>Estado</th>
-                        <th>Acciones</th>
-                    </tr>
-                </thead>
-                <tbody id="purchase-orders-table">
-                </tbody>
-            </table>
+          </form>
         </div>
+        <div class="modal-footer bg-light">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-success" onclick="submitPayment()">
+            <i class="fas fa-save me-2"></i> Registrar Pago
+          </button>
+        </div>
+      </div>
     </div>
+  </div>
+
+  <!-- 2. Modal Historial de Pagos -->
+  <div class="modal fade" id="historyModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fas fa-history me-2"></i> Historial de Pagos</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-0">
+          <table class="table table-striped mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Fecha</th>
+                    <th>Método</th>
+                    <th>Referencia</th>
+                    <th>Notas</th>
+                    <th class="text-end pe-3">Monto</th>
+                </tr>
+            </thead>
+            <tbody id="historyTableBody"></tbody>
+          </table>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Modal Número de Factura -->
+  <div class="modal fade" id="invoiceModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Factura Proveedor</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="invOrderId">
+            <label class="form-label">Número de Factura Física</label>
+            <input type="text" class="form-control" id="invNumberInput" placeholder="Ej: FE-9021">
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-primary w-100" onclick="saveInvoiceNumber()">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Modal Crear Nueva Orden de Compra -->
+  <div class="modal fade" id="createOrderModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title"><i class="fas fa-cart-plus me-2"></i> Nueva Orden de Compra</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="createOrderForm">
+            <!-- Selección de Proveedor -->
+            <div class="mb-3">
+                <label class="form-label fw-bold">Proveedor</label>
+                <select id="newOrderSupplier" class="form-select" required>
+                    <option value="">-- Seleccione un proveedor --</option>
+                </select>
+            </div>
+
+            <!-- Agregar Productos -->
+            <div class="card bg-light border-0 mb-3">
+                <div class="card-body">
+                    <h6 class="card-title">Agregar Productos</h6>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-5">
+                            <label class="form-label small">Producto</label>
+                            <input type="text" id="newOrderProductInput" class="form-control" list="productList" placeholder="Buscar producto...">
+                            <datalist id="productList"></datalist>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Costo Unit.</label>
+                            <input type="number" id="newOrderCost" class="form-control" min="0">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Cantidad</label>
+                            <input type="number" id="newOrderQty" class="form-control" value="1" min="1">
+                        </div>
+                        <div class="col-md-3">
+                            <button type="button" class="btn btn-secondary w-100" onclick="addItemToOrder()">
+                                <i class="fas fa-plus"></i> Agregar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla de Items -->
+            <div class="table-responsive mb-3" style="max-height: 200px; overflow-y: auto;">
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Producto</th>
+                            <th class="text-end" width="100">Costo</th>
+                            <th class="text-center" width="80">Cant.</th>
+                            <th class="text-end" width="100">Subtotal</th>
+                            <th class="text-center" width="50"><i class="fas fa-trash"></i></th>
+                        </tr>
+                    </thead>
+                    <tbody id="newOrderItemsBody">
+                        <tr><td colspan="5" class="text-center text-muted">No hay productos agregados</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Totales y Notas -->
+            <div class="row">
+                <div class="col-md-8">
+                    <label class="form-label">Notas / Observaciones</label>
+                    <textarea id="newOrderNotes" class="form-control" rows="2"></textarea>
+                </div>
+                <div class="col-md-4 text-end">
+                    <h4>Total: <span id="newOrderTotal">$0</span></h4>
+                </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary" onclick="submitNewOrder()">
+            <i class="fas fa-save me-2"></i> Crear Orden
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="../js/purchase_orders.js"></script>
 </body>
 </html>

@@ -1,9 +1,13 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // Mostrar usuario logueado
+let allOrders = [];
+let orderItems = [];
+let availableProducts = [];
+
+document.addEventListener("DOMContentLoaded", () => {
+    // --- INICIO LOGICA LAYOUT ERP ---
     const role = localStorage.getItem('user_role');
     const name = localStorage.getItem('user_name');
+    
     if (role && name) {
-        // --- INICIO LOGICA LAYOUT ERP ---
         const currentPage = window.location.pathname.split('/').pop();
         
         // Crear estructura principal
@@ -14,9 +18,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const sidebar = document.createElement('div');
         sidebar.className = 'sidebar';
         sidebar.innerHTML = `
-            <div class="sidebar-brand">
-              <img src="../logo/gestorfx_logof.ico" alt="Logo" style="height: 100px; width: auto; margin-right: 10px;">
-            </div>         
+          <div class="sidebar-brand">
+            <img src="../logo/gestorfx_logof.ico" alt="Logo" style="height: 100px; width: auto; margin-right: 10px;">
+          </div>          
           <nav class="sidebar-menu">
             <a href="index.html" class="sidebar-link ${currentPage === 'index.html' ? 'active' : ''}"><i class="fa fa-home"></i> <span class="link-text">Dashboard</span></a>
             <a href="sales.html" class="sidebar-link ${currentPage === 'sales.html' ? 'active' : ''}"><i class="fa fa-shopping-cart"></i> <span class="link-text">Ventas</span></a>
@@ -43,7 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
         navbar.innerHTML = `
           <div class="d-flex align-items-center">
             <button id="sidebar-toggle" class="btn btn-link text-white"><i class="fa fa-bars"></i></button>
-            <div class="page-title">Órdenes de Compra</div>
+            <div class="page-title">Gestión de Compras</div>
           </div>
           <div class="user-profile">
             <div class="user-info">
@@ -67,8 +71,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Insertar al inicio del body
         document.body.insertBefore(appWrapper, document.body.firstChild);
-        // --- FIN LOGICA LAYOUT ERP ---
 
+        // Eventos del layout
         document.getElementById('logout-btn').addEventListener('click', () => {
             if(confirm('¿Cerrar sesión?')) {
                 ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
@@ -76,7 +80,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Lógica Sidebar Colapsable
         const toggleBtn = document.getElementById('sidebar-toggle');
         toggleBtn.addEventListener('click', () => {
             sidebar.classList.toggle('collapsed');
@@ -84,327 +87,432 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if(localStorage.getItem('sidebar-collapsed') === 'true') sidebar.classList.add('collapsed');
     }
+    // --- FIN LOGICA LAYOUT ERP ---
 
-    const purchaseOrderForm = document.getElementById('purchase-order-form');
-    const purchaseOrdersTable = document.getElementById('purchase-orders-table');
-    const supplierSelect = document.getElementById('supplier-id');
-    const productItemsContainer = document.getElementById('product-items');
-    const addProductItemBtn = document.getElementById('add-product-item');
-    const savePurchaseOrderBtn = document.getElementById('save-purchase-order');
-    const cancelEditBtn = document.getElementById('cancel-edit');
-    const searchInput = document.getElementById('search-purchase-order');
-    let products = [];
+    loadOrders();
 
-    // Cargar proveedores
-    window.api.getSuppliers().then(suppliers => {
-        suppliers.forEach(supplier => {
-            const option = document.createElement('option');
-            option.value = supplier.id;
-            option.textContent = supplier.name;
-            supplierSelect.appendChild(option);
-        });
-    });
+    // Listeners para filtros
+    document.getElementById("searchInput").addEventListener("input", renderTable);
+    document.getElementById("filterStatus").addEventListener("change", renderTable);
+    document.getElementById("filterPayment").addEventListener("change", renderTable);
 
-    // Cargar productos
-    window.api.getProducts().then(prods => {
-        products = prods;
-    });
-
-    // Agregar campo de Notas al formulario dinámicamente
-    const notesContainer = document.createElement('div');
-    notesContainer.className = 'mb-3';
-    notesContainer.innerHTML = `
-        <label class="form-label">Notas / Observaciones</label>
-        <textarea id="order-notes" class="form-control" rows="2" placeholder="Ej: Entregar en bodega trasera..."></textarea>
-    `;
-    document.getElementById('product-items').before(notesContainer);
-
-    // Agregar item de producto
-    addProductItemBtn.addEventListener('click', () => {
-        const itemDiv = document.createElement('div');
-        itemDiv.classList.add('row', 'g-3', 'mb-2', 'product-item');
-        const uniqueId = `product-list-${Date.now()}`;
-        itemDiv.innerHTML = `
-            <div class="col-md-5">
-                <input class="form-control product-search" list="${uniqueId}" placeholder="Escriba para buscar un producto...">
-                <datalist id="${uniqueId}">
-                    ${products.map(p => `<option data-id="${p.id}" value="${p.name}"></option>`).join('')}
-                </datalist>
-                <input type="hidden" class="product-id">
-            </div>
-            <div class="col-md-3">
-                <input type="number" class="form-control quantity" placeholder="Cantidad" min="1" value="1">
-            </div>
-            <div class="col-md-3">
-                <input type="number" class="form-control price" placeholder="Precio">
-            </div>
-            <div class="col-md-1">
-                <button type="button" class="btn btn-danger btn-sm remove-item">X</button>
-            </div>
-        `;
-        productItemsContainer.appendChild(itemDiv);
-
-        const productSearchInput = itemDiv.querySelector('.product-search');
-        const productIdInput = itemDiv.querySelector('.product-id');
-        const datalist = itemDiv.querySelector('datalist');
-
-        productSearchInput.addEventListener('input', (e) => {
-            const inputValue = e.target.value;
-            const option = Array.from(datalist.options).find(opt => opt.value === inputValue);
-            if (option) {
-                productIdInput.value = option.getAttribute('data-id');
-            } else {
-                productIdInput.value = '';
+    // Listener para autocompletar costo en nueva orden
+    const newOrderInput = document.getElementById('newOrderProductInput');
+    if(newOrderInput) {
+        newOrderInput.addEventListener('input', (e) => {
+            const val = e.target.value;
+            const product = availableProducts.find(p => p.name === val);
+            if (product) {
+                document.getElementById('newOrderCost').value = product.purchase_price || 0;
             }
-        });
-    });
-
-    // Remover item de producto
-    productItemsContainer.addEventListener('click', (e) => {
-        if (e.target.classList.contains('remove-item')) {
-            e.target.closest('.product-item').remove();
-        }
-    });
-
-    // Guardar orden de compra
-    purchaseOrderForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const purchaseOrderId = document.getElementById('purchase-order-id').value;
-        const supplierId = supplierSelect.value;
-        const orderDate = document.getElementById('order-date').value;
-        const notes = document.getElementById('order-notes').value;
-        const items = [];
-        productItemsContainer.querySelectorAll('.product-item').forEach(item => {
-            const productId = item.querySelector('.product-id').value;
-            const quantity = item.querySelector('.quantity').value;
-            const price = item.querySelector('.price').value;
-            if (productId && quantity && price) {
-                items.push({
-                    product_id: productId,
-                    quantity: parseInt(quantity),
-                    price: parseFloat(price),
-                    subtotal: parseInt(quantity) * parseFloat(price)
-                });
-            }
-        });
-
-        const purchaseOrderData = {
-            supplier_id: supplierId,
-            order_date: orderDate,
-            items: items,
-            notes: notes
-        };
-
-        if (purchaseOrderId) {
-            purchaseOrderData.id = purchaseOrderId;
-            window.api.updatePurchaseOrder(purchaseOrderData).then(() => {
-                getPurchaseOrders();
-                purchaseOrderForm.reset();
-                productItemsContainer.innerHTML = '';
-                cancelEditBtn.style.display = 'none';
-            });
-        } else {
-            window.api.createPurchaseOrder(purchaseOrderData).then(() => {
-                getPurchaseOrders();
-                purchaseOrderForm.reset();
-                productItemsContainer.innerHTML = '';
-            });
-        }
-    });
-
-    // Cargar órdenes de compra
-    function getPurchaseOrders() {
-        window.api.getPurchaseOrders().then(purchaseOrders => {
-            renderPurchaseOrders(purchaseOrders);
         });
     }
 
-    function renderPurchaseOrders(purchaseOrders) {
-        purchaseOrdersTable.innerHTML = '';
-        purchaseOrders.forEach(po => {
-            const row = purchaseOrdersTable.insertRow();
-            const orderNumber = po.po_number || `OC-${po.id}`;
-            
-            const statusBadge = po.status === 'pending' 
-                ? '<span class="badge bg-warning text-dark">Pendiente</span>' 
-                : '<span class="badge bg-success">Recibido</span>';
-
-            const receiveBtn = po.status === 'pending' 
-                ? `<button class="btn btn-sm btn-success me-1" onclick="receiveOrder(${po.id})" title="Marcar como Recibido"><i class="fa fa-check"></i></button>` 
-                : '';
-
-            row.innerHTML = `
-                <td>${orderNumber}</td>
-                <td>${po.supplier_name}</td>
-                <td>${new Date(po.order_date).toLocaleDateString()}</td>
-                <td>${po.total_amount.toLocaleString('es-CO', { style: 'currency', currency: 'COP' })}</td>
-                <td>${statusBadge}</td>
-                <td>
-                    <button class="btn btn-sm btn-info view-po me-1" data-id="${po.id}" title="Ver"><i class="fa fa-eye"></i></button>
-                    ${receiveBtn}
-                    <button class="btn btn-sm btn-primary me-1" onclick="editPurchaseOrder(${po.id})" title="Editar"><i class="fa fa-edit"></i></button>
-                    <button class="btn btn-sm btn-danger" onclick="deletePurchaseOrder(${po.id})" title="Eliminar"><i class="fa fa-trash"></i></button>
-                </td>
-            `;
-        });
-    }
-
-    purchaseOrdersTable.addEventListener('click', e => {
-        if (e.target.closest('.view-po')) {
-            const id = e.target.closest('.view-po').dataset.id;
-            viewPurchaseOrder(id);
-        }
-    });
-
-    function viewPurchaseOrder(id) {
-        window.api.getPurchaseOrderById(id).then(po => {
-            if (!po) {
-                alert("Orden de compra no encontrada.");
-                return;
-            }
-
-            const itemsHtml = po.items.map(item => `
-                <tr>
-                    <td>${item.product_code || ''}</td>
-                    <td>${item.product_name}</td>
-                    <td class="text-end">${item.quantity}</td>
-                    <td class="text-end">${item.price.toLocaleString('es-CO', { style: 'currency', currency: 'COP' })}</td>
-                    <td class="text-end">${item.subtotal.toLocaleString('es-CO', { style: 'currency', currency: 'COP' })}</td>
-                </tr>
-            `).join('');
-
-            const modalHtml = `
-                <div class="modal fade" id="po-details-modal" tabindex="-1">
-                    <div class="modal-dialog modal-lg">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">Detalle Orden de Compra: ${po.po_number || `OC-${po.id}`}</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                            </div>
-                            <div class="modal-body">
-                                <p><strong>Proveedor:</strong> ${po.supplier_name}</p>
-                                <p><strong>Fecha:</strong> ${new Date(po.order_date).toLocaleDateString()}</p>
-                                ${po.notes ? `<div class="alert alert-info p-2 mb-3"><small><strong>Nota:</strong> ${po.notes}</small></div>` : ''}
-                                <table class="table">
-                                    <thead><tr><th>Código</th><th>Producto</th><th class="text-end">Cantidad</th><th class="text-end">Precio</th><th class="text-end">Subtotal</th></tr></thead>
-                                    <tbody>${itemsHtml}</tbody>
-                                </table>
-                                <h5 class="text-end">Total: ${po.total_amount.toLocaleString('es-CO', { style: 'currency', currency: 'COP' })}</h5>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-success" id="export-po-pdf-btn"><i class="fa fa-file-pdf me-2"></i>Exportar PDF</button>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-            const modal = new bootstrap.Modal(document.getElementById('po-details-modal'));
-            modal.show();
-            document.getElementById('export-po-pdf-btn').addEventListener('click', () => exportPurchaseOrderPDF(po.id));
-            document.getElementById('po-details-modal').addEventListener('hidden.bs.modal', () => document.getElementById('po-details-modal').remove());
-        });
-    }
-
-    window.receiveOrder = async (id) => {
-        if (confirm('¿Confirmar recepción del pedido? Esto sumará los productos al inventario.')) {
-            const res = await window.api.receivePurchaseOrder(id);
-            if (res.success) {
-                alert(res.message);
-                getPurchaseOrders();
-            } else {
-                alert('Error: ' + res.message);
-            }
-        }
-    };
-
-    window.editPurchaseOrder = (id) => {
-        window.api.getPurchaseOrderById(id).then(po => {
-            document.getElementById('purchase-order-id').value = po.id;
-            supplierSelect.value = po.supplier_id;
-            document.getElementById('order-date').value = po.order_date.split('T')[0];
-            document.getElementById('order-notes').value = po.notes || '';
-            productItemsContainer.innerHTML = '';
-            po.items.forEach(item => {
-                const itemDiv = document.createElement('div');
-                itemDiv.classList.add('row', 'g-3', 'mb-2', 'product-item');
-                const uniqueId = `product-list-${Date.now()}-${item.product_id}`;
-                itemDiv.innerHTML = `
-                    <div class="col-md-5">
-                        <input class="form-control product-search" list="${uniqueId}" placeholder="Escriba para buscar un producto..." value="${item.product_name}">
-                        <datalist id="${uniqueId}">
-                            ${products.map(p => `<option data-id="${p.id}" value="${p.name}"></option>`).join('')}
-                        </datalist>
-                        <input type="hidden" class="product-id" value="${item.product_id}">
-                    </div>
-                    <div class="col-md-3">
-                        <input type="number" class="form-control quantity" placeholder="Cantidad" min="1" value="${item.quantity}">
-                    </div>
-                    <div class="col-md-3">
-                        <input type="number" class="form-control price" placeholder="Precio" value="${item.price}">
-                    </div>
-                    <div class="col-md-1">
-                        <button type="button" class="btn btn-danger btn-sm remove-item">X</button>
-                    </div>
-                `;
-                productItemsContainer.appendChild(itemDiv);
-
-                const productSearchInput = itemDiv.querySelector('.product-search');
-                const productIdInput = itemDiv.querySelector('.product-id');
-                const datalist = itemDiv.querySelector('datalist');
-
-                productSearchInput.addEventListener('input', (e) => {
-                    const inputValue = e.target.value;
-                    const option = Array.from(datalist.options).find(opt => opt.value === inputValue);
-                    if (option) {
-                        productIdInput.value = option.getAttribute('data-id');
-                    } else {
-                        productIdInput.value = '';
-                    }
-                });
-            });
-            savePurchaseOrderBtn.textContent = 'Actualizar';
-            cancelEditBtn.style.display = 'inline-block';
-        });
-    };
-
-    cancelEditBtn.addEventListener('click', () => {
-        purchaseOrderForm.reset();
-        productItemsContainer.innerHTML = '';
-        document.getElementById('purchase-order-id').value = '';
-        document.getElementById('order-notes').value = '';
-        savePurchaseOrderBtn.textContent = 'Guardar';
-        cancelEditBtn.style.display = 'none';
-    });
-
-    window.deletePurchaseOrder = (id) => {
-        if (confirm('¿Está seguro de que desea eliminar esta orden de compra?')) {
-            window.api.deletePurchaseOrder(id).then(() => {
-                getPurchaseOrders();
-            });
-        }
-    };
-
-    async function exportPurchaseOrderPDF(id) {
-        const result = await window.api.exportPurchaseOrderPDF(id);
-        if (result.success) {
-            alert('Orden de compra exportada a PDF correctamente.');
-        } else {
-            alert(`Error al exportar: ${result.message}`);
-        }
-    }
-
-    searchInput.addEventListener('input', (e) => {
-        const searchTerm = e.target.value.toLowerCase();
-        window.api.getPurchaseOrders().then(purchaseOrders => {
-            const filtered = purchaseOrders.filter(po => 
-                po.supplier_name.toLowerCase().includes(searchTerm) ||
-                po.id.toString().includes(searchTerm)
-            );
-            renderPurchaseOrders(filtered);
-        });
-    });
-
-    getPurchaseOrders();
+    // Establecer fecha de hoy en modal de pago
+    document.getElementById("payDate").valueAsDate = new Date();
 });
+
+async function loadOrders() {
+    try {
+        allOrders = await window.api.getPurchaseOrders();
+        renderTable();
+    } catch (error) {
+        console.error("Error cargando órdenes:", error);
+        Swal.fire("Error", "No se pudieron cargar las órdenes de compra", "error");
+    }
+}
+
+function renderTable() {
+    const tbody = document.getElementById("ordersTableBody");
+    tbody.innerHTML = "";
+
+    const searchTerm = document.getElementById("searchInput").value.toLowerCase();
+    const statusFilter = document.getElementById("filterStatus").value;
+    const paymentFilter = document.getElementById("filterPayment").value;
+
+    const filtered = allOrders.filter(order => {
+        const matchesSearch = 
+            (order.supplier_name || "").toLowerCase().includes(searchTerm) ||
+            (order.po_number || "").toLowerCase().includes(searchTerm) ||
+            (order.supplier_invoice_number || "").toLowerCase().includes(searchTerm);
+        
+        const matchesStatus = statusFilter === "all" || order.status === statusFilter;
+        
+        // Lógica para filtro de pago
+        let payStatus = order.payment_status || 'pending';
+        // Si es antigua y completada pero sin status, asumimos pendiente si hay saldo o pagada si no
+        if (!order.payment_status && order.status === 'completed') {
+             payStatus = (order.outstanding_balance > 0) ? 'pending' : 'paid';
+        }
+        const matchesPayment = paymentFilter === "all" || payStatus === paymentFilter;
+
+        return matchesSearch && matchesStatus && matchesPayment;
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">No se encontraron órdenes</td></tr>`;
+        return;
+    }
+
+    filtered.forEach(order => {
+        // Calcular estados visuales
+        const isReceived = order.status === 'completed';
+        const statusBadge = isReceived 
+            ? `<span class="badge bg-success badge-status">Recibido</span>` 
+            : `<span class="badge bg-warning text-dark badge-status">Pendiente</span>`;
+
+        // Estado de Pago
+        let payBadge = `<span class="badge bg-secondary badge-status">N/A</span>`;
+        if (isReceived) {
+            const balance = order.outstanding_balance || 0;
+            const total = order.total_amount || 0;
+            
+            if (balance <= 100) { // Margen pequeño
+                payBadge = `<span class="badge bg-success badge-status">Pagado</span>`;
+            } else if (balance < total) {
+                payBadge = `<span class="badge bg-info text-dark badge-status">Parcial</span>`;
+            } else {
+                payBadge = `<span class="badge bg-danger badge-status">Pendiente</span>`;
+            }
+        }
+
+        // Factura Proveedor
+        const invoiceDisplay = order.supplier_invoice_number 
+            ? `<span class="fw-bold text-dark">${order.supplier_invoice_number}</span> <i class="fas fa-pen text-muted ms-1 cursor-pointer" onclick="openInvoiceModal(${order.id}, '${order.supplier_invoice_number}')" style="font-size:0.8em"></i>`
+            : `<button class="btn btn-sm btn-outline-secondary" onclick="openInvoiceModal(${order.id}, '')"><i class="fas fa-plus"></i> Agg. Factura</button>`;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td class="ps-4 fw-bold">${order.po_number || order.id}</td>
+            <td>${order.supplier_name}</td>
+            <td>${new Date(order.order_date).toLocaleDateString()}</td>
+            <td>${invoiceDisplay}</td>
+            <td class="text-end fw-bold">${formatCurrency(order.total_amount)}</td>
+            <td class="text-end text-danger">${isReceived ? formatCurrency(order.outstanding_balance) : '-'}</td>
+            <td class="text-center">${statusBadge}</td>
+            <td class="text-center">${payBadge}</td>
+            <td class="text-end pe-4">
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-outline-primary" onclick="exportPDF(${order.id})" title="Ver PDF"><i class="fas fa-file-pdf"></i></button>
+                    
+                    ${!isReceived ? 
+                        `<button class="btn btn-sm btn-success" onclick="receiveOrder(${order.id})" title="Recibir Mercancía"><i class="fas fa-check"></i></button>` : 
+                        `<button class="btn btn-sm btn-outline-success" onclick="openPaymentModal(${order.id})" title="Registrar Pago" ${(order.outstanding_balance <= 0) ? 'disabled' : ''}><i class="fas fa-hand-holding-usd"></i></button>`
+                    }
+                    
+                    ${isReceived ? 
+                        `<button class="btn btn-sm btn-outline-info" onclick="openHistoryModal(${order.id})" title="Historial Pagos"><i class="fas fa-history"></i></button>` : ''
+                    }
+                    
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteOrder(${order.id})" title="Eliminar"><i class="fas fa-trash"></i></button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// --- FUNCIONES DE ACCIÓN ---
+
+function formatCurrency(amount) {
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount || 0);
+}
+
+async function receiveOrder(id) {
+    const result = await Swal.fire({
+        title: '¿Recibir Mercancía?',
+        text: "Esto sumará los productos al inventario y generará una cuenta por pagar.",
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#28a745',
+        confirmButtonText: 'Sí, recibir ahora'
+    });
+
+    if (result.isConfirmed) {
+        const res = await window.api.receivePurchaseOrder(id);
+        if (res.success) {
+            Swal.fire('Recibido', 'Inventario actualizado y deuda generada.', 'success');
+            loadOrders();
+        } else {
+            Swal.fire('Error', res.message, 'error');
+        }
+    }
+}
+
+async function exportPDF(id) {
+    const res = await window.api.exportPurchaseOrderPDF(id);
+    if (!res.success && res.message !== "Exportación cancelada") {
+        Swal.fire("Error", res.message, "error");
+    }
+}
+
+async function deleteOrder(id) {
+    const result = await Swal.fire({
+        title: '¿Eliminar Orden?',
+        text: "Esta acción no se puede deshacer.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        confirmButtonText: 'Sí, eliminar'
+    });
+
+    if (result.isConfirmed) {
+        const res = await window.api.deletePurchaseOrder(id);
+        if (res.success) {
+            loadOrders();
+            Swal.fire('Eliminado', 'La orden ha sido eliminada.', 'success');
+        } else {
+            Swal.fire('Error', res.message, 'error');
+        }
+    }
+}
+
+// --- GESTIÓN DE FACTURAS DE PROVEEDOR ---
+
+let currentInvoiceModal;
+function openInvoiceModal(id, currentNumber) {
+    document.getElementById('invOrderId').value = id;
+    document.getElementById('invNumberInput').value = currentNumber || '';
+    currentInvoiceModal = new bootstrap.Modal(document.getElementById('invoiceModal'));
+    currentInvoiceModal.show();
+}
+
+async function saveInvoiceNumber() {
+    const id = document.getElementById('invOrderId').value;
+    const number = document.getElementById('invNumberInput').value.trim();
+    
+    if (!number) return Swal.fire('Atención', 'Debes escribir un número de factura', 'warning');
+
+    const res = await window.api.updatePurchaseInvoiceNumber(id, number);
+    if (res.success) {
+        currentInvoiceModal.hide();
+        loadOrders();
+        const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
+        Toast.fire({ icon: 'success', title: 'Factura actualizada' });
+    } else {
+        Swal.fire('Error', res.message, 'error');
+    }
+}
+
+// --- GESTIÓN DE PAGOS ---
+
+let currentPaymentModal;
+function openPaymentModal(id) {
+    const order = allOrders.find(o => o.id == id);
+    if (!order) return;
+
+    document.getElementById('payOrderId').value = id;
+    document.getElementById('payOrderDisplay').textContent = `${order.po_number || order.id} - ${order.supplier_name}`;
+    document.getElementById('payCurrentBalance').textContent = formatCurrency(order.outstanding_balance);
+    
+    // Reset form
+    document.getElementById('payAmount').value = order.outstanding_balance; // Sugerir pagar todo
+    document.getElementById('payAmount').max = order.outstanding_balance;
+    document.getElementById('payReference').value = '';
+    document.getElementById('payNotes').value = '';
+    
+    currentPaymentModal = new bootstrap.Modal(document.getElementById('paymentModal'));
+    currentPaymentModal.show();
+}
+
+async function submitPayment() {
+    const id = document.getElementById('payOrderId').value;
+    const amount = parseFloat(document.getElementById('payAmount').value);
+    const date = document.getElementById('payDate').value;
+    const method = document.getElementById('payMethod').value;
+    const reference = document.getElementById('payReference').value;
+    const notes = document.getElementById('payNotes').value;
+
+    if (!amount || amount <= 0) return Swal.fire('Error', 'Ingrese un monto válido', 'warning');
+    if (!date) return Swal.fire('Error', 'Seleccione una fecha', 'warning');
+
+    const res = await window.api.addPurchasePayment({
+        orderId: id,
+        amount,
+        date,
+        method,
+        reference,
+        notes
+    });
+
+    if (res.success) {
+        currentPaymentModal.hide();
+        Swal.fire({
+            title: 'Pago Registrado',
+            text: 'El pago se ha guardado y se ha creado el egreso correspondiente.',
+            icon: 'success'
+        });
+        loadOrders();
+    } else {
+        Swal.fire('Error', res.message, 'error');
+    }
+}
+
+// --- HISTORIAL DE PAGOS ---
+
+let currentHistoryModal;
+async function openHistoryModal(id) {
+    const payments = await window.api.getPurchasePayments(id);
+    const tbody = document.getElementById('historyTableBody');
+    tbody.innerHTML = '';
+
+    if (payments.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No hay pagos registrados</td></tr>';
+    } else {
+        payments.forEach(p => {
+            tbody.innerHTML += `
+                <tr>
+                    <td class="ps-3">${p.date}</td>
+                    <td>${p.method}</td>
+                    <td>${p.reference || '-'}</td>
+                    <td><small>${p.notes || ''}</small></td>
+                    <td class="text-end pe-3 fw-bold">${formatCurrency(p.amount)}</td>
+                </tr>
+            `;
+        });
+    }
+
+    currentHistoryModal = new bootstrap.Modal(document.getElementById('historyModal'));
+    currentHistoryModal.show();
+}
+
+// --- CREACIÓN DE NUEVA ORDEN ---
+
+async function openCreateModal() {
+    // Resetear estado
+    orderItems = [];
+    document.getElementById('createOrderForm').reset();
+    document.getElementById('newOrderItemsBody').innerHTML = '<tr><td colspan="5" class="text-center text-muted">No hay productos agregados</td></tr>';
+    document.getElementById('newOrderTotal').textContent = formatCurrency(0);
+
+    // Cargar Proveedores
+    try {
+        const suppliers = await window.api.getSuppliers();
+        const supplierSelect = document.getElementById('newOrderSupplier');
+        supplierSelect.innerHTML = '<option value="">-- Seleccione un proveedor --</option>';
+        suppliers.forEach(s => {
+            supplierSelect.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+        });
+    } catch (e) { console.error(e); }
+
+    // Cargar Productos para Datalist
+    try {
+        availableProducts = await window.api.getProducts();
+        const datalist = document.getElementById('productList');
+        datalist.innerHTML = '';
+        availableProducts.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            datalist.appendChild(opt);
+        });
+    } catch (e) { console.error(e); }
+
+    // Mostrar Modal
+    const modal = new bootstrap.Modal(document.getElementById('createOrderModal'));
+    modal.show();
+}
+
+function addItemToOrder() {
+    const input = document.getElementById('newOrderProductInput');
+    const costInput = document.getElementById('newOrderCost');
+    const qtyInput = document.getElementById('newOrderQty');
+
+    const productName = input.value;
+    const product = availableProducts.find(p => p.name === productName);
+
+    if (!product) {
+        Swal.fire('Error', 'Seleccione un producto válido de la lista', 'error');
+        return;
+    }
+
+    const qty = parseFloat(qtyInput.value);
+    const cost = parseFloat(costInput.value);
+
+    if (!qty || qty <= 0) return;
+
+    // Verificar si ya existe en la lista
+    const existing = orderItems.find(i => i.product_id === product.id);
+    if (existing) {
+        existing.quantity += qty;
+        existing.price = cost || existing.price;
+        existing.subtotal = existing.quantity * existing.price;
+    } else {
+        orderItems.push({
+            product_id: product.id,
+            product_name: product.name,
+            quantity: qty,
+            price: cost || product.purchase_price || 0,
+            subtotal: (cost || product.purchase_price || 0) * qty
+        });
+    }
+
+    renderOrderItems();
+    input.value = '';
+    costInput.value = '';
+    qtyInput.value = 1;
+    input.focus();
+}
+
+function renderOrderItems() {
+    const tbody = document.getElementById('newOrderItemsBody');
+    tbody.innerHTML = '';
+    let total = 0;
+
+    orderItems.forEach((item, index) => {
+        total += item.subtotal;
+        tbody.innerHTML += `
+            <tr>
+                <td>${item.product_name}</td>
+                <td class="text-end">${formatCurrency(item.price)}</td>
+                <td class="text-center">${item.quantity}</td>
+                <td class="text-end">${formatCurrency(item.subtotal)}</td>
+                <td class="text-center">
+                    <button type="button" class="btn btn-sm btn-outline-danger border-0" onclick="removeOrderItem(${index})"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>
+        `;
+    });
+
+    if (orderItems.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No hay productos agregados</td></tr>';
+    }
+
+    document.getElementById('newOrderTotal').textContent = formatCurrency(total);
+}
+
+function removeOrderItem(index) {
+    orderItems.splice(index, 1);
+    renderOrderItems();
+}
+
+async function submitNewOrder() {
+    const supplierId = document.getElementById('newOrderSupplier').value;
+    const notes = document.getElementById('newOrderNotes').value;
+
+    if (!supplierId) {
+        Swal.fire('Error', 'Debe seleccionar un proveedor', 'warning');
+        return;
+    }
+    if (orderItems.length === 0) {
+        Swal.fire('Error', 'Debe agregar al menos un producto', 'warning');
+        return;
+    }
+
+    const result = await window.api.createPurchaseOrder({
+        supplier_id: supplierId,
+        items: orderItems,
+        notes: notes
+    });
+
+    if (result.success) {
+        // Cerrar modal
+        const modalEl = document.getElementById('createOrderModal');
+        const modal = bootstrap.Modal.getInstance(modalEl);
+        modal.hide();
+        
+        Swal.fire('Éxito', 'Orden de compra creada correctamente', 'success');
+        loadOrders();
+    } else {
+        Swal.fire('Error', result.message, 'error');
+    }
+}
