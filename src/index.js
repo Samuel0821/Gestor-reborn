@@ -71,26 +71,47 @@
   }
 
 
-  function renderPdfHeader(doc, company = {}, title = "") {
-    const headerTop = 40;
+  function renderPdfHeader(doc, company = {}, title = "", docNumber = "", date = "") {
+    const xLeft = 50;
+    const xRight = 300; 
+    let y = 50;
+
     if (company.logo_path && fs.existsSync(company.logo_path)) {
       try {
-        doc.image(company.logo_path, 40, headerTop, { width: 80 });
-      } catch (e) {
-        // ignore image errors
-      }
+        doc.image(company.logo_path, xLeft, y, { width: 60 });
+      } catch (e) {}
     }
 
-    doc.fontSize(16).font("Helvetica-Bold").text(company.company_name || "", 140, headerTop, { align: "left" });
-    doc.fontSize(10).font("Helvetica").text(`NIT: ${company.company_id_card_or_nit || ""}`, 140, headerTop + 20);
-    doc.text(company.company_address || "", 140, headerTop + 35);
-    doc.text(`${company.company_email || ""} - Tel: ${company.company_phone || ""}`, 140, headerTop + 50);
+    const textX = xLeft + 70;
+    doc.font("Helvetica-Bold").fontSize(12).text(company.company_name || "", textX, y);
+    doc.font("Helvetica").fontSize(9).text(`NIT: ${company.company_id_card_or_nit || ""}`, textX, y + 15);
+    doc.text(company.company_address || "", textX, y + 27);
+    doc.text(`Tel: ${company.company_phone || ""} ${company.company_email ? "| " + company.company_email : ""}`, textX, y + 39);
 
-    const afterHeaderY = headerTop + 80;
-    doc.moveTo(40, afterHeaderY).lineTo(555, afterHeaderY).stroke();
-    doc.y = afterHeaderY + 10;
-    doc.fontSize(14).font("Helvetica-Bold").text(title, { align: "center" });
-    doc.moveDown();
+    let yHeaderRight = 50;
+    doc.font("Helvetica-Bold").fontSize(14).text(title, xRight, yHeaderRight, { align: "right", width: 250 });
+    if (docNumber) {
+      doc.fontSize(12).text(docNumber, xRight, yHeaderRight + 20, { align: "right", width: 250 });
+    }
+    if (date) {
+      doc.font("Helvetica").fontSize(9).text(`Fecha: ${date}`, xRight, yHeaderRight + 40, { align: "right", width: 250 });
+    }
+
+    doc.strokeColor("#aaaaaa").lineWidth(1).moveTo(50, 110).lineTo(550, 110).stroke();
+    doc.y = 125;
+  }
+
+  function drawTableHeaders(doc, y, headers) {
+    // headers = [{text, x, width, align}]
+    doc.rect(50, y, 500, 20).fillColor("#f0f0f0").fill();
+    doc.fillColor("#000000");
+    doc.font("Helvetica-Bold").fontSize(9);
+    
+    headers.forEach(h => {
+        doc.text(h.text, h.x, y + 6, { width: h.width, align: h.align || 'left' });
+    });
+    
+    return y + 25;
   }
 
   // Función auxiliar para convertir números a letras (Pesos Colombianos)
@@ -292,35 +313,35 @@
             
             if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
             
-            const doc = new PDFDocument({ margin: 40, size: "A4" });
+            const doc = new PDFDocument({ margin: 50, size: "A4" });
             const stream = fs.createWriteStream(filePath);
             doc.pipe(stream);
             
-            renderPdfHeader(doc, company, `Comprobante de Egreso #${String(id).padStart(3, '0')}`);
-            
-            doc.fontSize(12).font("Helvetica-Bold").text("Detalles del Egreso", { underline: true });
-            doc.moveDown(0.5);
+            renderPdfHeader(doc, company, "COMPROBANTE DE EGRESO", `No. ${String(id).padStart(4, '0')}`, expense.date);
             
             doc.fontSize(10).font("Helvetica");
-            const labelX = 40;
+            const labelX = 50;
             const valueX = 150;
+            let y = doc.y + 10;
             
             const drawField = (label, value, color = "black") => {
-                doc.font("Helvetica-Bold").fillColor("black").text(label, labelX, doc.y);
-                doc.font("Helvetica").fillColor(color).text(value, valueX, doc.y, { width: 400 });
-                doc.moveDown(0.5);
+                doc.font("Helvetica-Bold").fillColor("black").text(label, labelX, y);
+                doc.font("Helvetica").fillColor(color).text(value, valueX, y, { width: 350 });
+                y += 20;
             };
 
-            drawField("Fecha:", expense.date);
             drawField("Categoría:", expense.category || "General");
             drawField("Descripción:", expense.description || "-");
             drawField("Monto:", formatCOP(expense.amount), "red");
             if (expense.created_at) drawField("Fecha Registro:", expense.created_at);
 
+            y += 10;
+            drawLine(doc, y);
+
             // Espacio para firma
-            doc.moveDown(4);
-            doc.moveTo(40, doc.y).lineTo(200, doc.y).stroke();
-            doc.fillColor("black").text("Firma Autorizado", 40, doc.y + 5);
+            y += 80;
+            doc.moveTo(50, y).lineTo(250, y).stroke();
+            doc.fillColor("black").text("Firma Autorizado", 50, y + 5);
             
             doc.end();
             await new Promise((res, rej) => { stream.on("finish", res); stream.on("error", rej); });
@@ -348,30 +369,27 @@
             
             if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
             
-            const doc = new PDFDocument({ margin: 40, size: "A4" });
+            const doc = new PDFDocument({ margin: 50, size: "A4" });
             const stream = fs.createWriteStream(filePath);
             doc.pipe(stream);
             
-            renderPdfHeader(doc, company, `Reporte de Egresos`);
-            doc.fontSize(10).text(`Periodo: ${startDate} al ${endDate}`, { align: 'center' });
-            doc.moveDown();
+            renderPdfHeader(doc, company, "REPORTE DE EGRESOS", "", `${startDate} al ${endDate}`);
 
-            const tableTop = doc.y;
-            const itemX = 40;
-            const descX = 120;
-            const catX = 320;
-            const amountX = 450;
+            let y = doc.y + 10;
+            const col1 = 50;
+            const col2 = 130;
+            const col3 = 330;
+            const col4 = 450;
 
-            doc.fontSize(10).font("Helvetica-Bold");
-            doc.text("Fecha", itemX, tableTop);
-            doc.text("Descripción", descX, tableTop);
-            doc.text("Categoría", catX, tableTop);
-            doc.text("Monto", amountX, tableTop, { align: "right", width: 100 });
-            
-            doc.moveTo(40, tableTop + 15).lineTo(550, tableTop + 15).stroke();
+            y = drawTableHeaders(doc, y, [
+                { text: "Fecha", x: col1, width: 70 },
+                { text: "Descripción", x: col2, width: 190 },
+                { text: "Categoría", x: col3, width: 110 },
+                { text: "Monto", x: col4, width: 100, align: "right" }
+            ]);
+
             doc.font("Helvetica").fontSize(9);
             
-            let y = tableTop + 25;
             let total = 0;
 
             for (const exp of expenses) {
@@ -380,21 +398,21 @@
                     y = 40;
                     // Repetir encabezado si se desea, o continuar
                 }
-                doc.fillColor("black").text(exp.date, itemX, y);
-                doc.text(exp.description, descX, y, { width: 190 });
-                doc.text(exp.category, catX, y, { width: 120 });
-                doc.text(formatCOP(exp.amount), amountX, y, { align: "right", width: 100 });
+                doc.fillColor("black").text(exp.date, col1, y);
+                doc.text(exp.description, col2, y, { width: 190 });
+                doc.text(exp.category, col3, y, { width: 110 });
+                doc.text(formatCOP(exp.amount), col4, y, { align: "right", width: 100 });
                 
                 total += exp.amount;
                 y += 20;
             }
 
-            doc.moveDown();
-            doc.moveTo(40, y).lineTo(550, y).stroke();
+            y += 5;
+            drawLine(doc, y);
             y += 10;
             doc.fontSize(12).font("Helvetica-Bold");
             doc.text("TOTAL EGRESOS:", 300, y);
-            doc.fillColor("red").text(formatCOP(total), amountX, y, { align: "right", width: 100 });
+            doc.fillColor("red").text(formatCOP(total), col4, y, { align: "right", width: 100 });
             
             doc.end();
             await new Promise((res, rej) => { stream.on("finish", res); stream.on("error", rej); });
@@ -533,10 +551,10 @@
                     y = doc.page.margins.top;
                 }
                 doc.text(p.code || "", 40, y, { width: 80 });
-                doc.text(p.name || "", 120, y, { width: 250 });
-                doc.text(String(p.stock || 0), 370, y, { width: 80, align: "right" });
-                doc.text(String(p.min_stock || 0), 450, y, { width: 80, align: "right" });
-                y += rowHeight;
+                doc.text(p.name || "", 140, y, { width: 250 });
+                doc.text(String(p.stock || 0), 400, y, { width: 70, align: "right" });
+                doc.text(String(p.min_stock || 0), 480, y, { width: 70, align: "right" });
+                y += rowHeight + 5;
             }
 
             doc.end();
@@ -564,27 +582,24 @@
               });
               if (canceled || !filePath) return { success: false, message: "Exportación cancelada." };
 
-              const doc = new PDFDocument({ margin: 40, size: "A4" });
+              const doc = new PDFDocument({ margin: 50, size: "A4" });
               const stream = fs.createWriteStream(filePath);
               doc.pipe(stream);
 
-              renderPdfHeader(doc, companyInfo, "Reporte de Ventas");
+              renderPdfHeader(doc, companyInfo, "REPORTE DE VENTAS", "", new Date().toLocaleDateString());
 
               let y = doc.y + 10;
               const startY = y;
 
-              // Títulos de las columnas (EN NEGRITA)
-              doc.fontSize(11).font("Helvetica-Bold");
-              doc.text("Fecha", 40, y, { width: 60 });
-              doc.text("# Factura", 100, y, { width: 80 });
-              doc.text("Nombre Producto", 180, y, { width: 170 });
-              doc.text("Cantidad", 350, y, { width: 50, align: "right" });
-              doc.text("Valor Unidad", 400, y, { width: 70, align: "right" });
-              doc.text("Subtotal", 490, y, { width: 60, align: "right" });
-              y += 18;
+              y = drawTableHeaders(doc, y, [
+                  { text: "Fecha", x: 50, width: 60 },
+                  { text: "# Factura", x: 110, width: 70 },
+                  { text: "Producto", x: 190, width: 170 },
+                  { text: "Cant.", x: 370, width: 40, align: "right" },
+                  { text: "Precio", x: 420, width: 60, align: "right" },
+                  { text: "Subtotal", x: 490, width: 60, align: "right" }
+              ]);
 
-              // Línea divisoria debajo de los títulos
-              doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
               doc.font("Helvetica").fontSize(9);
               y += 10;
 
@@ -611,26 +626,24 @@
                   if (y > doc.page.height - doc.page.margins.bottom - 80) {
                     doc.addPage();
                     y = startY;
-                    doc.fontSize(10).font("Helvetica-Bold");
-                    doc.text("Fecha", 40, y, { width: 60 });
-                    doc.text("# Factura", 100, y, { width: 80 });
-                    doc.text("Nombre Producto", 180, y, { width: 170 });
-                    doc.text("Cantidad", 350, y, { width: 50, align: "right" });
-                    doc.text("Valor Unidad", 400, y, { width: 70, align: "right" });
-                    doc.text("Subtotal", 490, y, { width: 60, align: "right" });
-                    y += 18;
-                    doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+                    y = drawTableHeaders(doc, y, [
+                        { text: "Fecha", x: 50, width: 60 },
+                        { text: "# Factura", x: 110, width: 70 },
+                        { text: "Producto", x: 190, width: 170 },
+                        { text: "Cant.", x: 370, width: 40, align: "right" },
+                        { text: "Precio", x: 420, width: 60, align: "right" },
+                        { text: "Subtotal", x: 490, width: 60, align: "right" }
+                    ]);
                     doc.font("Helvetica").fontSize(9);
-                    y += 10;
                   }
 
                   const productHeight = doc.heightOfString(item.product_name, { width: 170 });
 
-                  doc.text(saleDate, 40, y, { width: 60 });
-                  doc.text(invoiceNumber, 100, y, { width: 80 });
-                  doc.text(item.product_name, 180, y, { width: 170 });
-                  doc.text(String(item.quantity), 350, y, { width: 50, align: "right" });
-                  doc.text(formatCOP(item.price), 400, y, { width: 70, align: "right" });
+                  doc.text(saleDate, 50, y, { width: 60 });
+                  doc.text(invoiceNumber, 110, y, { width: 70 });
+                  doc.text(item.product_name, 190, y, { width: 170 });
+                  doc.text(String(item.quantity), 370, y, { width: 40, align: "right" });
+                  doc.text(formatCOP(item.price), 420, y, { width: 60, align: "right" });
                   doc.text(formatCOP(item.subtotal), 490, y, { width: 60, align: "right" });
 
                   y += productHeight + 5;
@@ -667,7 +680,7 @@
               
               // Sección de Balance Financiero
               if (financialSummary) {
-                doc.font("Helvetica-Bold").fontSize(12).text("Balance Financiero", 40, doc.y);
+                doc.font("Helvetica-Bold").fontSize(12).text("Balance Financiero", 50, doc.y);
                 doc.font("Helvetica").fontSize(10);
                 doc.text(`(+) Total Ventas: ${formatCOP(financialSummary.totalSales)}`);
                 doc.text(`(-) Costo Mercancía: ${formatCOP(financialSummary.totalCost)}`);
@@ -678,7 +691,7 @@
               }
 
               // Sección de Métodos de Pago
-              doc.font("Helvetica-Bold").fontSize(12).text("Resumen de Métodos de Pago", 40, doc.y);
+              doc.font("Helvetica-Bold").fontSize(12).text("Resumen de Métodos de Pago", 50, doc.y);
               doc.font("Helvetica").fontSize(10);
               doc.text(`Total en Efectivo: ${formatCOP(totalCash)}`);
               doc.text(`Total en Créditos: ${formatCOP(totalCredit)}`);
@@ -722,20 +735,19 @@
             });
             if (canceled || !filePath) return { success: false, message: "Exportación cancelada." };
 
-            const doc = new PDFDocument({ margin: 40, size: "A4" });
+            const doc = new PDFDocument({ margin: 50, size: "A4" });
             const stream = fs.createWriteStream(filePath);
             doc.pipe(stream);
 
-            renderPdfHeader(doc, company, "Lista de Proveedores");
+            renderPdfHeader(doc, company, "LISTA DE PROVEEDORES", "", new Date().toLocaleDateString());
 
             let y = doc.y + 10;
-            doc.fontSize(11).font("Helvetica-Bold");
-            doc.text("Nombre", 40, y, { width: 150 });
-            doc.text("NIT", 200, y, { width: 100 });
-            doc.text("Dirección", 310, y, { width: 120 });
-            doc.text("Teléfono", 440, y, { width: 100 });
-            y += 18;
-            doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+            y = drawTableHeaders(doc, y, [
+                { text: "Nombre", x: 50, width: 150 },
+                { text: "NIT", x: 210, width: 100 },
+                { text: "Dirección", x: 320, width: 120 },
+                { text: "Teléfono", x: 450, width: 100 }
+            ]);
 
             doc.font("Helvetica").fontSize(10);
             for (const s of suppliers) {
@@ -748,10 +760,10 @@
                     doc.addPage();
                     y = 40;
                 }
-                doc.text(s.name || "", 40, y, { width: 150 });
-                doc.text(s.nit || "", 200, y, { width: 100 });
-                doc.text(s.address || "", 310, y, { width: 120 });
-                doc.text(s.phone || "", 440, y, { width: 100 });
+                doc.text(s.name || "", 50, y, { width: 150 });
+                doc.text(s.nit || "", 210, y, { width: 100 });
+                doc.text(s.address || "", 320, y, { width: 120 });
+                doc.text(s.phone || "", 450, y, { width: 100 });
                 y += rowHeight;
             }
 
@@ -916,14 +928,14 @@
           });
           if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
 
-          const doc = new PDFDocument({ margin: 40, size: "A4" });
+          const doc = new PDFDocument({ margin: 50, size: "A4" });
           const stream = fs.createWriteStream(filePath);
           doc.pipe(stream);
 
-          renderPdfHeader(doc, company, `Factura ${sale.invoice_number || String(id).padStart(3, "0")}`);
+          renderPdfHeader(doc, company, "FACTURA DE VENTA", sale.invoice_number || `No. ${String(id).padStart(3, "0")}`, sale.sale_date);
 
           if (client) {
-            doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 40, doc.y + 10);
+            doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 50, doc.y + 10);
             doc.font("Helvetica").fontSize(10);
             doc.text(`Nombre: ${client.name || ""}`);
             doc.text(`NIT/Cédula: ${client.id_card_or_nit || ""}`);
@@ -932,21 +944,20 @@
             doc.text(`Teléfono: ${client.phone || ""}`);
             doc.moveDown(1);
           } else {
-            doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 40, doc.y + 10);
+            doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 50, doc.y + 10);
             doc.font("Helvetica").fontSize(10);
             doc.text("Consumidor final");
             doc.moveDown(1);
           }
 
           let y = doc.y + 10;
-          doc.fontSize(11).font("Helvetica-Bold");
-          doc.text("#", 40, y, { width: 25 });
-          doc.text("Nombre", 75, y, { width: 245 });
-          doc.text("Precio", 320, y, { width: 80, align: "right" });
-          doc.text("Cant.", 410, y, { width: 50, align: "right" });
-          doc.text("Subtotal", 470, y, { width: 80, align: "right" });
-          y += 18;
-          doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+          y = drawTableHeaders(doc, y, [
+              { text: "#", x: 50, width: 25 },
+              { text: "Nombre", x: 80, width: 240 },
+              { text: "Precio", x: 330, width: 80, align: "right" },
+              { text: "Cant.", x: 420, width: 50, align: "right" },
+              { text: "Subtotal", x: 480, width: 70, align: "right" }
+          ]);
 
           doc.font("Helvetica").fontSize(10);
           let idx = 1;
@@ -955,24 +966,22 @@
             if (nextY > 700) {
               doc.addPage();
               y = 40;
-              doc.fontSize(11).font("Helvetica-Bold");
-              doc.text("#", 40, y, { width: 25 });
-              doc.text("Nombre", 75, y, { width: 245 });
-              doc.text("Precio", 320, y, { width: 80, align: "right" });
-              doc.text("Cant.", 410, y, { width: 50, align: "right" });
-              doc.text("Subtotal", 470, y, { width: 80, align: "right" });
-              y += 18;
-              doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+              y = drawTableHeaders(doc, y, [
+                  { text: "#", x: 50, width: 25 },
+                  { text: "Nombre", x: 80, width: 240 },
+                  { text: "Precio", x: 330, width: 80, align: "right" },
+                  { text: "Cant.", x: 420, width: 50, align: "right" },
+                  { text: "Subtotal", x: 480, width: 70, align: "right" }
+              ]);
               doc.font("Helvetica").fontSize(10);
-              y += 10;
             }
 
             const productHeight = doc.heightOfString(it.product_name || "-", { width: 245 });
-            doc.text(String(idx), 40, y, { width: 25 });
-            doc.text(it.product_name || "-", 75, y, { width: 245 });
-            doc.text(formatCOP(it.price), 320, y, { width: 80, align: "right" });
-            doc.text(String(it.quantity), 410, y, { width: 50, align: "right" });
-            doc.text(formatCOP(it.subtotal), 470, y, { width: 80, align: "right" });
+            doc.text(String(idx), 50, y, { width: 25 });
+            doc.text(it.product_name || "-", 80, y, { width: 240 });
+            doc.text(formatCOP(it.price), 330, y, { width: 80, align: "right" });
+            doc.text(String(it.quantity), 420, y, { width: 50, align: "right" });
+            doc.text(formatCOP(it.subtotal), 480, y, { width: 70, align: "right" });
             y += productHeight + 5;
             idx++;
           }
@@ -983,11 +992,11 @@
 
           doc.moveDown(1);
           if (includeIva) {
-            doc.fontSize(10).text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 6);
-            doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 22);
-            doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 42);
+            doc.fontSize(10).text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 6, { align: "right", width: 150 });
+            doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 22, { align: "right", width: 150 });
+            doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 42, { align: "right", width: 150 });
           } else {
-            doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 10);
+            doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 10, { align: "right", width: 150 });
           }
 
           // 📌 NUEVO: Detalle de pagos
@@ -1009,16 +1018,16 @@
           let currentY = doc.y;
 
           if (isCredit) {
-              doc.text(`Crédito: ${formatCOP(sale.total_amount)}`, 400, currentY + 6);
+              doc.text(`Crédito: ${formatCOP(sale.total_amount)}`, 400, currentY + 6, { align: "right", width: 150 });
           } else {
               if (cash > 0 && transfer > 0) {
-                  doc.text(`Pago en efectivo: ${formatCOP(cash)}`, 400, currentY + 6);
-                  doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}: ${formatCOP(transfer)}`, 400, currentY + 22);
+                  doc.text(`Pago en efectivo: ${formatCOP(cash)}`, 400, currentY + 6, { align: "right", width: 150 });
+                  doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}: ${formatCOP(transfer)}`, 400, currentY + 22, { align: "right", width: 150 });
                   currentY += 16; // Ajuste para la siguiente línea si es mixto
               } else if (cash > 0) {
-                  doc.text(`Pago en efectivo: ${formatCOP(cash)}`, 400, currentY + 6);
+                  doc.text(`Pago en efectivo: ${formatCOP(cash)}`, 400, currentY + 6, { align: "right", width: 150 });
               } else if (transfer > 0) {
-                  doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}: ${formatCOP(transfer)}`, 400, currentY + 6);
+                  doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}: ${formatCOP(transfer)}`, 400, currentY + 6, { align: "right", width: 150 });
               }
           }
 
@@ -1028,7 +1037,7 @@
           if (change > 0 && !isCredit) {
             let offset = 22;
             if (cash > 0 && transfer > 0) offset = 38;
-            doc.text(`Cambio entregado: ${formatCOP(change)}`, 400, doc.y + offset);
+            doc.text(`Cambio entregado: ${formatCOP(change)}`, 400, doc.y + offset, { align: "right", width: 150 });
           }
 
           doc.end();
@@ -1247,14 +1256,14 @@
             });
             if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
 
-            const doc = new PDFDocument({ margin: 40, size: "A4" });
+            const doc = new PDFDocument({ margin: 50, size: "A4" });
             const stream = fs.createWriteStream(filePath);
             doc.pipe(stream);
 
-            renderPdfHeader(doc, company, `Cotización ${quote.quote_number || String(id).padStart(3, "0")}`);
+            renderPdfHeader(doc, company, "COTIZACIÓN", quote.quote_number || `No. ${String(id).padStart(3, "0")}`, quote.quote_date ? quote.quote_date.split(" ")[0] : "");
 
             if (client) {
-                doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 40, doc.y + 10);
+                doc.fontSize(11).font("Helvetica-Bold").text("Cliente:", 50, doc.y + 10);
                 doc.font("Helvetica").fontSize(10);
                 doc.text(`Nombre: ${client.name || ""}`);
                 doc.text(`NIT/Cédula: ${client.id_card_or_nit || ""}`);
@@ -1265,15 +1274,13 @@
             }
 
             let y = doc.y + 10;
-            doc.fontSize(11).font("Helvetica-Bold");
-            doc.text("#", 40, y, { width: 25 });
-            doc.text("Nombre", 75, y, { width: 255 });
-            doc.text("Precio", 330, y, { align: "right", width: 80 });
-            doc.text("Cant.", 420, y, { align: "right", width: 50 });
-            doc.text("Subtotal", 480, y, { align: "right", width: 70 });
-            y += 18;
-            doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
-
+            y = drawTableHeaders(doc, y, [
+                { text: "#", x: 50, width: 25 },
+                { text: "Nombre", x: 80, width: 250 },
+                { text: "Precio", x: 340, width: 80, align: "right" },
+                { text: "Cant.", x: 430, width: 50, align: "right" },
+                { text: "Subtotal", x: 490, width: 70, align: "right" }
+            ]);
             doc.font("Helvetica").fontSize(9);
             let idx = 1;
             for (const it of items) {
@@ -1284,24 +1291,22 @@
                 if (y + lineHeight > doc.page.height - doc.page.margins.bottom - 40) {
                     doc.addPage();
                     y = 40;
-                    doc.fontSize(11).font("Helvetica-Bold");
-                    doc.text("#", 40, y, { width: 25 });
-                    doc.text("Nombre", 75, y, { width: 255 });
-                    doc.text("Precio", 330, y, { align: "right", width: 80 });
-                    doc.text("Cant.", 420, y, { align: "right", width: 50 });
-                    doc.text("Subtotal", 480, y, { align: "right", width: 70 });
-                    y += 18;
-                    doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+                    y = drawTableHeaders(doc, y, [
+                        { text: "#", x: 50, width: 25 },
+                        { text: "Nombre", x: 80, width: 250 },
+                        { text: "Precio", x: 340, width: 80, align: "right" },
+                        { text: "Cant.", x: 430, width: 50, align: "right" },
+                        { text: "Subtotal", x: 490, width: 70, align: "right" }
+                    ]);
                     doc.font("Helvetica").fontSize(9);
-                    y += 10;
                 }
 
                 const currentY = y;
-                doc.text(String(idx), 40, currentY, { width: 25 });
-                doc.text(productText, 75, currentY, { width: 255 });
-                doc.text(formatCOP(it.price), 330, currentY, { align: "right", width: 80 });
-                doc.text(String(it.quantity), 420, currentY, { align: "right", width: 50 });
-                doc.text(formatCOP(it.subtotal), 480, currentY, { align: "right", width: 70 });
+                doc.text(String(idx), 50, currentY, { width: 25 });
+                doc.text(productText, 80, currentY, { width: 250 });
+                doc.text(formatCOP(it.price), 340, currentY, { align: "right", width: 80 });
+                doc.text(String(it.quantity), 430, currentY, { align: "right", width: 50 });
+                doc.text(formatCOP(it.subtotal), 490, currentY, { align: "right", width: 70 });
                 y += lineHeight;
                 idx++;
             }
@@ -1312,11 +1317,11 @@
 
             doc.moveDown(1);
             if (includeIva) {
-                doc.fontSize(10).text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 6);
-                doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 22);
-                doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 42);
+                doc.fontSize(10).text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 6, { align: "right", width: 150 });
+                doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 22, { align: "right", width: 150 });
+                doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 42, { align: "right", width: 150 });
             } else {
-                doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 10);
+                doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 10, { align: "right", width: 150 });
             }
 
             doc.end();
@@ -1351,31 +1356,28 @@
                     });
                     if (canceled || !filePath) return { success: false, message: "No se seleccionó archivo" };
 
-                    const doc = new PDFDocument({ margin: 40, size: "A4" });
+                    const doc = new PDFDocument({ margin: 50, size: "A4" });
                     const stream = fs.createWriteStream(filePath);
                     doc.pipe(stream);
 
-                    renderPdfHeader(doc, company, "Reporte de Inventario");
+                    renderPdfHeader(doc, company, "REPORTE DE INVENTARIO", "", new Date().toLocaleDateString());
 
                     let y = doc.y + 10;
-                    doc.fontSize(11).font("Helvetica-Bold");
-                    doc.text("Código", 40, y, { width: 60 });
-                    doc.text("Nombre", 110, y, { width: 160 });
-                    doc.text("Categoría", 280, y, { width: 100 });
-                    doc.text("Costo", 390, y, { width: 60, align: "right" });
-                    doc.text("Venta", 460, y, { width: 60, align: "right" });
-                    doc.text("Stock", 530, y, { width: 40, align: "right" });
-                    y += 18;
-                    doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+                    y = drawTableHeaders(doc, y, [
+                        { text: "Código", x: 50, width: 60 },
+                        { text: "Nombre", x: 120, width: 160 },
+                        { text: "Categoría", x: 290, width: 100 },
+                        { text: "Venta", x: 400, width: 80, align: "right" },
+                        { text: "Stock", x: 490, width: 60, align: "right" }
+                    ]);
 
                     doc.font("Helvetica").fontSize(10);
                     for (const p of products) {
-                        doc.text(p.code || "", 40, y, { width: 60 });
-                        doc.text(p.name || "", 110, y, { width: 160 });
-                        doc.text(p.category || "", 280, y, { width: 100 });
-                        doc.text(formatCOP(p.purchase_price || 0), 390, y, { width: 60, align: "right" });
-                        doc.text(formatCOP(p.sale_price || 0), 460, y, { width: 60, align: "right" });
-                        doc.text(String(p.stock || 0), 530, y, { width: 40, align: "right" });
+                        doc.text(p.code || "", 50, y, { width: 60 });
+                        doc.text(p.name || "", 120, y, { width: 160 });
+                        doc.text(p.category || "", 290, y, { width: 100 });
+                        doc.text(formatCOP(p.sale_price || 0), 400, y, { width: 80, align: "right" });
+                        doc.text(String(p.stock || 0), 490, y, { width: 60, align: "right" });
                         y += 28;
                         if (y > 700) { doc.addPage(); y = 40; }
                     }
@@ -1383,7 +1385,7 @@
                     // --- Agregar el valor total del inventario al PDF ---
                     doc.moveDown(2);
                     doc.font("Helvetica-Bold").fontSize(12);
-                    doc.text("Valor Total del Inventario (Precio Venta):", 40, doc.y, { align: "right" });
+                    doc.text("Valor Total del Inventario (Precio Venta):", 50, doc.y, { align: "right", width: 300 });
                     doc.font("Helvetica").fontSize(12).text(formatCOP(totalInventoryValue), { align: "right" });
 
                     doc.end();
@@ -1472,14 +1474,14 @@
 
       if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
 
-      const doc = new PDFDocument({ margin: 40, size: "A4" });
+      const doc = new PDFDocument({ margin: 50, size: "A4" });
       const stream = fs.createWriteStream(filePath);
       doc.pipe(stream);
 
-      renderPdfHeader(doc, company, `Orden de Compra #${order.po_number || order.id}`);
+      renderPdfHeader(doc, company, "ORDEN DE COMPRA", order.po_number || `No. ${order.id}`, order.order_date ? order.order_date.split(" ")[0] : "");
 
       // Datos del proveedor
-      doc.fontSize(11).font("Helvetica-Bold").text("Proveedor:", 40, doc.y + 10);
+      doc.fontSize(11).font("Helvetica-Bold").text("Proveedor:", 50, doc.y + 10);
       doc.font("Helvetica").fontSize(10);
       doc.text(`Nombre: ${order.supplier_name || ""}`);
       doc.text(`Dirección: ${order.supplier_address || ""}`);
@@ -1488,18 +1490,17 @@
 
       // Notas de la orden
       if (order.notes) {
-        doc.fontSize(10).font("Helvetica-Oblique").text(`Nota: ${order.notes}`, 40, doc.y, { width: 500 });
+        doc.fontSize(10).font("Helvetica-Oblique").text(`Nota: ${order.notes}`, 50, doc.y, { width: 500 });
         doc.moveDown(1);
       }
 
       let y = doc.y + 10;
-      doc.fontSize(11).font("Helvetica-Bold");
-      doc.text("Producto", 40, y, { width: 280 });
-      doc.text("Cant.", 320, y, { align: "right", width: 70 });
-      doc.text("Precio Unit.", 390, y, { align: "right", width: 85 });
-      doc.text("Subtotal", 475, y, { align: "right", width: 80 });
-      y += 18;
-      doc.moveTo(40, y - 4).lineTo(555, y - 4).stroke();
+      y = drawTableHeaders(doc, y, [
+          { text: "Producto", x: 50, width: 280 },
+          { text: "Cant.", x: 340, width: 60, align: "right" },
+          { text: "Precio Unit.", x: 410, width: 70, align: "right" },
+          { text: "Subtotal", x: 490, width: 70, align: "right" }
+      ]);
 
       doc.font("Helvetica").fontSize(10);
       for (const it of order.items) {
@@ -1508,14 +1509,14 @@
           doc.addPage();
           y = 40;
         }
-        doc.text(it.product_name || "-", 40, y, { width: 280 });
-        doc.text(String(it.quantity), 320, y, { align: "right", width: 70 });
-        doc.text(formatCOP(it.price), 390, y, { align: "right", width: 85 });
-        doc.text(formatCOP(it.subtotal), 475, y, { align: "right", width: 80 });
+        doc.text(it.product_name || "-", 50, y, { width: 280 });
+        doc.text(String(it.quantity), 340, y, { align: "right", width: 60 });
+        doc.text(formatCOP(it.price), 410, y, { align: "right", width: 70 });
+        doc.text(formatCOP(it.subtotal), 490, y, { align: "right", width: 70 });
         y += productHeight + 5;
       }
 
-      doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(order.total_amount)}`, 400, y + 20, { align: "right" });
+      doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(order.total_amount)}`, 400, y + 20, { align: "right", width: 160 });
 
       doc.end();
       await new Promise((res, rej) => {
