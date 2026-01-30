@@ -1557,8 +1557,13 @@ function receivePurchaseOrder(orderId) {
 
 function deletePurchaseOrder(id) {
   try {
-    db.prepare("DELETE FROM purchase_order_items WHERE purchase_order_id = ?").run(id);
-    db.prepare("DELETE FROM purchase_orders WHERE id = ?").run(id);
+    const trx = db.transaction((orderId) => {
+      // Eliminar pagos asociados primero para evitar error de Foreign Key
+      db.prepare("DELETE FROM purchase_payments WHERE purchase_order_id = ?").run(orderId);
+      db.prepare("DELETE FROM purchase_order_items WHERE purchase_order_id = ?").run(orderId);
+      db.prepare("DELETE FROM purchase_orders WHERE id = ?").run(orderId);
+    });
+    trx(id);
     return { success: true, message: "Orden de compra eliminada" };
   } catch (err) {
     return { success: false, message: String(err) };
