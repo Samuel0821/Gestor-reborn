@@ -131,6 +131,15 @@
 
   // ---------- REGISTRAR MANEJADORES IPC ----------
 
+  function drawLine(doc, y) {
+    doc
+      .strokeColor("#aaaaaa")
+      .lineWidth(1)
+      .moveTo(50, y)
+      .lineTo(550, y)
+      .stroke();
+  }
+
   function registerIpcHandlers() {
       // Clientes
       ipcMain.handle("get-clients", () => db.getClients());
@@ -1054,60 +1063,152 @@
           });
           if (canceled || !filePath) return { success: false, message: "Exportación cancelada" };
 
-          const doc = new PDFDocument({ margin: 40, size: "A4" }); // Tamaño carta/A4 para recibo formal
+          const doc = new PDFDocument({ margin: 50, size: "A4" });
           const stream = fs.createWriteStream(filePath);
           doc.pipe(stream);
 
-          // Encabezado
-          renderPdfHeader(doc, company, "RECIBO DE CAJA");
+          // Variables de posición
+          let y = 50; // Posición vertical inicial
+          const xLeft = 50;
+          const xCol1 = 160; // Columna de datos
+          const xRight = 350; // Columna derecha (Encabezado recibo)
 
-          // Caja del recibo
-          const boxTop = doc.y + 10;
-          doc.rect(40, boxTop, 515, 250).stroke();
+          /* ================= ENCABEZADO ================= */
           
-          let y = boxTop + 20;
-          const leftX = 60;
-          const valueX = 160;
-
-          // Número y Fecha
-          doc.fontSize(12).font("Helvetica-Bold").fillColor("red");
-          doc.text(`No. ${receiptNumber}`, 400, y);
-          doc.fillColor("black").font("Helvetica");
-          doc.text(`Fecha: ${sale.sale_date}`, 400, y + 20);
-
-          // Datos del recibo
-          doc.fontSize(11).font("Helvetica-Bold");
-          doc.text("Recibido de:", leftX, y);
-          doc.font("Helvetica").text(clientName, valueX, y);
-          
-          if (client && client.id_card_or_nit) {
-            y += 20;
-            doc.font("Helvetica-Bold").text("NIT/CC:", leftX, y);
-            doc.font("Helvetica").text(client.id_card_or_nit, valueX, y);
+          // Logo (Si existe)
+          if (company.logo_path && fs.existsSync(company.logo_path)) {
+            try {
+              doc.image(company.logo_path, xLeft, y, { width: 60 });
+            } catch(e) {}
           }
-          y += 30;
 
-          const totalPaid = (sale.cash_payment || 0) + (sale.transfer_payment || 0);
-          const valueInWords = numeroALetras(totalPaid);
+          // Datos de la Empresa (Lado Izquierdo - al lado del logo)
+          const textX = xLeft + 70;
+          doc.font("Helvetica-Bold").fontSize(12).text(company.company_name || "", textX, y);
+          doc.font("Helvetica").fontSize(9).text(`NIT: ${company.company_id_card_or_nit || ""}`, textX, y + 15);
+          doc.text(company.company_address || "Dirección Principal", textX, y + 27);
+          doc.text(`Tel: ${company.company_phone || ""} ${company.company_email ? "| " + company.company_email : ""}`, textX, y + 39);
 
-          doc.font("Helvetica-Bold").text("La suma de:", leftX, y);
-          doc.font("Helvetica-Oblique").text(valueInWords, valueX, y, { width: 350 });
-          doc.font("Helvetica-Bold").text(`${formatCOP(totalPaid).replace(/\$/g, '').trim()} COP`, 450, y); // Valor numérico a la derecha
-          y += 30;
+          // Datos del Recibo (Lado Derecho)
+          let yHeaderRight = 50; 
+          doc.font("Helvetica-Bold").fontSize(14).text(`RECIBO DE CAJA`, xRight, yHeaderRight, { align: "right", width: 200 });
+          doc.fontSize(12).text(`No. ${receiptNumber}`, xRight, yHeaderRight + 20, { align: "right", width: 200 });
+          
+          doc.font("Helvetica").fontSize(9);
+          doc.text(`Fecha: ${sale.sale_date}`, xRight, yHeaderRight + 40, { align: "right", width: 200 });
+          doc.text(`Página: 1 de 1`, xRight, yHeaderRight + 52, { align: "right", width: 200 });
 
-          doc.font("Helvetica-Bold").text("Por concepto de:", leftX, y);
-          doc.font("Helvetica").text(`Pago de Factura de Venta No. ${sale.invoice_number || sale.id}`, valueX, y);
-          y += 30;
+          y = 110; 
+          drawLine(doc, y);
 
-          doc.font("Helvetica-Bold").text("Forma de pago:", leftX, y);
-          const paymentMethod = (sale.cash_payment > 0 && sale.transfer_payment > 0) ? "Mixto (Efectivo/Transf)" : (sale.cash_payment > 0 ? "Efectivo" : "Transferencia");
-          doc.font("Helvetica").text(paymentMethod, valueX, y);
-          y += 40;
+          /* ================= INFORMACIÓN GENERAL ================= */
+          y += 15;
+          const lineHeight = 16;
 
-          // Firma
-          doc.moveTo(60, y + 40).lineTo(250, y + 40).stroke();
-          doc.fontSize(10).text(`Recibido por: ${receivedBy || 'Administración'}`, 60, y + 45);
-          doc.text("Firma y Sello", 60, y + 58);
+          // Fila 1: Recibimos de
+          doc.font("Helvetica-Bold").fontSize(10).text("Recibimos de:", xLeft, y);
+          doc.font("Helvetica").text(clientName, xCol1, y);
+          
+          // Fila 2: NIT / CC
+          y += lineHeight;
+          doc.font("Helvetica-Bold").text("NIT / CC:", xLeft, y);
+          doc.font("Helvetica").text(client ? (client.id_card_or_nit || "—") : "—", xCol1, y);
+
+          y += 8;
+          drawLine(doc, y + 10);
+          y += 20;
+
+          // Fila 3: Concepto
+          doc.font("Helvetica-Bold").text("Concepto:", xLeft, y);
+          doc.font("Helvetica").text(`Pago de Factura de Venta No. ${sale.invoice_number || sale.id}`, xCol1, y);
+
+          // Fila 4: Caja
+          y += lineHeight;
+          doc.font("Helvetica-Bold").text("Caja:", xLeft, y);
+          doc.font("Helvetica").text("Caja Principal", xCol1, y);
+
+          // Fila 5: Factura Referencia
+          y += lineHeight;
+          doc.font("Helvetica-Bold").text("Factura:", xLeft, y);
+          doc.font("Helvetica").text(sale.invoice_number || `POS-${sale.id}`, xCol1, y);
+
+          y += 8;
+          drawLine(doc, y + 10);
+
+          /* ================= TABLA DE DETALLE ================= */
+          y += 25;
+          
+          doc.font("Helvetica-Bold").fontSize(10).text("DETALLE DE PAGO", xLeft, y);
+          y += 15;
+          
+          // Encabezados
+          doc.rect(xLeft, y, 500, 20).fillColor("#f0f0f0").fill();
+          doc.fillColor("#000000");
+
+          const colY = y + 6;
+          const col1 = 60;  // Fecha
+          const col2 = 160; // Medio
+          const col3 = 300; // Documento
+          const col4 = 540; // Valor (Right aligned anchor)
+
+          doc.font("Helvetica-Bold").fontSize(9);
+          doc.text("Fecha", col1, colY);
+          doc.text("Medio", col2, colY);
+          doc.text("Documento", col3, colY);
+          doc.text("Valor", col4 - 100, colY, { width: 100, align: "right" });
+
+          y += 20; 
+
+          // Usar paid_amount para reflejar el valor real ingresado (sin cambio)
+          const totalPaid = sale.paid_amount || 0;
+          
+          let paymentMethod = "Efectivo";
+          if (sale.cash_payment > 0 && sale.transfer_payment > 0) paymentMethod = "Mixto";
+          else if (sale.transfer_payment > 0) paymentMethod = "Transferencia";
+
+          doc.font("Helvetica").fontSize(9);
+          doc.text(sale.sale_date.split(" ")[0], col1, y + 5);
+          doc.text(paymentMethod, col2, y + 5);
+          doc.text("-", col3, y + 5);
+          doc.text(formatCOP(totalPaid), col4 - 100, y + 5, { width: 100, align: "right" });
+
+          y += 25;
+          drawLine(doc, y);
+
+          /* ================= TOTALES ================= */
+          y += 15;
+
+          doc.font("Helvetica-Bold").fontSize(11);
+          doc.text("TOTAL RECIBIDO:", 300, y);
+          doc.text(formatCOP(totalPaid), col4 - 100, y, { width: 100, align: "right" });
+
+          y += 20;
+          doc.font("Helvetica-Oblique").fontSize(9);
+          const totalLetras = numeroALetras(totalPaid);
+          doc.text(`En letras: ${totalLetras}`, xLeft, y);
+
+          y += 10;
+          drawLine(doc, y + 10);
+
+          /* ================= OBSERVACIONES ================= */
+          y += 25;
+          doc.font("Helvetica-Bold").fontSize(9).text("Observaciones:", xLeft, y);
+          doc.font("Helvetica").text(sale.notes || "Sin observaciones adicionales.", xLeft, y + 12);
+
+          /* ================= FIRMAS ================= */
+          y = y + 80; 
+          
+          doc.moveTo(xLeft, y).lineTo(220, y).stroke();
+          doc.moveTo(330, y).lineTo(500, y).stroke();
+
+          y += 5;
+          doc.font("Helvetica").fontSize(8);
+          
+          doc.text("Revisado por:", xLeft, y);
+          doc.text(receivedBy || "Administrador", xLeft, y + 10, { width: 170, align: "center" });
+
+          doc.text("Firma y Sello", 330, y);
+          doc.text("Empresa / Cajero", 330, y + 10, { width: 170, align: "center" });
 
           doc.end();
           await new Promise((res, rej) => { stream.on("finish", res); stream.on("error", rej); });
