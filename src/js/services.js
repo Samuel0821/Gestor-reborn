@@ -72,15 +72,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.body.insertBefore(appWrapper, document.body.firstChild);
     // --- FIN LOGICA LAYOUT ERP ---
 
-    document.getElementById('logout-btn').addEventListener('click', async () => {
-      const result = await Swal.fire({
-        title: '¿Cerrar sesión?',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Sí, cerrar sesión',
-        cancelButtonText: 'Cancelar'
-      });
-      if (result.isConfirmed) {
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      if(confirm('¿Cerrar sesión?')) {
         ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
         window.location.href = 'login.html';
       }

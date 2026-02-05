@@ -191,10 +191,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       let price = prod.sale_price;
       let productName = prod.name;
+      let selectedVariant = null;
 
       if (selectedOption.value !== "base") {
         const variantId = Number(selectedOption.value);
-        const selectedVariant = prod.variants.find(v => v.id === variantId);
+        selectedVariant = prod.variants.find(v => v.id === variantId);
         if (selectedVariant) {
           price = selectedVariant.sale_price;
           // Agregamos la variante al nombre
@@ -202,14 +203,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
-      addItemToQuote(prod, qty, price, productName);
+      addItemToQuote(prod, qty, price, productName, selectedVariant);
       modal.hide();
     });
   }
 
   // Función para agregar ítems a la cotización
   
-  function addItemToQuote(prod, qty, price, productNameOverride = null) {
+  function addItemToQuote(prod, qty, price, productNameOverride = null, variant = null) {
+    // Calcular costo proporcional
+    let purchasePrice = prod ? (prod.purchase_price || 0) : 0;
+    if (variant && variant.conversion_factor) {
+        purchasePrice = purchasePrice * variant.conversion_factor;
+    }
+
     quoteItems.push({
       product_id: prod ? prod.id : null,
       product_code: prod ? prod.code : 'SERV',
@@ -219,7 +226,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       sale_price: prod ? prod.sale_price : price,
       special_price: prod ? prod.special_price : 0,
       subtotal: price * qty,
-      is_service: !prod // Marcar si es un servicio
+      is_service: !prod, // Marcar si es un servicio
+      purchase_price: purchasePrice,
+      variant_id: variant ? variant.id : null
     });
     renderQuoteItems();
   }

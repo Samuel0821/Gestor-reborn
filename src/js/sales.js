@@ -428,6 +428,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     let itemName = variant ? `${prod.name} (${variant.name})` : prod.name;
     let variantId = variant ? variant.id : null;
 
+    // Calcular costo proporcional basado en el factor de conversión
+    let purchasePrice = prod.purchase_price || 0;
+    if (variant && variant.conversion_factor) {
+        purchasePrice = purchasePrice * variant.conversion_factor;
+    }
+
     const existingItemIndex = saleItems.findIndex(i => 
       i.product_id === prod.id && i.variant_id === variantId
     );
@@ -445,7 +451,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         sale_price: prod.sale_price,
         special_price: prod.special_price,
         subtotal: itemPrice * qty,
-        variant_id: variantId
+        variant_id: variantId,
+        purchase_price: purchasePrice
       });
     }
 
