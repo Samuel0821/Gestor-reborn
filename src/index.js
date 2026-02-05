@@ -32,6 +32,13 @@
 
     // Siempre iniciar en login.html
     mainWindow.loadFile(path.join(__dirname, "views", "login.html"));
+
+    // Manejar enlaces externos para que se abran en el navegador
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      shell.openExternal(url);
+      return { action: 'deny' };
+    });
+
     mainWindow.on("closed", () => {
       mainWindow = null;
     });

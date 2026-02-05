@@ -31,6 +31,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
         <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
       </nav>
+      <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
+        © 2026 GestorFX | Desarrollado por <a href="https://www.grisalistech.com" target="_blank" style="color: rgba(255,255,255,0.8); text-decoration: none;">Grisalis Technologies</a>
+      </div>
     `;
 
     // Main Content Wrapper
@@ -69,8 +72,15 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.insertBefore(appWrapper, document.body.firstChild);
     // --- FIN LOGICA LAYOUT ERP ---
 
-    document.getElementById('logout-btn').addEventListener('click', () => {
-      if(confirm('¿Cerrar sesión?')) {
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      const result = await Swal.fire({
+        title: '¿Cerrar sesión?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, cerrar sesión',
+        cancelButtonText: 'Cancelar'
+      });
+      if (result.isConfirmed) {
         ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
         window.location.href = 'login.html';
       }
@@ -87,21 +97,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById("exportExcelBtn")?.addEventListener("click", async () => {
       const res = await window.api.exportSuppliersExcel();
-      showAlert(res.success ? "success" : "danger", res.message);
+      Swal.fire(res.success ? 'Éxito' : 'Error', res.message, res.success ? 'success' : 'error');
   });
 
   document.getElementById("exportPdfBtn")?.addEventListener("click", async () => {
       const res = await window.api.exportSuppliersPDF();
-      showAlert(res.success ? "success" : "danger", res.message);
+      Swal.fire(res.success ? 'Éxito' : 'Error', res.message, res.success ? 'success' : 'error');
   });
-
-  function showAlert(type, message) {
-      const alertContainer = document.querySelector('.container');
-      const alertDiv = document.createElement('div');
-      alertDiv.className = `alert alert-${type} alert-dismissible fade show mt-3`;
-      alertDiv.innerHTML = `<i class="fa fa-info-circle me-2"></i>${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-      alertContainer.prepend(alertDiv);
-  }
 
   const form = document.getElementById('supplier-form');
   const idInput = document.getElementById('supplier-id');
@@ -151,10 +153,21 @@ document.addEventListener('DOMContentLoaded', () => {
       window.scrollTo(0, 0);
     }));
     table.querySelectorAll('.del').forEach(b => b.addEventListener('click', async (e) => {
-      if (!confirm('¿Realmente deseas eliminar este proveedor?')) return;
-      const id = Number(e.currentTarget.dataset.id);
-      await window.api.deleteSupplier(id);
-      loadSuppliers();
+      const id = Number(e.currentTarget.dataset.id); // Capturar el ID antes del await
+      const result = await Swal.fire({
+        title: '¿Eliminar proveedor?',
+        text: "Esta acción no se puede deshacer.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        confirmButtonText: 'Sí, eliminar',
+        cancelButtonText: 'Cancelar'
+      });
+      if (result.isConfirmed) {
+        await window.api.deleteSupplier(id);
+        loadSuppliers();
+        Swal.fire('Eliminado', 'El proveedor ha sido eliminado.', 'success');
+      }
     }));
   }
 
@@ -169,14 +182,16 @@ document.addEventListener('DOMContentLoaded', () => {
       phone: phoneInput.value.trim()
     };
     if (!payload.name) {
-      alert('El nombre del proveedor es obligatorio.');
+      Swal.fire('Atención', 'El nombre del proveedor es obligatorio.', 'warning');
       return;
     }
 
     if (payload.id) {
       await window.api.updateSupplier(payload);
+      Swal.fire({ icon: 'success', title: 'Proveedor actualizado', timer: 1500, showConfirmButton: false });
     } else {
       await window.api.saveSupplier(payload);
+      Swal.fire({ icon: 'success', title: 'Proveedor creado', timer: 1500, showConfirmButton: false });
     }
     form.reset();
     idInput.value = '';

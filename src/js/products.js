@@ -31,6 +31,9 @@ document.addEventListener('DOMContentLoaded', () => {
             <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
             <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
           </nav>
+          <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
+            © 2026 GestorFX | Desarrollado por <a href="https://www.grisalistech.com" target="_blank" style="color: rgba(255,255,255,0.8); text-decoration: none;">Grisalis Technologies</a>
+          </div>
         `;
 
         // Main Content Wrapper
@@ -69,8 +72,15 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.insertBefore(appWrapper, document.body.firstChild);
         // --- FIN LOGICA LAYOUT ERP ---
 
-        document.getElementById('logout-btn').addEventListener('click', () => {
-            if(confirm('¿Cerrar sesión?')) {
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            const result = await Swal.fire({
+                title: '¿Cerrar sesión?',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, cerrar sesión',
+                cancelButtonText: 'Cancelar'
+            });
+            if (result.isConfirmed) {
                 ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
                 window.location.href = 'login.html';
             }
@@ -88,12 +98,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Exportar inventario
     document.getElementById("exportExcelBtn")?.addEventListener("click", async () => {
         const res = await window.api.exportInventoryExcel();
-        showAlert(res.success ? "success" : "danger", res.message);
+        Swal.fire(res.success ? 'Éxito' : 'Error', res.message, res.success ? 'success' : 'error');
     });
 
     document.getElementById("exportPdfBtn")?.addEventListener("click", async () => {
         const res = await window.api.exportInventoryPDF();
-        showAlert(res.success ? "success" : "danger", res.message);
+        Swal.fire(res.success ? 'Éxito' : 'Error', res.message, res.success ? 'success' : 'error');
     });
 
     
@@ -106,20 +116,6 @@ document.addEventListener('DOMContentLoaded', () => {
             currency: "COP",
             minimumFractionDigits: 0,
         }).format(Math.round(num));
-    }
-
-    function showAlert(type, message) {
-        let alertDiv = document.getElementById('inventory-alert');
-        if (!alertDiv) {
-            alertDiv = document.createElement('div');
-            alertDiv.id = 'inventory-alert';
-            alertDiv.className = 'mt-3';
-            document.querySelector('.card').before(alertDiv);
-        }
-        alertDiv.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">
-            <i class="fa fa-info-circle me-2"></i>${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>`;
     }
 
     
@@ -212,10 +208,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // --- Eliminar producto ---
             tr.querySelector('.del').addEventListener('click', async () => {
-                if (!confirm('¿Eliminar producto?')) return;
-                await window.api.deleteProduct(p.id);
-                await loadProducts();
-                await loadCategories();
+                const result = await Swal.fire({
+                    title: '¿Eliminar producto?',
+                    text: "Esta acción no se puede deshacer.",
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    confirmButtonText: 'Sí, eliminar'
+                });
+                if (result.isConfirmed) {
+                    await window.api.deleteProduct(p.id);
+                    await loadProducts();
+                    await loadCategories();
+                    Swal.fire('Eliminado', 'El producto ha sido eliminado.', 'success');
+                }
             });
         });
     }
@@ -341,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         
         if (!payload.code || !payload.name) {
-            alert('Código y nombre obligatorios');
+            Swal.fire('Atención', 'Código y nombre obligatorios', 'warning');
             return;
         }
 
@@ -352,9 +358,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     codeErrorMessageSpan.textContent = 'El código ya existe';
                     return;
                 }
-                alert(res.message);
+                Swal.fire('Error', res.message, 'error');
                 return;
             }
+            Swal.fire({ icon: 'success', title: 'Producto actualizado', timer: 1500, showConfirmButton: false });
             cancelBtn.style.display = 'none';
         } else {
             const res = await window.api.addProduct(payload);
@@ -363,9 +370,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     codeErrorMessageSpan.textContent = 'El código ya existe';
                     return;
                 }
-                alert(res.message);
+                Swal.fire('Error', res.message, 'error');
                 return;
             }
+            Swal.fire({ icon: 'success', title: 'Producto creado', timer: 1500, showConfirmButton: false });
         }
         form.reset();
         idInput.value = '';

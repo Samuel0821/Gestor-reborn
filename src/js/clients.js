@@ -31,6 +31,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
         <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
       </nav>
+      <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
+        © 2026 GestorFX | Desarrollado por <a href="https://www.grisalistech.com" target="_blank" style="color: rgba(255,255,255,0.8); text-decoration: none;">Grisalis Technologies</a>
+      </div>
     `;
 
     // Main Content Wrapper
@@ -69,8 +72,15 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.insertBefore(appWrapper, document.body.firstChild);
     // --- FIN LOGICA LAYOUT ERP ---
 
-    document.getElementById('logout-btn').addEventListener('click', () => {
-      if(confirm('¿Cerrar sesión?')) {
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      const result = await Swal.fire({
+        title: '¿Cerrar sesión?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, cerrar sesión',
+        cancelButtonText: 'Cancelar'
+      });
+      if (result.isConfirmed) {
         ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
         window.location.href = 'login.html';
       }
@@ -132,10 +142,20 @@ document.addEventListener('DOMContentLoaded', () => {
       cancelBtn.style.display = 'inline-block';
     }));
     table.querySelectorAll('.del').forEach(b => b.addEventListener('click', async (e) => {
-      if (!confirm('¿Eliminar cliente?')) return;
-      const id = Number(e.target.dataset.id);
-      await window.api.deleteClient(id);
-      loadClients();
+      const id = Number(e.currentTarget.dataset.id); // Capturar ID antes del await
+      const result = await Swal.fire({
+        title: '¿Eliminar cliente?',
+        text: "Esta acción no se puede deshacer.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        confirmButtonText: 'Sí, eliminar'
+      });
+      if (result.isConfirmed) {
+        await window.api.deleteClient(id);
+        loadClients();
+        Swal.fire('Eliminado', 'El cliente ha sido eliminado.', 'success');
+      }
     }));
   }
 
@@ -149,14 +169,22 @@ document.addEventListener('DOMContentLoaded', () => {
       email: emailInput.value.trim(),
       phone: phoneInput.value.trim()
     };
-    if (!payload.name || !payload.id_card_or_nit) { alert('Nombre y NIT son obligatorios'); return; }
+    if (!payload.name || !payload.id_card_or_nit) { 
+      Swal.fire('Atención', 'Nombre y NIT/Cédula son obligatorios.', 'warning'); 
+      return; 
+    }
 
     if (payload.id) {
       await window.api.updateClient(payload);
+      Swal.fire({ icon: 'success', title: 'Cliente actualizado', timer: 1500, showConfirmButton: false });
       cancelBtn.style.display = 'none';
     } else {
       const res = await window.api.saveClient(payload);
-      if (!res.success) { alert(res.message); return; }
+      if (!res.success) { 
+        Swal.fire('Error', res.message, 'error');
+        return; 
+      }
+      Swal.fire({ icon: 'success', title: 'Cliente creado', timer: 1500, showConfirmButton: false });
     }
     form.reset();
     idInput.value = '';

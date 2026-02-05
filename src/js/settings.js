@@ -31,6 +31,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
         <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
       </nav>
+      <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
+        © 2026 GestorFX | Desarrollado por <a href="https://www.grisalistech.com" target="_blank" style="color: rgba(255,255,255,0.8); text-decoration: none;">Grisalis Technologies</a>
+      </div>
     `;
 
     // Main Content Wrapper
@@ -69,8 +72,15 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.insertBefore(appWrapper, document.body.firstChild);
     // --- FIN LOGICA LAYOUT ERP ---
 
-    document.getElementById('logout-btn').addEventListener('click', () => {
-      if(confirm('¿Cerrar sesión?')) {
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      const result = await Swal.fire({
+        title: '¿Cerrar sesión?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, cerrar sesión',
+        cancelButtonText: 'Cancelar'
+      });
+      if (result.isConfirmed) {
         ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
         window.location.href = 'login.html';
       }
@@ -208,11 +218,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     usersTable.querySelectorAll('.del-user').forEach(btn => {
       btn.addEventListener('click', async (e) => {
-        if (!confirm('¿Eliminar usuario?')) return;
+        const result = await Swal.fire({
+            title: '¿Eliminar usuario?',
+            text: "Esta acción no se puede deshacer.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            confirmButtonText: 'Sí, eliminar'
+        });
+        if (!result.isConfirmed) return;
         const id = e.currentTarget.dataset.id;
         const res = await window.api.deleteUser(id);
+        Swal.fire(res.success ? 'Eliminado' : 'Error', res.message, res.success ? 'success' : 'error');
         if (res.success) loadUsers();
-        else alert(res.message);
       });
     });
 
@@ -248,12 +266,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const role = document.getElementById('user-role').value;
 
       if (!username) {
-        alert("El usuario es obligatorio");
+        Swal.fire('Atención', "El nombre de usuario es obligatorio.", 'warning');
         return;
       }
       // Si es nuevo, password es obligatorio
       if (!id && !password) {
-        alert("La contraseña es obligatoria para nuevos usuarios");
+        Swal.fire('Atención', "La contraseña es obligatoria para nuevos usuarios.", 'warning');
         return;
       }
 
@@ -265,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       if (res.success) {
-        alert(id ? "Usuario actualizado" : "Usuario creado");
+        Swal.fire('Éxito', id ? "Usuario actualizado" : "Usuario creado", 'success');
         
         // Si se actualizó el usuario actual, refrescar la cabecera y localStorage
         const currentUserId = localStorage.getItem('user_id');
@@ -279,8 +297,15 @@ document.addEventListener('DOMContentLoaded', () => {
                   <small class="me-3"><i class="fa fa-user-circle me-1"></i> ${newDisplayName} | <strong>${role === 'admin' ? 'Administrador' : 'Usuario'}</strong></small>
                   <button id="logout-btn" class="btn btn-sm btn-outline-danger" style="font-size: 0.75rem; padding: 2px 6px;"><i class="fa fa-sign-out-alt"></i> Salir</button>
                 `;
-                document.getElementById('logout-btn').addEventListener('click', () => {
-                  if(confirm('¿Cerrar sesión?')) {
+                document.getElementById('logout-btn').addEventListener('click', async () => {
+                  const result = await Swal.fire({
+                    title: '¿Cerrar sesión?',
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: 'Sí, cerrar sesión',
+                    cancelButtonText: 'Cancelar'
+                  });
+                  if (result.isConfirmed) {
                     ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
                     window.location.href = 'login.html';
                   }
@@ -294,7 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
         userCancelBtn.style.display = 'none';
         loadUsers();
       } else {
-        alert("Error: " + res.message);
+        Swal.fire('Error', res.message, 'error');
       }
     });
 

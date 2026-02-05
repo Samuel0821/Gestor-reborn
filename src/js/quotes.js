@@ -33,6 +33,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
         <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
       </nav>
+      <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
+        © 2026 GestorFX | Desarrollado por <a href="https://www.grisalistech.com" target="_blank" style="color: rgba(255,255,255,0.8); text-decoration: none;">Grisalis Technologies</a>
+      </div>
     `;
 
     // Main Content Wrapper
@@ -71,8 +74,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.body.insertBefore(appWrapper, document.body.firstChild);
     // --- FIN LOGICA LAYOUT ERP ---
 
-    document.getElementById('logout-btn').addEventListener('click', () => {
-      if(confirm('¿Cerrar sesión?')) {
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      const result = await Swal.fire({
+        title: '¿Cerrar sesión?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, cerrar sesión',
+        cancelButtonText: 'Cancelar'
+      });
+      if (result.isConfirmed) {
         ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
         window.location.href = 'login.html';
       }
@@ -106,22 +116,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem('persistentQuoteCart', JSON.stringify(quoteItems));
   }
 
+  // 1. Cargar lo que ya existía en persistencia (si hay)
+  const persistentCart = localStorage.getItem('persistentQuoteCart');
+  if (persistentCart) {
+    try {
+      quoteItems = JSON.parse(persistentCart);
+    } catch (e) { console.error(e); }
+  }
+
   // Verificar si hay ítems transferidos desde Servicios
   const savedQuoteCart = sessionStorage.getItem('quoteCart');
   if (savedQuoteCart) {
     try {
-      quoteItems = JSON.parse(savedQuoteCart);
+      const newItems = JSON.parse(savedQuoteCart);
+      quoteItems = quoteItems.concat(newItems);
       sessionStorage.removeItem('quoteCart'); // Limpiar después de cargar
       saveQuoteState();
     } catch (e) { console.error(e); }
-  } else {
-    // Si no hay transferencia, intentar cargar del almacenamiento local
-    const persistentCart = localStorage.getItem('persistentQuoteCart');
-    if (persistentCart) {
-      try {
-        quoteItems = JSON.parse(persistentCart);
-      } catch (e) { console.error(e); }
-    }
   }
 
   function formatCOP(value) {
@@ -172,7 +183,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const select = document.getElementById("variant-select");
       const selectedOption = select.options[select.selectedIndex];
       if (!selectedOption.value) {
-        alert("Por favor, selecciona una unidad de venta.");
+        Swal.fire('Atención', "Por favor, selecciona una unidad de venta.", 'warning');
         return;
       }
 
@@ -200,14 +211,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   function addItemToQuote(prod, qty, price, productNameOverride = null) {
     quoteItems.push({
-      product_id: prod.id,
-      product_code: prod.code,
+      product_id: prod ? prod.id : null,
+      product_code: prod ? prod.code : 'SERV',
       product_name: productNameOverride || prod.name, // aquí siempre queda con variante si aplica
       quantity: qty,
       price: price,
-      sale_price: prod.sale_price,
-      special_price: prod.special_price,
-      subtotal: price * qty
+      sale_price: prod ? prod.sale_price : price,
+      special_price: prod ? prod.special_price : 0,
+      subtotal: price * qty,
+      is_service: !prod // Marcar si es un servicio
     });
     renderQuoteItems();
   }
@@ -271,18 +283,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     quoteItemsTbody.innerHTML = "";
     let total = 0;
     quoteItems.forEach((it, i) => {
+      const isService = it.is_service || String(it.product_name).toLowerCase().startsWith('[servicio]');
       total += it.subtotal;
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${i+1}</td>
-        <td>${it.product_code}</td>
+        <td>${it.product_code || '-'}</td>
         <td>${it.product_name}</td>
         <td>${it.quantity}</td>
         <td>
-          <select class="form-select form-select-sm price-selector">
-            <option value="sale" data-price="${it.sale_price}" ${it.price===it.sale_price?'selected':''}>${formatCOP(it.sale_price)}</option>
-            ${it.special_price>0?`<option value="special" data-price="${it.special_price}" ${it.price===it.special_price?'selected':''}>${formatCOP(it.special_price)}</option>`:''}
-          </select>
+          ${isService 
+            ? formatCOP(it.price) 
+            : `
+            <select class="form-select form-select-sm price-selector">
+              <option value="sale" data-price="${it.sale_price}" ${it.price===it.sale_price?'selected':''}>${formatCOP(it.sale_price)}</option>
+              ${it.special_price>0?`<option value="special" data-price="${it.special_price}" ${it.price===it.special_price?'selected':''}>${formatCOP(it.special_price)}</option>`:''}
+            </select>
+          `}
         </td>
         <td>${formatCOP(it.price*it.quantity)}</td>
         <td>
@@ -291,13 +308,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       `;
       quoteItemsTbody.appendChild(tr);
 
-      tr.querySelector('.price-selector').addEventListener('change', e=>{
-        const selectedOption = e.target.options[e.target.selectedIndex];
-        const newPrice = parseFloat(selectedOption.dataset.price);
-        quoteItems[i].price = newPrice;
-        quoteItems[i].subtotal = newPrice * quoteItems[i].quantity;
-        renderQuoteItems();
-      });
+      if (!isService) {
+        tr.querySelector('.price-selector')?.addEventListener('change', e=>{
+          const selectedOption = e.target.options[e.target.selectedIndex];
+          const newPrice = parseFloat(selectedOption.dataset.price);
+          quoteItems[i].price = newPrice;
+          quoteItems[i].subtotal = newPrice * quoteItems[i].quantity;
+          renderQuoteItems();
+        });
+      }
     });
 
     quoteItemsTbody.querySelectorAll(".remove").forEach(b=>{
@@ -313,17 +332,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const inputText = productInput.value.trim();
-    const prod = allProducts.find(p => p.name === inputText);
+    
+    const selectedOption = Array.from(productDatalist.options).find(
+        opt => opt.value === inputText
+    );
 
-    if (!prod) {
-      alert("Producto no válido. Selecciona uno existente.");
-      return;
+    if (!selectedOption) {
+        Swal.fire('Atención', "Ítem no válido. Selecciona uno de la lista.", 'warning');
+        return;
     }
 
+    const itemId = Number(selectedOption.dataset.id);
     const qty = Number(qtyInput.value) || 1;
 
+    const prod = allProducts.find(p => p.id === itemId);
+    if (!prod) { Swal.fire('Error', "Producto no encontrado.", 'error'); return; }
+
     if (prod.stock <= prod.min_stock) {
-      alert(`¡Advertencia! El producto '${prod.name}' está en stock mínimo (${prod.stock} unidades).`);
+      Swal.fire('Advertencia', `El producto '${prod.name}' está en stock mínimo (${prod.stock} unidades).`, 'warning');
     }
 
     // Chequeamos si el producto tiene variantes
@@ -335,11 +361,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     productInput.value = "";
     qtyInput.value = "1";
+    productInput.focus();
   });
 
   // --- Finalizar cotización
   finalizeBtn.addEventListener("click", async ()=>{
-    if(quoteItems.length===0){ alert("No hay items"); return;}
+    if(quoteItems.length===0){ Swal.fire('Atención', "No hay items", 'warning'); return;}
     const clientId = clientSelect.value ? Number(clientSelect.value) : null;
     
     let res;
@@ -351,8 +378,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       res = await window.api.createQuote({ client_id: clientId, items: quoteItems });
     }
 
-    if(!res.success){ alert(res.message); return; }
-    alert(res.message || (editingQuoteId ? "Cotización actualizada" : "Cotización creada"));
+    if(!res.success){ Swal.fire('Error', res.message, 'error'); return; }
+    Swal.fire('Éxito', res.message || (editingQuoteId ? "Cotización actualizada" : "Cotización creada"), 'success');
     
     cancelEdit(); // Limpiar estado de edición y formulario
     quoteItems=[];
@@ -397,8 +424,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     quotesList.querySelectorAll('.approve-quote').forEach(b=>{
       b.addEventListener('click', async e=>{
-        if (!confirm('¿Aprobar esta cotización y convertirla en venta?')) return; // Mensaje de confirmación
         const quoteId = Number(e.target.dataset.id);
+        const result = await Swal.fire({
+            title: '¿Aprobar cotización?',
+            text: "Se convertirá en una venta y se descontará del inventario al procesar el pago.",
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, aprobar',
+            cancelButtonText: 'Cancelar'
+        });
+        if (!result.isConfirmed) return;
         await processQuoteApproval(quoteId); // Llamar a la nueva función de procesamiento
       });
     });
@@ -407,7 +442,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       b.addEventListener('click', async e=>{
         const quoteId = Number(e.target.dataset.id);
         const quote = await window.api.getQuoteById(quoteId);
-        if(!quote) { alert("Error al cargar cotización"); return; }
+        if(!quote) { Swal.fire('Error', "Error al cargar cotización", 'error'); return; }
 
         editingQuoteId = quoteId;
         clientSelect.value = quote.client_id || "";
@@ -450,18 +485,36 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     quotesList.querySelectorAll('.delete-quote').forEach(b=>{
       b.addEventListener('click', async e=>{
-        if(!confirm('Eliminar cotización?')) return;
-        await window.api.deleteQuote(Number(e.target.dataset.id));
+        const id = Number(e.target.dataset.id); // Capturar ID antes del await
+        const result = await Swal.fire({
+            title: '¿Eliminar cotización?',
+            text: "Esta acción no se puede deshacer.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            confirmButtonText: 'Sí, eliminar'
+        });
+        if(!result.isConfirmed) return;
+        await window.api.deleteQuote(id);
         loadQuotes();
+        Swal.fire('Eliminado', 'La cotización ha sido eliminada.', 'success');
       });
     });
 
     quotesList.querySelectorAll('.export-quote').forEach(b=>{
       b.addEventListener('click', async e=>{
-        const includeIva = confirm('¿Incluir IVA 19% en la cotización?\nAceptar = Sí, Cancelar = No'); // Confirmación de IVA
+        const result = await Swal.fire({
+            title: 'Opciones de Exportación',
+            text: "¿Incluir IVA 19% en la cotización?",
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, con IVA',
+            cancelButtonText: 'No, sin IVA'
+        });
+        const includeIva = result.isConfirmed;
         // 👇 Aquí ya viaja el product_name con variante si aplica
         const res = await window.api.exportQuotePDF(Number(e.target.dataset.id), e.target.dataset.quote_number, includeIva);
-        alert(res.message || JSON.stringify(res));
+        Swal.fire(res.success ? 'Éxito' : 'Error', res.message || JSON.stringify(res), res.success ? 'success' : 'error');
       });
     });
   }
@@ -470,7 +523,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function processQuoteApproval(quoteId) {
     const quote = await window.api.getQuoteById(quoteId);
     if (!quote) {
-      alert("No se pudo cargar la cotización para aprobar.");
+      Swal.fire('Error', "No se pudo cargar la cotización para aprobar.", 'error');
       return;
     }
 
@@ -479,6 +532,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let insufficientStockItems = [];
     for (const item of quote.items) {
+      // 1. Si es un servicio (sin ID de producto o código SERV), no validamos stock.
+      // 2. Si el ítem tiene la marca de 'skip_stock' (materiales de servicio ya descontados), saltamos validación.
+      if (!item.product_id || item.product_code === 'SERV' || item.skip_stock) {
+        continue;
+      }
+
       const product = currentAllProducts.find(p => p.id === item.product_id);
       // Si el producto no se encuentra o el stock es menor a la cantidad requerida
       if (!product || product.stock < item.quantity) {
@@ -491,11 +550,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (insufficientStockItems.length > 0) {
-      let alertMessage = "No se puede aprobar la cotización. Stock insuficiente para los siguientes productos:\n\n";
+      let alertMessage = "Stock insuficiente para los siguientes productos:<br><ul style='text-align: left;'>";
       insufficientStockItems.forEach(item => {
-        alertMessage += `- ${item.name}: Requerido ${item.required}, Disponible ${item.available}\n`;
+        alertMessage += `<li><strong>${item.name}</strong>: Requerido ${item.required}, Disponible ${item.available}</li>`;
       });
-      alert(alertMessage + "\nPor favor, actualice el inventario y reintente.");
+      alertMessage += "</ul><br>Por favor, actualice el inventario y reintente.";
+      Swal.fire({
+          title: 'No se puede aprobar',
+          html: alertMessage,
+          icon: 'error'
+      });
       return;
     }
 
@@ -617,11 +681,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const totalPaid = cash + transfer;
 
       if (saleType !== "credit" && totalPaid < totalAmount) {
-        alert("El monto pagado es insuficiente.");
+        Swal.fire('Error', "El monto pagado es insuficiente.", 'error');
         return;
       }
       if (saleType === "credit" && !clientId) {
-        alert("Para una venta a crédito, debes seleccionar un cliente.");
+        Swal.fire('Atención', "Para una venta a crédito, debes seleccionar un cliente.", 'warning');
         return;
       }
 
@@ -644,11 +708,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Se asume que window.api.createSaleFromQuote está implementado en el proceso principal
       const res = await window.api.createSaleFromQuote(saleData);
       if (!res.success) {
-        alert(res.message);
+        Swal.fire('Error', res.message, 'error');
         return;
       }
 
-      alert(res.message || "Cotización aprobada y convertida a venta exitosamente.");
+      Swal.fire('Éxito', res.message || "Cotización aprobada y convertida a venta exitosamente.", 'success');
       localStorage.removeItem('persistentQuoteCart'); // Limpiar el carrito persistente de cotizaciones
       quoteItems = []; // Limpiar los ítems de la cotización actual
       renderQuoteItems(); // Actualizar la interfaz de usuario

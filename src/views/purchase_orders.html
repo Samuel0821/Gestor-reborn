@@ -22,7 +22,7 @@
           <h2 class="fw-bold"><i class="fas fa-file-invoice-dollar me-2"></i> Gestión de Compras</h2>
           <p class="text-muted mb-0">Administra pedidos a proveedores y pagos de facturas.</p>
         </div>
-        <button class="btn btn-primary btn-lg shadow-sm" onclick="openCreateModal()">
+        <button id="btn-new-order" class="btn btn-primary btn-lg shadow-sm">
           <i class="fas fa-plus me-2"></i> Nueva Orden
         </button>
       </div>
@@ -53,7 +53,7 @@
                     </select>
                 </div>
                 <div class="col-md-1">
-                    <button class="btn btn-outline-secondary w-100" onclick="loadOrders()" title="Refrescar"><i class="fas fa-sync-alt"></i></button>
+                    <button id="btn-refresh-orders" class="btn btn-outline-secondary w-100" title="Refrescar"><i class="fas fa-sync-alt"></i></button>
                 </div>
             </div>
         </div>
@@ -139,7 +139,7 @@
         </div>
         <div class="modal-footer bg-light">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-success" onclick="submitPayment()">
+          <button type="button" id="btn-submit-payment" class="btn btn-success">
             <i class="fas fa-save me-2"></i> Registrar Pago
           </button>
         </div>
@@ -190,7 +190,7 @@
             <input type="text" class="form-control" id="invNumberInput" placeholder="Ej: FE-9021">
         </div>
         <div class="modal-footer">
-            <button type="button" class="btn btn-primary w-100" onclick="saveInvoiceNumber()">Guardar</button>
+            <button type="button" id="btn-save-invoice" class="btn btn-primary w-100">Guardar</button>
         </div>
       </div>
     </div>
@@ -233,7 +233,7 @@
                             <input type="number" id="newOrderQty" class="form-control" value="1" min="1">
                         </div>
                         <div class="col-md-3">
-                            <button type="button" class="btn btn-secondary w-100" onclick="addItemToOrder()">
+                            <button type="button" id="btn-add-item-to-order" class="btn btn-secondary w-100">
                                 <i class="fas fa-plus"></i> Agregar
                             </button>
                         </div>
@@ -273,7 +273,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-primary" onclick="submitNewOrder()">
+          <button type="button" id="btn-submit-new-order" class="btn btn-primary">
             <i class="fas fa-save me-2"></i> Crear Orden
           </button>
         </div>
@@ -284,6 +284,6 @@
   <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="../js/purchase_orders.js"></script>
+  <script defer src="../js/purchase_orders.js"></script>
 </body>
 </html>

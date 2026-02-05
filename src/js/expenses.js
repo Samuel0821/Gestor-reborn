@@ -28,6 +28,9 @@ document.addEventListener('DOMContentLoaded', () => {
             <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
             <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
           </nav>
+          <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
+            © 2026 GestorFX | Desarrollado por <a href="https://www.grisalistech.com" target="_blank" style="color: rgba(255,255,255,0.8); text-decoration: none;">Grisalis Technologies</a>
+          </div>
         `;
 
         const mainWrapper = document.createElement('div');
@@ -60,8 +63,16 @@ document.addEventListener('DOMContentLoaded', () => {
         appWrapper.appendChild(mainWrapper);
         document.body.insertBefore(appWrapper, document.body.firstChild);
 
-        document.getElementById('logout-btn').addEventListener('click', () => {
-            if(confirm('¿Cerrar sesión?')) {
+        
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            const result = await Swal.fire({
+                title: '¿Cerrar sesión?',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, cerrar sesión',
+                cancelButtonText: 'Cancelar'
+            });
+            if (result.isConfirmed) {
                 ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
                 window.location.href = 'login.html';
             }
@@ -80,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const tableBody = document.getElementById('expenses-table-body');
     const totalDisplay = document.getElementById('total-expenses');
     
-    // Establecer fecha de hoy por defecto
+     // Establecer fecha de hoy por defecto
     document.getElementById('expense-date').valueAsDate = new Date();
 
     // Modal de detalle
@@ -160,16 +171,26 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.addEventListener('click', async (e) => {
                 const id = e.currentTarget.dataset.id;
                 const res = await window.api.exportExpensePDF(id);
-                if(res.success) alert(`PDF exportado: ${res.filePath}`);
-                else alert(res.message);
+                Swal.fire(res.success ? 'Éxito' : 'Error', res.success ? `PDF exportado: ${res.filePath}` : res.message, res.success ? 'success' : 'error');
             });
         });
 
         document.querySelectorAll('.delete-expense').forEach(btn => {
             btn.addEventListener('click', async (e) => {
-                if(confirm('¿Eliminar este gasto?')) {
-                    await window.api.deleteExpense(e.currentTarget.dataset.id); // Requiere backend
+                const id = e.currentTarget.dataset.id;
+                const result = await Swal.fire({
+                    title: '¿Eliminar este gasto?',
+                    text: "Esta acción no se puede deshacer.",
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    confirmButtonText: 'Sí, eliminar',
+                    cancelButtonText: 'Cancelar'
+                });
+                if (result.isConfirmed) {
+                    await window.api.deleteExpense(id);
                     loadExpenses();
+                    Swal.fire('Eliminado', 'El gasto ha sido eliminado.', 'success');
                 }
             });
         });
@@ -178,27 +199,38 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-export-modal').addEventListener('click', async () => {
         if(currentDetailId) {
             const res = await window.api.exportExpensePDF(currentDetailId);
-            if(res.success) alert(`PDF exportado: ${res.filePath}`);
-            else alert(res.message);
+            Swal.fire(res.success ? 'Éxito' : 'Error', res.success ? `PDF exportado: ${res.filePath}` : res.message, res.success ? 'success' : 'error');
         }
     });
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const expense = {
-            description: document.getElementById('expense-desc').value,
-            amount: Number(document.getElementById('expense-amount').value),
-            category: document.getElementById('expense-category').value,
-            date: document.getElementById('expense-date').value
-        };
+        
+        const description = document.getElementById('expense-desc').value.trim();
+        const amount = Number(document.getElementById('expense-amount').value);
+        const category = document.getElementById('expense-category').value;
+        const date = document.getElementById('expense-date').value;
 
-        const res = await window.api.saveExpense(expense); // Requiere backend
+        if (!description || amount <= 0 || !date) {
+            Swal.fire('Atención', 'Por favor complete todos los campos correctamente.', 'warning');
+            return;
+        }
+
+        const expense = { description, amount, category, date };
+
+        const res = await window.api.saveExpense(expense);
         if(res.success) {
+            Swal.fire({
+                icon: 'success',
+                title: 'Gasto registrado',
+                timer: 1500,
+                showConfirmButton: false
+            });
             form.reset();
             document.getElementById('expense-date').valueAsDate = new Date();
             loadExpenses();
         } else {
-            alert('Error al guardar gasto');
+            Swal.fire('Error', res.message || 'No se pudo guardar el gasto.', 'error');
         }
     });
 

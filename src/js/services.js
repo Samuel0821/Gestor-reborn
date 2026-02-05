@@ -31,6 +31,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
         <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
       </nav>
+      <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
+        © 2026 GestorFX | Desarrollado por <a href="https://www.grisalistech.com" target="_blank" style="color: rgba(255,255,255,0.8); text-decoration: none;">Grisalis Technologies</a>
+      </div>
     `;
 
     // Main Content Wrapper
@@ -69,8 +72,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.body.insertBefore(appWrapper, document.body.firstChild);
     // --- FIN LOGICA LAYOUT ERP ---
 
-    document.getElementById('logout-btn').addEventListener('click', () => {
-      if(confirm('¿Cerrar sesión?')) {
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      const result = await Swal.fire({
+        title: '¿Cerrar sesión?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, cerrar sesión',
+        cancelButtonText: 'Cancelar'
+      });
+      if (result.isConfirmed) {
         ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
         window.location.href = 'login.html';
       }
@@ -153,7 +163,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const val = productSearch.value;
     const prod = allProducts.find(p => p.name === val);
     if (!prod) {
-      alert("Seleccione un producto válido de la lista");
+      Swal.fire('Atención', "Seleccione un producto válido de la lista", 'warning');
       return;
     }
     const qty = Number(productQty.value) || 1;
@@ -210,14 +220,66 @@ document.addEventListener('DOMContentLoaded', async () => {
       products: currentServiceProducts
     };
 
+    // --- INICIO LOGICA DESCUENTO INVENTARIO ---
+    try {
+        // Obtenemos productos frescos para asegurar stock real
+        const freshProducts = await window.api.getProducts();
+        
+        const adjustStock = async (prodId, qtyChange) => {
+            const product = freshProducts.find(p => p.id === prodId);
+            if (!product) return;
+            
+            const newStock = product.stock + qtyChange;
+            const payload = {
+                id: product.id,
+                code: product.code,
+                name: product.name,
+                category: product.category,
+                purchase_price: product.purchase_price,
+                sale_price: product.sale_price,
+                special_price: product.special_price,
+                stock: newStock,
+                min_stock: product.min_stock,
+                supplier_id: product.supplier_id,
+                variants: product.variants
+            };
+            await window.api.updateProduct(payload);
+            // Actualizar cache local para siguientes iteraciones
+            product.stock = newStock;
+        };
+
+        // 1. Si es edición, devolver al inventario los productos antiguos primero
+        if (data.id) {
+            const oldService = await window.api.getServiceById(data.id);
+            if (oldService && oldService.products) {
+                for (const p of oldService.products) {
+                    await adjustStock(p.product_id, p.quantity); // Sumar (devolver)
+                }
+            }
+        }
+
+        // 2. Descontar los productos actuales (Nuevos o Editados)
+        for (const p of data.products) {
+            await adjustStock(p.product_id, -p.quantity); // Restar
+        }
+
+    } catch (err) {
+        console.error("Error ajustando inventario:", err);
+        Swal.fire('Error', "Error al ajustar el inventario. Verifique los productos.", 'error');
+        return; // Detener guardado si falla el inventario
+    }
+    // --- FIN LOGICA DESCUENTO INVENTARIO ---
+
     if (data.id) {
       await window.api.updateService(data);
     } else {
       await window.api.createService(data);
     }
 
+    Swal.fire({ icon: 'success', title: 'Servicio guardado', timer: 1500, showConfirmButton: false });
     resetForm();
     loadServices();
+    loadProducts(); // Recargar lista de productos para actualizar stock en memoria
   });
 
   function resetForm() {
@@ -279,9 +341,33 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
     servicesTable.querySelectorAll(".del").forEach(b => b.addEventListener("click", async (e) => {
-      if(confirm("¿Eliminar servicio?")) {
-        await window.api.deleteService(e.currentTarget.dataset.id);
-        loadServices();
+      const id = Number(e.currentTarget.dataset.id); // Capturar ID antes del await
+      const result = await Swal.fire({
+        title: '¿Eliminar servicio?',
+        text: "Esta acción no se puede deshacer.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        confirmButtonText: 'Sí, eliminar',
+        cancelButtonText: 'Cancelar'
+      });
+      if(result.isConfirmed) {
+        try {
+            // 1. Obtener el servicio actual
+            const service = await window.api.getServiceById(id);
+            if (service) {
+                // 2. Actualizarlo para quitarle los productos (sin pasar por la lógica de stock del frontend)
+                // Esto limpia la relación en BD sin disparar la devolución de stock
+                await window.api.updateService({ ...service, products: [] });
+            }
+            // 3. Eliminar el servicio (ahora vacío, por lo que no devuelve nada al inventario)
+            await window.api.deleteService(id);
+            loadServices();
+            Swal.fire('Eliminado', 'El servicio ha sido eliminado.', 'success');
+        } catch (err) {
+            console.error(err);
+            Swal.fire('Error', "Error al eliminar servicio", 'error');
+        }
       }
     }));
 
@@ -394,8 +480,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       });
 
-      // Guardar en sessionStorage con clave específica para cotizaciones
-      sessionStorage.setItem('quoteCart', JSON.stringify(cartItems));
+      // AÑADIR al carrito de cotización existente en lugar de sobreescribir
+      const existingQuoteCart = JSON.parse(sessionStorage.getItem('quoteCart') || "[]");
+      const newQuoteCart = existingQuoteCart.concat(cartItems);
+      
+      sessionStorage.setItem('quoteCart', JSON.stringify(newQuoteCart));
       window.location.href = "quotes.html";
     }));
   }

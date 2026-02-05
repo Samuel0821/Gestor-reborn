@@ -31,6 +31,9 @@ document.addEventListener('DOMContentLoaded', () => {
             <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
             <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
           </nav>
+          <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
+            © 2026 GestorFX | Desarrollado por <a href="https://www.grisalistech.com" target="_blank" style="color: rgba(255,255,255,0.8); text-decoration: none;">Grisalis Technologies</a>
+          </div>
         `;
 
         // Main Content Wrapper
@@ -69,8 +72,15 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.insertBefore(appWrapper, document.body.firstChild);
         // --- FIN LOGICA LAYOUT ERP ---
 
-        document.getElementById('logout-btn').addEventListener('click', () => {
-            if(confirm('¿Cerrar sesión?')) {
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            const result = await Swal.fire({
+                title: '¿Cerrar sesión?',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, cerrar sesión',
+                cancelButtonText: 'Cancelar'
+            });
+            if (result.isConfirmed) {
                 ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
                 window.location.href = 'login.html';
             }
@@ -152,22 +162,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }).format(Math.round(num));
     }
 
-    function showAlert(message, type = 'danger') {
-        let alertDiv = document.getElementById('report-alert');
-        if (!alertDiv) {
-            alertDiv = document.createElement('div');
-            alertDiv.id = 'report-alert';
-            alertDiv.className = 'mt-3';
-            document.querySelector('.report-form').before(alertDiv);
-        }
-        alertDiv.innerHTML = `
-            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                <i class="fa fa-exclamation-circle me-2"></i>${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-        `;
-    }
-
     async function loadReport(startDate, endDate, reportType) {
         if (activeTab === 'sales') {
             await loadSalesReport(startDate, endDate, reportType);
@@ -197,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <p class="text-muted">No se encontraron ventas para el período seleccionado.</p>
                     </div>
                 `;
-                showAlert('No hay ventas en el período seleccionado.', 'info');
+                Swal.fire('Info', 'No hay ventas en el período seleccionado.', 'info');
                 return;
             }
 
@@ -316,7 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
 
             container.innerHTML = tableHtml;
-            showAlert('Reporte generado correctamente.', 'success');
+            Swal.fire('Éxito', 'Reporte generado correctamente.', 'success');
 
             // Crear el botón de exportar PDF solo si hay datos
             const btnDiv = document.createElement("div");
@@ -349,19 +343,19 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     });
                     if (result.success) {
-                        showAlert("Reporte exportado correctamente: " + result.filePath, "success");
+                        Swal.fire('Éxito', "Reporte exportado correctamente: " + result.filePath, 'success');
                     } else {
-                        showAlert("Error al exportar PDF: " + result.message, "danger");
+                        Swal.fire('Error', "Error al exportar PDF: " + result.message, 'error');
                     }
                 } catch (err) {
                     console.error(err);
-                    showAlert("Ocurrió un error al exportar PDF.", "danger");
+                    Swal.fire('Error', "Ocurrió un error al exportar PDF.", 'error');
                 }
             });
 
         } catch (err) {
             console.error("Error al cargar el reporte:", err);
-            showAlert("Ocurrió un error al generar el reporte.", 'danger');
+            Swal.fire('Error', "Ocurrió un error al generar el reporte.", 'error');
         }
     }
 
@@ -371,6 +365,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (expenses.length === 0) {
                 container.innerHTML = `<h5>Reporte de Egresos del ${startDate} al ${endDate}</h5><div class="alert alert-info">No hay gastos registrados en este período.</div>`;
+                Swal.fire('Info', 'No hay gastos registrados en este período.', 'info');
                 return;
             }
 
@@ -411,17 +406,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 </table>
             `;
 
+            Swal.fire('Éxito', 'Reporte de egresos generado correctamente.', 'success');
+
             document.getElementById('btn-export-expenses-pdf').addEventListener('click', async () => {
                 const res = await window.api.exportExpensesReportPDF(startDate, endDate);
                 if (res.success) {
-                    showAlert(`Reporte exportado: ${res.filePath}`, 'success');
+                    Swal.fire('Éxito', `Reporte exportado: ${res.filePath}`, 'success');
                 } else {
-                    showAlert(res.message, 'danger');
+                    Swal.fire('Error', res.message, 'error');
                 }
             });
         } catch (err) {
             console.error(err);
-            showAlert("Error al cargar reporte de egresos.", "danger");
+            Swal.fire('Error', "Error al cargar reporte de egresos.", 'error');
         }
     }
 
@@ -431,6 +428,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (logs.length === 0) {
                 container.innerHTML = `<h5>Reporte de Modificaciones del ${startDate} al ${endDate}</h5><div class="alert alert-info">No hay registros de actividad en este período.</div>`;
+                Swal.fire('Info', 'No hay registros de actividad en este período.', 'info');
                 return;
             }
 
@@ -459,13 +457,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     </table>
                 </div>
             `;
+            Swal.fire('Éxito', 'Reporte de auditoría generado correctamente.', 'success');
         } catch (err) {
             console.error(err);
-            showAlert("Error al cargar reporte de auditoría.", "danger");
+            Swal.fire('Error', "Error al cargar reporte de auditoría.", 'error');
         }
     }
 
-    window.showAlert = showAlert;
     window.loadReport = loadReport;
 
     window.generateReport = function() {
@@ -474,12 +472,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const reportType = reportTypeSelect.value;
 
         if (!startDate || !endDate) {
-            showAlert('Por favor, selecciona las fechas.', 'warning');
+            Swal.fire('Atención', 'Por favor, selecciona las fechas.', 'warning');
             return;
         }
 
         if (endDate < startDate) {
-            showAlert('La fecha final no puede ser anterior a la inicial.', 'warning');
+            Swal.fire('Atención', 'La fecha final no puede ser anterior a la inicial.', 'warning');
             return;
         }
 

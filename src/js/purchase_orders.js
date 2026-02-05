@@ -6,7 +6,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- INICIO LOGICA LAYOUT ERP ---
     const role = localStorage.getItem('user_role');
     const name = localStorage.getItem('user_name');
-    
     if (role && name) {
         const currentPage = window.location.pathname.split('/').pop();
         
@@ -20,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
         sidebar.innerHTML = `
           <div class="sidebar-brand">
             <img src="../logo/gestorfx_logof.ico" alt="Logo" style="height: 100px; width: auto; margin-right: 10px;">
-          </div>          
+          </div>
           <nav class="sidebar-menu">
             <a href="index.html" class="sidebar-link ${currentPage === 'index.html' ? 'active' : ''}"><i class="fa fa-home"></i> <span class="link-text">Dashboard</span></a>
             <a href="sales.html" class="sidebar-link ${currentPage === 'sales.html' ? 'active' : ''}"><i class="fa fa-shopping-cart"></i> <span class="link-text">Ventas</span></a>
@@ -35,6 +34,9 @@ document.addEventListener("DOMContentLoaded", () => {
             <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
             <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
           </nav>
+          <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
+            © 2026 GestorFX | Desarrollado por <a href="https://www.grisalistech.com" target="_blank" style="color: rgba(255,255,255,0.8); text-decoration: none;">Grisalis Technologies</a>
+          </div>
         `;
 
         // Main Content Wrapper
@@ -73,13 +75,19 @@ document.addEventListener("DOMContentLoaded", () => {
         document.body.insertBefore(appWrapper, document.body.firstChild);
 
         // Eventos del layout
-        document.getElementById('logout-btn').addEventListener('click', () => {
-            if(confirm('¿Cerrar sesión?')) {
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            const result = await Swal.fire({
+                title: '¿Cerrar sesión?',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, cerrar sesión',
+                cancelButtonText: 'Cancelar'
+            });
+            if (result.isConfirmed) {
                 ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
                 window.location.href = 'login.html';
             }
         });
-
         const toggleBtn = document.getElementById('sidebar-toggle');
         toggleBtn.addEventListener('click', () => {
             sidebar.classList.toggle('collapsed');
@@ -88,6 +96,14 @@ document.addEventListener("DOMContentLoaded", () => {
         if(localStorage.getItem('sidebar-collapsed') === 'true') sidebar.classList.add('collapsed');
     }
     // --- FIN LOGICA LAYOUT ERP ---
+
+    // Conectar botones principales (ya que se quitaron los onclick del HTML)
+    document.getElementById('btn-new-order')?.addEventListener('click', openCreateModal);
+    document.getElementById('btn-refresh-orders')?.addEventListener('click', loadOrders);
+    document.getElementById('btn-submit-payment')?.addEventListener('click', submitPayment);
+    document.getElementById('btn-save-invoice')?.addEventListener('click', saveInvoiceNumber);
+    document.getElementById('btn-add-item-to-order')?.addEventListener('click', addItemToOrder);
+    document.getElementById('btn-submit-new-order')?.addEventListener('click', submitNewOrder);
 
     loadOrders();
 

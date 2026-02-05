@@ -49,6 +49,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
         <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
       </nav>
+      <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
+        © 2026 GestorFX | Desarrollado por <a href="https://www.grisalistech.com" target="_blank" style="color: rgba(255,255,255,0.8); text-decoration: none;">Grisalis Technologies</a>
+      </div>
     `;
 
     // Main Content Wrapper
@@ -87,8 +90,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.body.insertBefore(appWrapper, document.body.firstChild);
     // --- FIN LOGICA LAYOUT ERP ---
 
-    document.getElementById('logout-btn').addEventListener('click', () => {
-      if(confirm('¿Cerrar sesión?')) {
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      const result = await Swal.fire({
+        title: '¿Cerrar sesión?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, cerrar sesión',
+        cancelButtonText: 'Cancelar'
+      });
+      if (result.isConfirmed) {
         ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
         window.location.href = 'login.html';
       }
@@ -146,7 +156,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   async function loadProducts() {
     allProducts = await window.api.getProducts();
+
     productDatalist.innerHTML = "";
+
     allProducts.forEach((p) => {
       const opt = document.createElement("option");
       opt.value = `${p.name} (${p.code}) - Stock ${p.stock}`;
@@ -178,6 +190,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       total += it.subtotal;
       const tr = document.createElement("tr");
 
+      const isService = it.is_service || String(it.product_name).toLowerCase().startsWith('[servicio]');
       const isKgVariant = String(it.product_name).toLowerCase().includes("kg");
 
       tr.innerHTML = `
@@ -185,15 +198,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         <td>${it.product_code || '-'}</td>
         <td>${it.product_name}</td>
         <td>
-          ${isKgVariant 
+          ${!isService && isKgVariant 
             ? `<input type="number" min="0.1" step="0.1" value="${it.quantity}" data-i="${i}" class="form-control form-control-sm qty-input">`
             : it.quantity}
         </td>
         <td>
-          <select class="form-select form-select-sm price-selector">
-            <option value="sale" data-price="${it.sale_price}" ${it.price === it.sale_price ? 'selected' : ''}>${formatCOP(it.sale_price)}</option>
-            ${it.special_price > 0 ? `<option value="special" data-price="${it.special_price}" ${it.price === it.special_price ? 'selected' : ''}>${formatCOP(it.special_price)}</option>` : ''}
-          </select>
+          ${isService 
+            ? formatCOP(it.price) 
+            : `
+            <select class="form-select form-select-sm price-selector">
+              <option value="sale" data-price="${it.sale_price}" ${it.price === it.sale_price ? 'selected' : ''}>${formatCOP(it.sale_price)}</option>
+              ${it.special_price > 0 ? `<option value="special" data-price="${it.special_price}" ${it.price === it.special_price ? 'selected' : ''}>${formatCOP(it.special_price)}</option>` : ''}
+            </select>
+          `}
         </td>
         <td>${formatCOP(it.price * it.quantity)}</td>
         <td><button class="btn btn-sm btn-danger remove" data-i="${i}">Eliminar</button></td>
@@ -201,14 +218,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       saleItemsTbody.appendChild(tr);
 
-      // Cambiar precio desde el selector
-      tr.querySelector('.price-selector')?.addEventListener('change', (e) => {
-        const selectedOption = e.target.options[e.target.selectedIndex];
-        const newPrice = parseFloat(selectedOption.getAttribute('data-price'));
-        saleItems[i].price = newPrice;
-        saleItems[i].subtotal = newPrice * saleItems[i].quantity;
-        renderSaleItems();
-      });
+      // Cambiar precio desde el selector (solo para productos)
+      if (!isService) {
+        tr.querySelector('.price-selector')?.addEventListener('change', (e) => {
+          const selectedOption = e.target.options[e.target.selectedIndex];
+          const newPrice = parseFloat(selectedOption.getAttribute('data-price'));
+          saleItems[i].price = newPrice;
+          saleItems[i].subtotal = newPrice * saleItems[i].quantity;
+          renderSaleItems();
+        });
+      }
 
       // Si es variante por kilos, escuchar cambios de cantidad
       if (isKgVariant) {
@@ -248,21 +267,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     e.preventDefault();
 
     const selectedProductText = productInput.value;
-    const selectedProductOption = Array.from(productDatalist.options).find(
+    const selectedOption = Array.from(productDatalist.options).find(
       (opt) => opt.value === selectedProductText
     );
 
-    if (!selectedProductOption) {
-      alert("Producto no válido. Selecciona uno de la lista.");
+    if (!selectedOption) {
+      Swal.fire('Atención', "Ítem no válido. Selecciona uno de la lista.", 'warning');
       return;
     }
 
-    const prodId = Number(selectedProductOption.dataset.id);
+    const itemId = Number(selectedOption.dataset.id);
     const qty = Number(qtyInput.value) || 1;
-    const prod = allProducts.find((p) => p.id === prodId);
+
+    const prod = allProducts.find((p) => p.id === itemId);
 
     if (!prod) {
-      alert("Producto no encontrado");
+      Swal.fire('Error', "Producto no encontrado", 'error');
       return;
     }
     
@@ -275,23 +295,24 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     if (prod.stock < qty) {
-      alert("Stock insuficiente");
+      Swal.fire('Error', "Stock insuficiente", 'error');
       return;
     }
     if (prod.stock <= prod.min_stock) {
-      alert(`¡Advertencia! El producto '${prod.name}' está en stock mínimo (${prod.stock} unidades).`);
+      Swal.fire('Advertencia', `El producto '${prod.name}' está en stock mínimo (${prod.stock} unidades).`, 'warning');
     }
 
     addItemToSale(prod, qty, null);
 
     productInput.value = "";
     qtyInput.value = "1";
+    productInput.focus();
   });
 
   // Lector de código (campo visible)
   
   if (barcodeInput) {
-    barcodeInput.addEventListener("keydown", (e) => {
+    barcodeInput.addEventListener("keydown", async (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
         const code = barcodeInput.value.trim();
@@ -299,7 +320,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         const prod = allProducts.find((p) => String(p.code) === String(code));
         if (!prod) {
-          if (confirm(`Producto con código "${code}" no encontrado. ¿Deseas registrarlo?`)) {
+          const result = await Swal.fire({
+            title: 'Producto no encontrado',
+            text: `El código "${code}" no existe. ¿Deseas registrarlo?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, registrar',
+            cancelButtonText: 'Cancelar'
+          });
+
+          if (result.isConfirmed) {
             localStorage.setItem("newProductCode", code);
             window.location.href = "products.html";
             return;
@@ -382,7 +412,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       if (prod.stock < qty) {
-        alert("Stock insuficiente");
+        Swal.fire('Error', "Stock insuficiente", 'error');
         return;
       }
 
@@ -462,7 +492,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const select = document.getElementById("variant-select");
       const selectedOption = select.options[select.selectedIndex];
       if (!selectedOption.value) {
-        alert("Por favor, selecciona una unidad de venta.");
+        Swal.fire('Atención', "Por favor, selecciona una unidad de venta.", 'warning');
         return;
       }
 
@@ -552,7 +582,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const totalPaid = cash + transfer;
 
       if (totalPaid < totalAmount && saleType !== "credit") {
-        alert("El monto pagado es insuficiente.");
+        Swal.fire('Error', "El monto pagado es insuficiente.", 'error');
         return;
       }
 
@@ -573,7 +603,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       const res = await window.api.createSale(saleData);
       if (!res.success) {
-        alert(res.message);
+        Swal.fire('Error', res.message, 'error');
         return;
       }
 
@@ -584,7 +614,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
       }
 
-      alert(res.message || "Venta registrada exitosamente.");
+      Swal.fire({
+          title: 'Venta Exitosa',
+          text: res.message || "Venta registrada exitosamente.",
+          icon: 'success',
+          timer: 2000,
+          showConfirmButton: false
+      });
       sessionStorage.removeItem('shoppingCart'); // Limpiar carrito de la sesión
       saleItems = [];
       renderSaleItems();
@@ -607,7 +643,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   async function handleCreateSale() {
       if (saleItems.length === 0) {
-          alert("No hay items en la venta.");
+          Swal.fire('Atención', "No hay items en la venta.", 'warning');
           return;
       }
       const clientId = clientSelect.value ? Number(clientSelect.value) : null;
@@ -616,10 +652,20 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       if (saleType === 'credit') {
           if (!clientId) {
-              alert("Para una venta a crédito, debes seleccionar un cliente.");
+              Swal.fire('Atención', "Para una venta a crédito, debes seleccionar un cliente.", 'warning');
               return;
           }
-          if (confirm(`¿Confirmar venta a crédito por ${formatCOP(totalAmount)}?`)) {
+          
+          const result = await Swal.fire({
+              title: 'Confirmar Crédito',
+              text: `¿Confirmar venta a crédito por ${formatCOP(totalAmount)}?`,
+              icon: 'question',
+              showCancelButton: true,
+              confirmButtonText: 'Sí, confirmar',
+              cancelButtonText: 'Cancelar'
+          });
+
+          if (result.isConfirmed) {
               const saleData = {
                   client_id: clientId,
                   items: saleItems,
@@ -633,10 +679,10 @@ document.addEventListener("DOMContentLoaded", async () => {
               };
               const res = await window.api.createSale(saleData);
               if (!res.success) {
-                  alert(res.message);
+                  Swal.fire('Error', res.message, 'error');
                   return;
               }
-              alert(res.message || "Venta a crédito registrada exitosamente.");
+              Swal.fire('Éxito', res.message || "Venta a crédito registrada exitosamente.", 'success');
               sessionStorage.removeItem('shoppingCart');
               saleItems = [];
               renderSaleItems();
@@ -687,7 +733,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       };
 
       const res = await window.api.updateSale(updateData);
-      alert(res.message);
+      Swal.fire(res.success ? 'Éxito' : 'Error', res.message, res.success ? 'success' : 'error');
 
       if (res.success) {
           cancelEdit();
@@ -737,14 +783,31 @@ document.addEventListener("DOMContentLoaded", async () => {
     const target = e.target;
 
     if (target.classList.contains("delete-sale")) {
-      if (!confirm("Eliminar venta?")) return;
+      const result = await Swal.fire({
+          title: '¿Eliminar venta?',
+          text: "Esta acción no se puede deshacer y devolverá los productos al inventario.",
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#d33',
+          confirmButtonText: 'Sí, eliminar'
+      });
+      if (!result.isConfirmed) return;
+
       await window.api.deleteSale(Number(target.dataset.id));
       await loadSales(false); // Recargar desde cero
     } else if (target.classList.contains("export-invoice")) {
       const id = Number(target.dataset.id);
-      const withIva = confirm("¿Incluir IVA 19% en la factura? Aceptar = Sí, Cancelar = No");
+      const result = await Swal.fire({
+          title: 'Opciones de Exportación',
+          text: "¿Incluir IVA 19% en la factura?",
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: 'Sí, con IVA',
+          cancelButtonText: 'No, sin IVA'
+      });
+      const withIva = result.isConfirmed;
       const res = await window.api.exportInvoicePDF(id, withIva);
-      alert(res.message || JSON.stringify(res));
+      Swal.fire(res.success ? 'Éxito' : 'Error', res.message || JSON.stringify(res), res.success ? 'success' : 'error');
     } else if (target.classList.contains("print-sale")) {
       await handlePrintSale(Number(target.dataset.id));
     } else if (target.classList.contains("edit-sale")) {
@@ -754,7 +817,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         const saleId = Number(target.dataset.id);
         const currentUser = localStorage.getItem('user_name') || 'Usuario';
         const res = await window.api.exportSaleReceiptPDF(saleId, currentUser);
-        alert(res.message || (res.success ? "Recibo exportado" : "Error"));
+        Swal.fire(res.success ? 'Éxito' : 'Error', res.message || (res.success ? "Recibo exportado" : "Error"), res.success ? 'success' : 'error');
     }
   });
 
@@ -766,30 +829,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     const client = sale.client_id ? await window.api.getClientById(sale.client_id) : null;
 
     if (!sale || !items) {
-      alert("No se encontró la información de la venta");
+      Swal.fire('Error', "No se encontró la información de la venta", 'error');
       return;
     }
 
     const printers = await window.api.getPrinters();
     if (!printers || printers.length === 0) {
-      alert("No se encontraron impresoras disponibles");
+      Swal.fire('Error', "No se encontraron impresoras disponibles", 'error');
       return;
     }
 
     const htmlContent = generateInvoiceHtml(sale, items, company, logoBase64, client, printers);
     await window.api.previewInvoice({ content: htmlContent });
-
-    const printerChoice = prompt(
-      `Selecciona impresora:\n${printers.map((p, i) => `${i + 1}. ${p.name}${p.isDefault ? " (Predeterminada)" : ""}`).join("\n")}\n\nEscribe el número o deja vacío para usar la predeterminada:`
-    );
-
-    let selectedPrinter = null;
-    if (printerChoice) {
-      const idx = parseInt(printerChoice, 10) - 1;
-      if (printers[idx]) selectedPrinter = printers[idx].name;
-    }
-
-    await window.api.printInvoice({ printer: selectedPrinter, paperSize: "A4", htmlContent });
   }
 
   // Cargar clientes en el filtro
@@ -816,7 +867,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!sales || sales.length === 0) {
       if (!append) salesList.innerHTML = '<div class="alert alert-secondary">No hay ventas</div>';
       else {
-        alert("No hay más facturas.");
+        Swal.fire('Info', "No hay más facturas.", 'info');
         loadMoreBtn.style.display = "none";
       }
       return;
@@ -869,12 +920,20 @@ document.addEventListener("DOMContentLoaded", async () => {
         const sale = await window.api.getSaleById(saleId);
         const items = await window.api.getSaleItems(saleId);
         if (!sale || !items) {
-            alert("No se pudo cargar la venta para editar.");
+            Swal.fire('Error', "No se pudo cargar la venta para editar.", 'error');
             return;
         }
 
         if (sale.sale_type === 'paid' || sale.paid_amount > 0) {
-            if (!confirm("ADVERTENCIA: Esta factura ya tiene pagos registrados. Editarla modificará el inventario y podría requerir ajustes de caja (devoluciones o cobros adicionales).\n\n¿Está seguro de que desea continuar?")) {
+            const result = await Swal.fire({
+                title: 'Advertencia',
+                text: "Esta factura ya tiene pagos registrados. Editarla modificará el inventario y podría requerir ajustes de caja (devoluciones o cobros adicionales).\n\n¿Está seguro de que desea continuar?",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                confirmButtonText: 'Sí, editar'
+            });
+            if (!result.isConfirmed) {
                 return;
             }
         }
@@ -913,6 +972,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         window.scrollTo(0, 0);
         productInput.focus();
+
+        // Activar la pestaña de Venta Rápida
+        const quickSaleTab = document.getElementById('quick-sale-tab');
+        if (quickSaleTab) quickSaleTab.click();
     }
 
     // -----------------------------
@@ -1268,7 +1331,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   async function showCreditDetails(saleId) {
     const sale = await window.api.getSaleById(saleId);
     if (!sale) {
-      alert("Crédito no encontrado.");
+      Swal.fire('Error', "Crédito no encontrado.", 'error');
       return;
     }
 
@@ -1332,12 +1395,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       const reference = document.getElementById("abono-ref").value;
 
       if (abonoAmount <= 0 || abonoAmount > sale.outstanding_balance) {
-        alert("Monto de abono inválido o superior al saldo pendiente.");
+        Swal.fire('Error', "Monto de abono inválido o superior al saldo pendiente.", 'error');
         return;
       }
 
       const res = await window.api.addCreditPayment(saleId, abonoAmount, method, reference);
-      alert(res.message);
+      Swal.fire(res.success ? 'Éxito' : 'Error', res.message, res.success ? 'success' : 'error');
       modal.hide();
       await loadCredits();
     });
@@ -1346,7 +1409,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const method = methodSelect.value;
       const reference = document.getElementById("abono-ref").value;
       const res = await window.api.markCreditAsPaid(saleId, method, reference);
-      alert(res.message);
+      Swal.fire(res.success ? 'Éxito' : 'Error', res.message, res.success ? 'success' : 'error');
       modal.hide();
       await loadCredits();
     });
@@ -1371,4 +1434,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         finalizeBtn.click();
     }
   });
+
+  // Foco automático en el campo de código de barras al cargar
+  if (barcodeInput) barcodeInput.focus();
 });
