@@ -943,8 +943,22 @@ function assignReceiptNumber(saleId) {
 
   if (sale && sale.receipt_number) return sale.receipt_number;
   
-  const next = nextConsecutive("RC", "receipt_number", "sales");
-  db.prepare("UPDATE sales SET receipt_number = ? WHERE id = ?").run(next, saleId);
+  // FIX: Calcular el siguiente número basándose en el máximo existente real, no en el último ID
+  const next = db.transaction(() => {
+      const rows = db.prepare("SELECT receipt_number FROM sales WHERE receipt_number IS NOT NULL").all();
+      let maxNum = 0;
+      for (const r of rows) {
+          const m = r.receipt_number.match(/-(\d+)$/);
+          if (m) {
+              const num = parseInt(m[1], 10);
+              if (num > maxNum) maxNum = num;
+          }
+      }
+      const nextStr = `RC-${padNumber(maxNum + 1)}`;
+      db.prepare("UPDATE sales SET receipt_number = ? WHERE id = ?").run(nextStr, saleId);
+      return nextStr;
+  })();
+  
   return next;
 }
 
