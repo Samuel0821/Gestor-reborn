@@ -211,10 +211,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Función para agregar ítems a la cotización
   
   function addItemToQuote(prod, qty, price, productNameOverride = null, variant = null) {
-    // Calcular costo proporcional
-    let purchasePrice = prod ? (prod.purchase_price || 0) : 0;
-    if (variant && variant.conversion_factor) {
-        purchasePrice = purchasePrice * variant.conversion_factor;
+    // Calcular costo: prioriza el de la variante, si no, calcula desde el padre.
+    let purchasePrice = 0;
+    if (variant) {
+        purchasePrice = variant.purchase_price > 0 ? variant.purchase_price : (prod ? (prod.purchase_price || 0) * (variant.conversion_factor || 1) : 0);
+    } else if (prod) {
+        purchasePrice = prod.purchase_price || 0;
     }
 
     quoteItems.push({
@@ -223,8 +225,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       product_name: productNameOverride || prod.name, // aquí siempre queda con variante si aplica
       quantity: qty,
       price: price,
-      sale_price: prod ? prod.sale_price : price,
-      special_price: prod ? prod.special_price : 0,
+      sale_price: price,
+      special_price: (prod && !variant) ? prod.special_price : 0,
       subtotal: price * qty,
       is_service: !prod, // Marcar si es un servicio
       purchase_price: purchasePrice,
@@ -462,10 +464,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (item.product_id) {
                 const product = allProducts.find(p => p.id === item.product_id);
                 if (product) {
+                    let basePrice = product.sale_price;
+                    let specialPrice = product.special_price;
+
+                    if (item.variant_id && product.variants) {
+                        const v = product.variants.find(v => v.id === item.variant_id);
+                        if (v) {
+                            basePrice = v.sale_price;
+                            specialPrice = 0;
+                        }
+                    }
                     detailedItems.push({
                         ...item,
-                        sale_price: product.sale_price,
-                        special_price: product.special_price,
+                        sale_price: basePrice,
+                        special_price: specialPrice,
                     });
                 } else {
                    detailedItems.push({ ...item, sale_price: item.price, special_price: 0 });
@@ -539,29 +551,48 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Re-obtener todos los productos para asegurar el stock más reciente
     const currentAllProducts = await window.api.getProducts();
 
-    let insufficientStockItems = [];
+    // Agrupar requerimientos por producto padre para validar el total convertido
+    const productRequirements = {}; // { productId: { product, totalRequiredBase } }
+
     for (const item of quote.items) {
-      // 1. Si es un servicio (sin ID de producto o código SERV), no validamos stock.
-      // 2. Si el ítem tiene la marca de 'skip_stock' (materiales de servicio ya descontados), saltamos validación.
       if (!item.product_id || item.product_code === 'SERV' || item.skip_stock) {
         continue;
       }
 
       const product = currentAllProducts.find(p => p.id === item.product_id);
-      // Si el producto no se encuentra o el stock es menor a la cantidad requerida
-      if (!product || product.stock < item.quantity) {
-        insufficientStockItems.push({
-          name: item.product_name,
-          required: item.quantity,
-          available: product ? product.stock : 0
-        });
+      if (!product) continue;
+
+      let conversionFactor = 1;
+      if (item.variant_id && product.variants) {
+          const variant = product.variants.find(v => v.id === item.variant_id);
+          if (variant) conversionFactor = variant.conversion_factor || 1;
       }
+
+      const requiredBase = item.quantity * conversionFactor;
+
+      if (!productRequirements[item.product_id]) {
+          productRequirements[item.product_id] = { product: product, totalRequiredBase: 0 };
+      }
+      productRequirements[item.product_id].totalRequiredBase += requiredBase;
+    }
+
+    let insufficientStockItems = [];
+    for (const pid in productRequirements) {
+        const req = productRequirements[pid];
+        // Usamos un pequeño margen de error para comparaciones de punto flotante
+        if (req.product.stock < (req.totalRequiredBase - 0.0001)) {
+             insufficientStockItems.push({
+                name: req.product.name,
+                required: parseFloat(req.totalRequiredBase.toFixed(2)), // Mostrar en unidad base
+                available: req.product.stock
+             });
+        }
     }
 
     if (insufficientStockItems.length > 0) {
       let alertMessage = "Stock insuficiente para los siguientes productos:<br><ul style='text-align: left;'>";
       insufficientStockItems.forEach(item => {
-        alertMessage += `<li><strong>${item.name}</strong>: Requerido ${item.required}, Disponible ${item.available}</li>`;
+        alertMessage += `<li><strong>${item.name}</strong>: Requerido ${item.required} (Unidad Base), Disponible ${item.available}</li>`;
       });
       alertMessage += "</ul><br>Por favor, actualice el inventario y reintente.";
       Swal.fire({

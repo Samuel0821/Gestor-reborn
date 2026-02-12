@@ -151,6 +151,82 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
   }
 
+  // Modal de selección de variante
+  function showVariantSelectionModal(prod, qtyDefault = 1) {
+    const modalHtml = `
+      <div class="modal fade" id="variantModal" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Seleccionar Unidad de Venta</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p>El producto <strong>${prod.name}</strong> tiene múltiples unidades de venta. Por favor, selecciona una:</p>
+              <select id="variant-select" class="form-select mb-3">
+                <option value="">-- Selecciona una opción --</option>
+                <option value="base" data-price="${prod.sale_price}">Unidad base (${formatCOP(prod.sale_price)})</option>
+                ${prod.variants.map(v => `<option value="${v.id}" data-name="${v.name}" data-price="${v.sale_price}">${v.name} (${formatCOP(v.sale_price)})</option>`).join('')}
+              </select>
+              <label class="form-label">Cantidad</label>
+              <input type="number" id="variant-qty" class="form-control" value="${qtyDefault}" min="0.1" step="0.1">
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-primary" id="confirm-variant-btn">Agregar a Servicio</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const existing = document.getElementById("variantModal");
+    if (existing) existing.remove();
+    document.body.insertAdjacentHTML("beforeend", modalHtml);
+    const modal = new bootstrap.Modal(document.getElementById("variantModal"));
+    modal.show();
+
+    document.getElementById("confirm-variant-btn").addEventListener("click", () => {
+      const select = document.getElementById("variant-select");
+      const selectedOption = select.options[select.selectedIndex];
+      if (!selectedOption.value) {
+        Swal.fire('Atención', "Por favor, selecciona una unidad de venta.", 'warning');
+        return;
+      }
+
+      const qty = Number(document.getElementById("variant-qty").value) || 1;
+      let selectedVariant = null;
+      
+      if (selectedOption.value !== "base") {
+        const variantId = Number(selectedOption.value);
+        selectedVariant = prod.variants.find(v => v.id === variantId);
+      }
+
+      addItemToService(prod, qty, selectedVariant);
+      modal.hide();
+    });
+  }
+
+  function addItemToService(prod, qty, variant) {
+      let itemPrice = variant ? variant.sale_price : prod.sale_price;
+      let itemName = variant ? `${prod.name} (${variant.name})` : prod.name;
+      let variantId = variant ? variant.id : null;
+
+      const existing = currentServiceProducts.find(p => p.product_id === prod.id && p.variant_id === variantId);
+      if (existing) {
+        existing.quantity += qty;
+      } else {
+        currentServiceProducts.push({
+          product_id: prod.id,
+          name: itemName,
+          price: itemPrice,
+          quantity: qty,
+          variant_id: variantId
+        });
+      }
+      renderServiceProducts();
+  }
+
   // Agregar producto a la lista temporal del servicio
   addProductBtn.addEventListener('click', () => {
     const val = productSearch.value;
@@ -161,19 +237,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     const qty = Number(productQty.value) || 1;
 
-    // Verificar si ya existe
-    const existing = currentServiceProducts.find(p => p.product_id === prod.id);
-    if (existing) {
-      existing.quantity += qty;
-    } else {
-      currentServiceProducts.push({
-        product_id: prod.id,
-        name: prod.name,
-        price: prod.sale_price,
-        quantity: qty
-      });
+    // Verificar si tiene variantes
+    if (prod.variants && prod.variants.length > 0) {
+      showVariantSelectionModal(prod, qty);
+      productSearch.value = "";
+      productQty.value = 1;
+      return;
     }
-    renderServiceProducts();
+    addItemToService(prod, qty, null);
     productSearch.value = "";
     productQty.value = 1;
   });
@@ -212,56 +283,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       description: descInput.value,
       products: currentServiceProducts
     };
-
-    // --- INICIO LOGICA DESCUENTO INVENTARIO ---
-    try {
-        // Obtenemos productos frescos para asegurar stock real
-        const freshProducts = await window.api.getProducts();
-        
-        const adjustStock = async (prodId, qtyChange) => {
-            const product = freshProducts.find(p => p.id === prodId);
-            if (!product) return;
-            
-            const newStock = product.stock + qtyChange;
-            const payload = {
-                id: product.id,
-                code: product.code,
-                name: product.name,
-                category: product.category,
-                purchase_price: product.purchase_price,
-                sale_price: product.sale_price,
-                special_price: product.special_price,
-                stock: newStock,
-                min_stock: product.min_stock,
-                supplier_id: product.supplier_id,
-                variants: product.variants
-            };
-            await window.api.updateProduct(payload);
-            // Actualizar cache local para siguientes iteraciones
-            product.stock = newStock;
-        };
-
-        // 1. Si es edición, devolver al inventario los productos antiguos primero
-        if (data.id) {
-            const oldService = await window.api.getServiceById(data.id);
-            if (oldService && oldService.products) {
-                for (const p of oldService.products) {
-                    await adjustStock(p.product_id, p.quantity); // Sumar (devolver)
-                }
-            }
-        }
-
-        // 2. Descontar los productos actuales (Nuevos o Editados)
-        for (const p of data.products) {
-            await adjustStock(p.product_id, -p.quantity); // Restar
-        }
-
-    } catch (err) {
-        console.error("Error ajustando inventario:", err);
-        Swal.fire('Error', "Error al ajustar el inventario. Verifique los productos.", 'error');
-        return; // Detener guardado si falla el inventario
-    }
-    // --- FIN LOGICA DESCUENTO INVENTARIO ---
 
     if (data.id) {
       await window.api.updateService(data);
@@ -346,14 +367,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       if(result.isConfirmed) {
         try {
-            // 1. Obtener el servicio actual
-            const service = await window.api.getServiceById(id);
-            if (service) {
-                // 2. Actualizarlo para quitarle los productos (sin pasar por la lógica de stock del frontend)
-                // Esto limpia la relación en BD sin disparar la devolución de stock
-                await window.api.updateService({ ...service, products: [] });
-            }
-            // 3. Eliminar el servicio (ahora vacío, por lo que no devuelve nada al inventario)
             await window.api.deleteService(id);
             loadServices();
             Swal.fire('Eliminado', 'El servicio ha sido eliminado.', 'success');
@@ -375,9 +388,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       currentServiceProducts = service.products.map(p => ({
         product_id: p.product_id,
-        name: p.name,
+        name: p.variant_name ? `${p.name} (${p.variant_name})` : p.name,
         price: p.sale_price,
-        quantity: p.quantity
+        quantity: p.quantity,
+        variant_id: p.variant_id
       }));
       renderServiceProducts();
       cancelBtn.style.display = "inline-block";
@@ -413,13 +427,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         cartItems.push({
           product_id: p.product_id,
           product_code: p.code,
-          product_name: p.name,
+          product_name: p.variant_name ? `${p.name} (${p.variant_name})` : p.name,
           quantity: p.quantity,
           price: p.sale_price,
           sale_price: p.sale_price,
           special_price: 0,
           subtotal: p.sale_price * p.quantity,
-          skip_stock: true // ⚠️ IMPORTANTE: Evita doble descuento de inventario
+          skip_stock: true, // ⚠️ IMPORTANTE: Evita doble descuento de inventario
+          variant_id: p.variant_id
         });
       });
 
@@ -463,13 +478,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         cartItems.push({
           product_id: p.product_id,
           product_code: p.code,
-          product_name: p.name,
+          product_name: p.variant_name ? `${p.name} (${p.variant_name})` : p.name,
           quantity: p.quantity,
           price: p.sale_price,
           sale_price: p.sale_price,
           special_price: 0,
           subtotal: p.sale_price * p.quantity,
-          skip_stock: true // ⚠️ IMPORTANTE: Evita doble descuento de inventario
+          skip_stock: true, // ⚠️ IMPORTANTE: Evita doble descuento de inventario
+          variant_id: p.variant_id
         });
       });
 

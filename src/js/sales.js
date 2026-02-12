@@ -428,10 +428,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     let itemName = variant ? `${prod.name} (${variant.name})` : prod.name;
     let variantId = variant ? variant.id : null;
 
-    // Calcular costo proporcional basado en el factor de conversión
-    let purchasePrice = prod.purchase_price || 0;
-    if (variant && variant.conversion_factor) {
-        purchasePrice = purchasePrice * variant.conversion_factor;
+    // Calcular costo: prioriza el de la variante, si no, calcula desde el padre.
+    let purchasePrice = 0;
+    if (variant) {
+        purchasePrice = variant.purchase_price > 0 ? variant.purchase_price : (prod.purchase_price || 0) * (variant.conversion_factor || 1);
+    } else if (prod) {
+        purchasePrice = prod.purchase_price || 0;
     }
 
     const existingItemIndex = saleItems.findIndex(i => 
@@ -448,8 +450,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         product_name: itemName,
         quantity: qty,
         price: itemPrice,
-        sale_price: prod.sale_price,
-        special_price: prod.special_price,
+        sale_price: itemPrice,
+        special_price: variant ? 0 : prod.special_price,
         subtotal: itemPrice * qty,
         variant_id: variantId,
         purchase_price: purchasePrice
@@ -954,10 +956,20 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (item.product_id) {
                 const product = allProducts.find(p => p.id === item.product_id);
                 if (product) {
+                    let basePrice = product.sale_price;
+                    let specialPrice = product.special_price;
+                    
+                    if (item.variant_id && product.variants) {
+                        const v = product.variants.find(v => v.id === item.variant_id);
+                        if (v) {
+                            basePrice = v.sale_price;
+                            specialPrice = 0;
+                        }
+                    }
                     detailedItems.push({
                         ...item,
-                        sale_price: product.sale_price,
-                        special_price: product.special_price,
+                        sale_price: basePrice,
+                        special_price: specialPrice,
                     });
                 }
             } else {

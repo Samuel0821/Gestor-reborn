@@ -17,19 +17,21 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
     - Alertas automáticas de stock mínimo.
 2.  **Punto de Venta (POS):**
     - Facturación rápida con soporte para lector de código de barras.
-    - Manejo de variantes de productos (Unidades de medida).
+    - Manejo de variantes de productos (Unidades de medida) con precios y costos específicos.
     - Pagos mixtos (Efectivo + Transferencia).
     - Ventas a crédito y gestión de abonos.
     - **Recibos de Caja:** Generación de comprobantes de ingreso numerados y exportables a PDF.
     - **Edición de Facturas:** Permite modificar ventas existentes recalculando inventario y saldos automáticamente.
 3.  **Inventario Avanzado:**
     - Gestión de productos, categorías y proveedores.
+    - **Variantes de Producto:** Soporte para múltiples presentaciones (ej. Kilo, Bulto) con factor de conversión y costo de compra individual.
     - Control de stock y alertas de reabastecimiento.
     - Exportación de inventario a Excel y PDF.
 4.  **Servicios:**
     - Creación de paquetes de servicios (Mano de obra + Insumos).
+    - **Soporte de Variantes:** Los materiales asociados pueden ser variantes específicas, calculando el costo y precio correctamente.
     - Vinculación de clientes a las órdenes de servicio.
-    - Descuento automático de materiales del inventario al vender un servicio.
+    - Descuento automático de materiales del inventario al guardar un servicio (Gestión inteligente para evitar doble descuento al facturar).
 5.  **Compras y Proveedores:**
     - Generación de Órdenes de Compra.
     - Recepción de mercancía con actualización automática de stock.
@@ -37,8 +39,8 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
 6.  **Cotizaciones:**
     - Generación de cotizaciones profesionales en PDF.
     - Persistencia de datos (guardado automático al cambiar de pantalla).
-    - Edición de cotizaciones existentes.
-    - Conversión de cotización a venta con validación de stock y gestión de pagos.
+    - Edición de cotizaciones existentes respetando variantes seleccionadas.
+    - Conversión de cotización a venta con validación de stock (conversión automática de unidades) y gestión de pagos.
 7.  **Finanzas y Caja:**
     - Apertura y cierre de caja (Arqueo ciego).
     - Registro de movimientos de efectivo.

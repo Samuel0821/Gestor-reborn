@@ -198,7 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 variantsContainer.innerHTML = '';
                 if (p.variants && p.variants.length > 0) {
                     p.variants.forEach(v => {
-                        addVariantField(v.name, v.sale_price, v.conversion_factor);
+                        addVariantField(v.name, v.sale_price, v.conversion_factor, v.purchase_price);
                     });
                 }
                 // --- FIN LÓGICA DE EDICIÓN DE VARIANTES ---
@@ -235,20 +235,23 @@ document.addEventListener('DOMContentLoaded', () => {
         addVariantField();
     });
 
-    function addVariantField(variantName = '', variantPrice = '', conversionFactor = '') {
+    function addVariantField(variantName = '', variantPrice = '', conversionFactor = '', variantCost = '') {
         const variantRow = document.createElement('div');
         variantRow.classList.add('row', 'g-3', 'mb-2', 'variant-row');
         variantRow.innerHTML = `
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <input type="text" class="form-control variant-name" placeholder="Nombre (Ej: 1/2 saco)" value="${variantName}">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
+                <input type="number" step="0.01" class="form-control variant-cost" placeholder="Costo" value="${variantCost}">
+            </div>
+            <div class="col-md-2">
                 <input type="number" step="0.01" class="form-control variant-price" placeholder="Precio" value="${variantPrice}">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <input type="number" step="0.01" class="form-control variant-factor" placeholder="Factor (ej: 0.5)" value="${conversionFactor}">
             </div>
-            <div class="col-md-2 d-flex align-items-center">
+            <div class="col-md-3 d-flex align-items-center">
                 <button type="button" class="btn btn-danger btn-sm remove-variant-btn">Eliminar</button>
             </div>
         `;
@@ -265,8 +268,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const name = row.querySelector('.variant-name').value.trim();
             const price = parseFloat(row.querySelector('.variant-price').value);
             const factor = parseFloat(row.querySelector('.variant-factor').value);
+            const cost = parseFloat(row.querySelector('.variant-cost').value);
             if (name && !isNaN(price) && !isNaN(factor)) {
-                variants.push({ name, sale_price: price, conversion_factor: factor });
+                variants.push({ name, sale_price: price, conversion_factor: factor, purchase_price: isNaN(cost) ? 0 : cost });
             }
         });
         return variants;

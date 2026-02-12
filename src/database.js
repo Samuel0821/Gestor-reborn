@@ -64,19 +64,35 @@ try {
   }
 } catch (e) { /* ignorar */ }
 
-// MIGRACIÓN: Agregar conversion_factor a sale_items para manejo correcto de stock en variantes
+// MIGRACIÓN: Agregar purchase_price a product_variants para cálculo correcto de utilidad
 try {
-  const siColumns = db.prepare("PRAGMA table_info(sale_items)").all();
-  if (!siColumns.some(c => c.name === "conversion_factor")) {
-    db.prepare("ALTER TABLE sale_items ADD COLUMN conversion_factor REAL DEFAULT 1").run();
+  const pvColumns = db.prepare("PRAGMA table_info(product_variants)").all();
+  if (!pvColumns.some(c => c.name === "purchase_price")) {
+    db.prepare("ALTER TABLE product_variants ADD COLUMN purchase_price REAL DEFAULT 0").run();
   }
 } catch (e) { /* ignorar */ }
 
-// MIGRACIÓN: Agregar variant_id a sale_items para poder editar ventas con variantes
+// MIGRACIÓN: Agregar skip_stock a quote_items para evitar doble descuento en servicios
 try {
-  const siColumns = db.prepare("PRAGMA table_info(sale_items)").all();
-  if (!siColumns.some(c => c.name === "variant_id")) {
-    db.prepare("ALTER TABLE sale_items ADD COLUMN variant_id INTEGER").run();
+  const qiColumns = db.prepare("PRAGMA table_info(quote_items)").all();
+  if (!qiColumns.some(c => c.name === "skip_stock")) {
+    db.prepare("ALTER TABLE quote_items ADD COLUMN skip_stock INTEGER DEFAULT 0").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar variant_id a quote_items para que se guarde la referencia a la variante
+try {
+  const qiColumns = db.prepare("PRAGMA table_info(quote_items)").all();
+  if (!qiColumns.some(c => c.name === "variant_id")) {
+    db.prepare("ALTER TABLE quote_items ADD COLUMN variant_id INTEGER").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar variant_id a service_products para soportar variantes en servicios
+try {
+  const spColumns = db.prepare("PRAGMA table_info(service_products)").all();
+  if (!spColumns.some(c => c.name === "variant_id")) {
+    db.prepare("ALTER TABLE service_products ADD COLUMN variant_id INTEGER").run();
   }
 } catch (e) { /* ignorar */ }
 
@@ -131,6 +147,7 @@ CREATE TABLE IF NOT EXISTS product_variants (
   name TEXT NOT NULL,
   sale_price REAL NOT NULL,
   conversion_factor REAL NOT NULL,
+  purchase_price REAL DEFAULT 0,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 )`).run();
 
@@ -243,9 +260,34 @@ CREATE TABLE IF NOT EXISTS sale_items (
   price REAL NOT NULL,
   subtotal REAL NOT NULL,
   variant_id INTEGER,
+  conversion_factor REAL DEFAULT 1,
   FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
 )`).run();
+
+// MIGRACIÓN: Agregar conversion_factor a sale_items (Ejecutar DESPUÉS de crear la tabla)
+try {
+  const siColumns = db.prepare("PRAGMA table_info(sale_items)").all();
+  if (!siColumns.some(c => c.name === "conversion_factor")) {
+    db.prepare("ALTER TABLE sale_items ADD COLUMN conversion_factor REAL DEFAULT 1").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar variant_id a sale_items (Ejecutar DESPUÉS de crear la tabla)
+try {
+  const siColumns = db.prepare("PRAGMA table_info(sale_items)").all();
+  if (!siColumns.some(c => c.name === "variant_id")) {
+    db.prepare("ALTER TABLE sale_items ADD COLUMN variant_id INTEGER").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar skip_stock a sale_items para evitar doble descuento en servicios
+try {
+  const siColumns = db.prepare("PRAGMA table_info(sale_items)").all();
+  if (!siColumns.some(c => c.name === "skip_stock")) {
+    db.prepare("ALTER TABLE sale_items ADD COLUMN skip_stock INTEGER DEFAULT 0").run();
+  }
+} catch (e) { /* ignorar */ }
 
 // CAJA REGISTRADORA
 // Sesiones de caja (apertura/cierre)
@@ -321,6 +363,8 @@ CREATE TABLE IF NOT EXISTS quote_items (
   quantity INTEGER NOT NULL,
   price REAL NOT NULL,
   subtotal REAL NOT NULL,
+  variant_id INTEGER,
+  skip_stock INTEGER DEFAULT 0,
   FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
 )`).run();
@@ -359,6 +403,7 @@ CREATE TABLE IF NOT EXISTS service_products (
   service_id INTEGER NOT NULL,
   product_id INTEGER NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 1,
+  variant_id INTEGER,
   FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 )`).run();
@@ -580,11 +625,11 @@ function addProduct(p) {
         const productId = productRes.lastInsertRowid;
         if (p.variants && p.variants.length > 0) {
             const insertVariant = db.prepare(`
-                INSERT INTO product_variants (product_id, name, sale_price, conversion_factor)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO product_variants (product_id, name, sale_price, conversion_factor, purchase_price)
+                VALUES (?, ?, ?, ?, ?)
             `);
             for (const v of p.variants) {
-                insertVariant.run(productId, v.name, v.sale_price, v.conversion_factor);
+                insertVariant.run(productId, v.name, v.sale_price, v.conversion_factor, v.purchase_price || 0);
             }
         }
         return productId;
@@ -620,11 +665,11 @@ function updateProduct(p) {
         db.prepare("DELETE FROM product_variants WHERE product_id=?").run(p.id);
         if (p.variants && p.variants.length > 0) {
             const insertVariant = db.prepare(`
-                INSERT INTO product_variants (product_id, name, sale_price, conversion_factor)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO product_variants (product_id, name, sale_price, conversion_factor, purchase_price)
+                VALUES (?, ?, ?, ?, ?)
             `);
             for (const v of p.variants) {
-                insertVariant.run(p.id, v.name, v.sale_price, v.conversion_factor);
+                insertVariant.run(p.id, v.name, v.sale_price, v.conversion_factor, v.purchase_price || 0);
             }
         }
     })();
@@ -667,8 +712,8 @@ function createSale({
   `);
 
   const insertItem = db.prepare(`
-    INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal, conversion_factor, variant_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal, conversion_factor, variant_id, skip_stock)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
@@ -685,7 +730,7 @@ function createSale({
       let conversionFactor = 1;
       
       // Si tiene product_id, es un producto físico y validamos stock
-      if (it.product_id) {
+      if (it.product_id && !it.skip_stock) { // ⚠️ Validar stock solo si NO es skip_stock
         const prod = getProduct.get(it.product_id);
         if (!prod) throw new Error(`Producto con id=${it.product_id} no existe`);
 
@@ -741,7 +786,7 @@ function createSale({
 
       insertItem.run(
         saleId, it.product_id || null, it.product_name, prodCode,
-        it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null
+        it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null, it.skip_stock ? 1 : 0
       );
 
       if (it.product_id && !it.skip_stock) {
@@ -812,7 +857,7 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
 
         // Add back original stock
         for (const item of originalItems) {
-            if (item.product_id) {
+            if (item.product_id && !item.skip_stock) { // ⚠️ Solo devolver si se descontó
                 const quantityToReturn = item.quantity * (item.conversion_factor || 1);
                 stockAdjustments.set(item.product_id, (stockAdjustments.get(item.product_id) || 0) + quantityToReturn);
             }
@@ -822,7 +867,7 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
         let newTotalAmount = 0;
         for (const item of items) {
             newTotalAmount += item.subtotal;
-            if (item.product_id) {
+            if (item.product_id && !item.skip_stock) { // ⚠️ Solo descontar si no es skip_stock
                 const conversionFactor = item.variant_id 
                     ? (db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?").get(item.variant_id)?.conversion_factor || 1)
                     : 1;
@@ -845,8 +890,8 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
         // 3. Update sale items
         db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(saleId);
         const insertItemStmt = db.prepare(`
-            INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal, conversion_factor, variant_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal, conversion_factor, variant_id, skip_stock)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const getProduct = db.prepare("SELECT code FROM products WHERE id = ?");
         const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
@@ -860,7 +905,7 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
                     conversionFactor = getVariant.get(it.variant_id)?.conversion_factor || 1;
                 }
             }
-            insertItemStmt.run(saleId, it.product_id, it.product_name, prodCode, it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null);
+            insertItemStmt.run(saleId, it.product_id, it.product_name, prodCode, it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null, it.skip_stock ? 1 : 0);
         }
 
         // 4. Handle financial adjustments
@@ -967,7 +1012,7 @@ function deleteSale(id) {
     db.transaction(() => {
       const items = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(id);
       for (const it of items) {
-        if (it.product_id) {
+        if (it.product_id && !it.skip_stock) { // ⚠️ Solo restaurar si no era skip_stock
           const factor = it.conversion_factor || 1;
           db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(it.quantity * factor, it.product_id);
         }
@@ -991,7 +1036,7 @@ function deleteSaleItem(id) {
   const item = db.prepare("SELECT * FROM sale_items WHERE id = ?").get(id);
   if (!item) return { success: false, message: "Item no encontrado" };
   const trx = db.transaction((itemId) => {
-    if (item.product_id) {
+    if (item.product_id && !item.skip_stock) { // ⚠️ Solo restaurar si no era skip_stock
       const factor = item.conversion_factor || 1;
       db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(item.quantity * factor, item.product_id);
     }
@@ -1089,7 +1134,7 @@ function deleteSaleItem(id) {
 // COTIZACIONES
 function createQuote({ client_id = null, items = [] }) {
   const insertQuote = db.prepare("INSERT INTO quotes (client_id, total_amount) VALUES (?, ?)");
-  const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
+  const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const getProduct = db.prepare("SELECT id, code, name, sale_price FROM products WHERE id = ?");
   const trx = db.transaction((client_id, items) => {
     const q = insertQuote.run(client_id || null, 0);
@@ -1102,7 +1147,7 @@ function createQuote({ client_id = null, items = [] }) {
       const price = (it.price != null) ? it.price : (prod ? prod.sale_price : 0);
       const subtotal = price * it.quantity;
       total += subtotal;
-      insertItem.run(quoteId, it.product_id || null, prodName, prodCode, it.quantity, price, subtotal);
+      insertItem.run(quoteId, it.product_id || null, prodName, prodCode, it.quantity, price, subtotal, it.variant_id || null, it.skip_stock ? 1 : 0);
     }
     db.prepare("UPDATE quotes SET total_amount = ? WHERE id = ?").run(total, quoteId);
     const last = getLastQuoteNumber();
@@ -1133,7 +1178,7 @@ function getQuotes(clientId = null) {
   }
   query += " ORDER BY quote_date DESC";
   const quotes = db.prepare(query).all(...params);
-  const itemsStmt = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal FROM quote_items WHERE quote_id = ?");
+  const itemsStmt = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock FROM quote_items WHERE quote_id = ?");
   for (const q of quotes) q.items = itemsStmt.all(q.id);
   return quotes;
 }
@@ -1141,7 +1186,7 @@ function getQuotes(clientId = null) {
 function getQuoteById(id) {
   const quote = db.prepare("SELECT * FROM quotes WHERE id = ?").get(id);
   if (quote) {
-    quote.items = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal FROM quote_items WHERE quote_id = ?").all(id);
+    quote.items = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock FROM quote_items WHERE quote_id = ?").all(id);
   }
   return quote;
 }
@@ -1171,7 +1216,7 @@ function updateQuote({ id, status }) {
 function updateQuoteDetails({ id, client_id, items }) {
   const updateHeader = db.prepare("UPDATE quotes SET client_id = ?, total_amount = ? WHERE id = ?");
   const deleteItems = db.prepare("DELETE FROM quote_items WHERE quote_id = ?");
-  const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
+  const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const getProduct = db.prepare("SELECT id, code, name, sale_price FROM products WHERE id = ?");
 
   const trx = db.transaction((id, client_id, items) => {
@@ -1193,7 +1238,7 @@ function updateQuoteDetails({ id, client_id, items }) {
        const price = (it.price !== undefined && it.price !== null) ? it.price : (prod ? prod.sale_price : 0);
        const subtotal = price * it.quantity;
        
-       insertItem.run(id, it.product_id || null, prodName, prodCode, it.quantity, price, subtotal);
+       insertItem.run(id, it.product_id || null, prodName, prodCode, it.quantity, price, subtotal, it.variant_id || null, it.skip_stock ? 1 : 0);
     }
     return { success: true, message: "Cotización actualizada correctamente" };
   });
@@ -1368,9 +1413,11 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
     const rows = salesStmt.all(start, end);
 
     const itemsStmt = db.prepare(`
-      SELECT si.product_name, si.quantity, si.price, si.subtotal, p.purchase_price
+      SELECT si.product_name, si.quantity, si.price, si.subtotal, si.conversion_factor,
+             pv.purchase_price as variant_cost, p.purchase_price as base_cost
       FROM sale_items si
       LEFT JOIN products p ON si.product_id = p.id
+      LEFT JOIN product_variants pv ON si.variant_id = pv.id
       WHERE si.sale_id = ?
     `);
 
@@ -1404,7 +1451,14 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
 
         // Calcular la utilidad de esta venta
         const saleProfit = items.reduce((profit, item) => {
-          const cost = item.purchase_price || 0;
+          // Prioridad de costo:
+          // 1. Costo específico de la variante (si existe y es > 0)
+          // 2. Costo base * factor de conversión (para variantes sin costo específico o ventas antiguas)
+          // 3. Costo base directo (si no es variante)
+          let cost = (item.variant_cost && item.variant_cost > 0) 
+                     ? item.variant_cost 
+                     : (item.base_cost || 0) * (item.conversion_factor || 1);
+                     
           const revenue = item.price * item.quantity;
           return profit + (revenue - (cost * item.quantity));
         }, 0);
@@ -1690,9 +1744,10 @@ function addPurchasePayment({ orderId, amount, method, reference, date, notes })
 function getServices() {
   return db.prepare(`
     SELECT s.*, c.name as client_name,
-      (SELECT COALESCE(SUM(sp.quantity * p.sale_price), 0)
+      (SELECT COALESCE(SUM(sp.quantity * COALESCE(pv.sale_price, p.sale_price)), 0)
        FROM service_products sp 
        JOIN products p ON sp.product_id = p.id 
+       LEFT JOIN product_variants pv ON sp.variant_id = pv.id
        WHERE sp.service_id = s.id
       ) as materials_cost
     FROM services s 
@@ -1705,9 +1760,13 @@ function getServiceById(id) {
   const service = db.prepare("SELECT * FROM services WHERE id = ?").get(id);
   if (service) {
     const products = db.prepare(`
-      SELECT sp.product_id, sp.quantity, p.name, p.code, p.sale_price
+      SELECT sp.product_id, sp.quantity, sp.variant_id,
+             p.name, p.code, 
+             COALESCE(pv.sale_price, p.sale_price) as sale_price,
+             pv.name as variant_name
       FROM service_products sp
       JOIN products p ON sp.product_id = p.id
+      LEFT JOIN product_variants pv ON sp.variant_id = pv.id
       WHERE sp.service_id = ?
     `).all(id);
     service.products = products;
@@ -1717,17 +1776,24 @@ function getServiceById(id) {
 
 function createService(data) {
   const insert = db.prepare("INSERT INTO services (name, description, price, client_id) VALUES (?, ?, ?, ?)");
-  const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity) VALUES (?, ?, ?)");
+  const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity, variant_id) VALUES (?, ?, ?, ?)");
   const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
+  const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
   
   const trx = db.transaction((data) => {
     const info = insert.run(data.name, data.description, data.price, data.client_id || null);
     const serviceId = info.lastInsertRowid;
     if (data.products && data.products.length > 0) {
       for (const p of data.products) {
-        insertItem.run(serviceId, p.product_id, p.quantity);
+        insertItem.run(serviceId, p.product_id, p.quantity, p.variant_id || null);
+        
+        let factor = 1;
+        if (p.variant_id) {
+            const v = getVariant.get(p.variant_id);
+            if (v) factor = v.conversion_factor;
+        }
         // Descontar del inventario (Reserva)
-        updateStock.run(p.quantity, p.product_id);
+        updateStock.run(p.quantity * factor, p.product_id);
       }
     }
     return serviceId;
@@ -1744,14 +1810,39 @@ function createService(data) {
 function updateService(data) {
   const update = db.prepare("UPDATE services SET name = ?, description = ?, price = ?, client_id = ? WHERE id = ?");
   const deleteItems = db.prepare("DELETE FROM service_products WHERE service_id = ?");
-  const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity) VALUES (?, ?, ?)");
+  const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity, variant_id) VALUES (?, ?, ?, ?)");
+  
+  // Preparar consultas para manejo de stock
+  const getOldItems = db.prepare("SELECT product_id, quantity, variant_id FROM service_products WHERE service_id = ?");
+  const updateStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?"); // + para restaurar, - para descontar
+  const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
 
   const trx = db.transaction((data) => {
     update.run(data.name, data.description, data.price, data.client_id || null, data.id);
+    
+    // 1. Restaurar stock de ítems antiguos antes de borrarlos
+    const oldItems = getOldItems.all(data.id);
+    for (const item of oldItems) {
+        let factor = 1;
+        if (item.variant_id) {
+            const v = getVariant.get(item.variant_id);
+            if (v) factor = v.conversion_factor;
+        }
+        updateStock.run(item.quantity * factor, item.product_id);
+    }
+
     deleteItems.run(data.id);
+
     if (data.products && data.products.length > 0) {
       for (const p of data.products) {
-        insertItem.run(data.id, p.product_id, p.quantity);
+        insertItem.run(data.id, p.product_id, p.quantity, p.variant_id || null);
+        let factor = 1;
+        if (p.variant_id) {
+            const v = getVariant.get(p.variant_id);
+            if (v) factor = v.conversion_factor;
+        }
+        // Descontar nuevo stock (usamos negativo en la query que suma)
+        updateStock.run(-(p.quantity * factor), p.product_id);
       }
     }
   });
@@ -1766,12 +1857,21 @@ function updateService(data) {
 
 function deleteService(id) {
   const getItems = db.prepare("SELECT product_id, quantity FROM service_products WHERE service_id = ?");
+  const getItemsWithVariant = db.prepare("SELECT product_id, quantity, variant_id FROM service_products WHERE service_id = ?");
   const updateStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
   const delService = db.prepare("DELETE FROM services WHERE id = ?");
+  const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
 
   const trx = db.transaction((id) => {
-    const items = getItems.all(id);
-    for(const item of items) updateStock.run(item.quantity, item.product_id);
+    const items = getItemsWithVariant.all(id);
+    for(const item of items) {
+        let factor = 1;
+        if (item.variant_id) {
+            const v = getVariant.get(item.variant_id);
+            if (v) factor = v.conversion_factor;
+        }
+        updateStock.run(item.quantity * factor, item.product_id);
+    }
     delService.run(id);
   });
   try {

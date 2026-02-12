@@ -72,7 +72,7 @@ En la pestaña lateral o sección inferior, puede ver las ventas a crédito pend
 Administre todo su catálogo de artículos.
 
 *   **Crear Producto:** Ingrese Código, Nombre, Categoría, Costo, Precio de Venta y Stock.
-*   **Variantes (Unidades de Medida):** Ahora puede vender un mismo producto en diferentes presentaciones (ej. Unidad, Caja, Metro) con precios y factores de conversión distintos.
+*   **Variantes (Unidades de Medida):** Ahora puede vender un mismo producto en diferentes presentaciones (ej. Unidad, Caja, Metro) con precios, costos y factores de conversión distintos. Esto permite un cálculo exacto de la utilidad por presentación.
 *   **Stock Mínimo:** Defina una cantidad mínima para que el sistema le avise cuándo reabastecer.
 *   **Exportar:** Botones para descargar su inventario completo en **Excel** o **PDF**.
 
@@ -82,7 +82,8 @@ Administre todo su catálogo de artículos.
 Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 
 *   **Crear Servicio:** Defina el nombre, precio y asocie un **Cliente** específico para llevar un mejor control.
-*   **Asociar Materiales:** Puede vincular productos del inventario al servicio (ej. "Pasta térmica"). Al vender el servicio, estos productos se descontarán automáticamente del stock.
+*   **Asociar Materiales:** Puede vincular productos del inventario al servicio. Soporta variantes: puede seleccionar si usa un "Bulto" o un "Kilo", y el sistema calculará el costo de los materiales basándose en esa selección.
+*   **Gestión de Inventario:** Al guardar un servicio, los materiales se descuentan del inventario inmediatamente. Al facturar el servicio (enviar a Ventas), el sistema sabe que ya se descontaron y no lo hace dos veces.
 *   **Acciones Rápidas:** Desde la lista de servicios puede enviarlos directamente a la pantalla de **Ventas** o **Cotizaciones** con un solo clic.
 
 ---
@@ -90,10 +91,10 @@ Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 ## 7. Módulo de Cotizaciones
 Genere propuestas comerciales profesionales sin descontar inventario.
 
-*   **Crear:** Seleccione cliente y productos. El sistema guarda automáticamente su progreso si cambia de pantalla.
+*   **Crear:** Seleccione cliente y productos. Soporta variantes: el precio y nombre se ajustan a la presentación seleccionada.
 *   **Editar:** Puede modificar cotizaciones guardadas previamente.
 *   **Exportar:** Genere un PDF formal con el logo de su empresa para enviar al cliente.
-*   **Aprobar:** Cuando el cliente acepte, haga clic en "Aprobar". El sistema verificará el stock disponible y abrirá la ventana de pago para convertirla en una Venta real inmediatamente.
+*   **Aprobar:** Cuando el cliente acepte, haga clic en "Aprobar". El sistema verificará el stock disponible (convirtiendo las variantes a la unidad base del inventario) y abrirá la ventana de pago para convertirla en una Venta real inmediatamente.
 
 ---
 
