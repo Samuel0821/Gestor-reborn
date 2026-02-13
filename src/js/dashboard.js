@@ -1,231 +1,325 @@
 document.addEventListener('DOMContentLoaded', async () => {
-  // Mostrar usuario logueado
-  const role = localStorage.getItem('user_role');
-  const name = localStorage.getItem('user_name');
-  if (role && name) {
-    // --- INICIO LOGICA LAYOUT ERP ---
-    const currentPage = window.location.pathname.split('/').pop();
-    
-    // Crear estructura principal
-    const appWrapper = document.createElement('div');
-    appWrapper.className = 'app-wrapper';
+  // La lógica del layout ahora se maneja en layout.js
 
-    // Sidebar
-    const sidebar = document.createElement('div');
-    sidebar.className = 'sidebar';
-    sidebar.innerHTML = `
-      <div class="sidebar-brand">
-        <img src="../logo/gestorfx_logof.ico" alt="Logo" style="height: 100px; width: auto; margin-right: 10px;">
-      </div>
-      <nav class="sidebar-menu">
-        <a href="index.html" class="sidebar-link ${currentPage === 'index.html' ? 'active' : ''}"><i class="fa fa-home"></i> <span class="link-text">Dashboard</span></a>
-        <a href="sales.html" class="sidebar-link ${currentPage === 'sales.html' ? 'active' : ''}"><i class="fa fa-shopping-cart"></i> <span class="link-text">Ventas</span></a>
-        <a href="products.html" class="sidebar-link ${currentPage === 'products.html' ? 'active' : ''}"><i class="fa fa-box"></i> <span class="link-text">Productos</span></a>
-        <a href="clients.html" class="sidebar-link ${currentPage === 'clients.html' ? 'active' : ''}"><i class="fa fa-users"></i> <span class="link-text">Clientes</span></a>
-        <a href="suppliers.html" class="sidebar-link ${currentPage === 'suppliers.html' ? 'active' : ''}"><i class="fa fa-truck"></i> <span class="link-text">Proveedores</span></a>
-        <a href="quotes.html" class="sidebar-link ${currentPage === 'quotes.html' ? 'active' : ''}"><i class="fa fa-file-invoice-dollar"></i> <span class="link-text">Cotizaciones</span></a>
-        <a href="purchase_orders.html" class="sidebar-link ${currentPage === 'purchase_orders.html' ? 'active' : ''}"><i class="fa fa-clipboard-list"></i> <span class="link-text">Órdenes Compra</span></a>
-        <a href="services.html" class="sidebar-link ${currentPage === 'services.html' ? 'active' : ''}"><i class="fa fa-concierge-bell"></i> <span class="link-text">Servicios</span></a>
-        <a href="reports.html" class="sidebar-link ${currentPage === 'reports.html' ? 'active' : ''}"><i class="fa fa-chart-line"></i> <span class="link-text">Reportes</span></a>
-        <a href="expenses.html" class="sidebar-link ${currentPage === 'expenses.html' ? 'active' : ''}"><i class="fa fa-money-bill-wave"></i> <span class="link-text">Gastos</span></a>
-        <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
-        <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
-      </nav>
-      <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
-        © 2026 GestorFX | Desarrollado por <a href="https://www.grisalistech.com" target="_blank" style="color: rgba(255,255,255,0.8); text-decoration: none;">Grisalis Technologies</a>
-      </div>
-    `;
+  // 1. Configuración Inicial Dashboard
+  const userName = localStorage.getItem('user_name') || 'Usuario';
+  const welcomeMsg = document.getElementById('welcome-msg');
+  if (welcomeMsg) welcomeMsg.textContent = `Buen día, ${userName} `;
+  
+  const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+  const dateEl = document.getElementById('current-date');
+  if (dateEl) dateEl.textContent = new Date().toLocaleDateString('es-ES', options);
 
-    // Main Content Wrapper
-    const mainWrapper = document.createElement('div');
-    mainWrapper.className = 'main-content-wrapper';
+  // 2. Configurar Filtros de Fecha (Por defecto: Mes actual)
+  const now = new Date();
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+  
+  const startInput = document.getElementById('filter-start-date');
+  const endInput = document.getElementById('filter-end-date');
+  
+  if(startInput) startInput.value = firstDay;
+  if(endInput) endInput.value = lastDay;
 
-    // Navbar
-    const navbar = document.createElement('div');
-    navbar.className = 'top-navbar';
-    navbar.innerHTML = `
-      <div class="d-flex align-items-center">
-        <button id="sidebar-toggle" class="btn btn-link text-white"><i class="fa fa-bars"></i></button>
-        <div class="page-title">Dashboard</div>
-      </div>
-      <div class="user-profile">
-        <div class="user-info">
-          <div class="user-name">${name}</div>
-          <div class="user-role">${role === 'admin' ? 'Administrador' : 'Usuario'}</div>
-        </div>
-        <button id="logout-btn" class="btn btn-outline-danger btn-sm" title="Salir"><i class="fa fa-sign-out-alt"></i></button>
-      </div>
-    `;
+  document.getElementById('apply-filter-btn')?.addEventListener('click', () => {
+      loadDashboardData(startInput.value, endInput.value);
+  });
 
-    // Mover el contenido existente (.container) dentro del nuevo layout
-    const contentContainer = document.createElement('div');
-    contentContainer.className = 'content-container';
-    const originalContainer = document.querySelector('.container');
-    if (originalContainer) contentContainer.appendChild(originalContainer);
+  // 4. Cargar Datos Iniciales
+  loadDashboardData(firstDay, lastDay);
+});
 
-    mainWrapper.appendChild(navbar);
-    mainWrapper.appendChild(contentContainer);
-    appWrapper.appendChild(sidebar);
-    appWrapper.appendChild(mainWrapper);
-    
-    // Insertar al inicio del body
-    document.body.insertBefore(appWrapper, document.body.firstChild);
-    // --- FIN LOGICA LAYOUT ERP ---
+async function loadDashboardData(startDate, endDate) {
+  try {
+      const [stats, recentActivity, lowStock] = await Promise.all([
+          window.api.getAdvancedDashboardStats({ startDate, endDate }),
+          window.api.getRecentActivity(),
+          window.api.getLowStockProducts()
+      ]);
 
-    document.getElementById('logout-btn').addEventListener('click', async () => {
-      const result = await Swal.fire({
-        title: '¿Cerrar sesión?',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Sí, cerrar sesión',
-        cancelButtonText: 'Cancelar'
-      });
-      if (result.isConfirmed) {
-        ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
-        window.location.href = 'login.html';
+      if (stats) {
+          renderKPIs(stats);
+          renderCharts(stats);
       }
+      
+      renderActivity(recentActivity);
+      renderAlerts(stats ? stats.alerts : {}, lowStock);
+
+  } catch (error) {
+      console.error("Error cargando dashboard:", error);
+  }
+};
+
+// --- RENDERIZADO DE KPIs ---
+function renderKPIs(stats) {
+    const formatMoney = (amount) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(amount);
+    const formatNum = (num) => new Intl.NumberFormat('es-CO').format(num);
+
+    // Ventas Hoy
+    updateKpi('kpi-sales-today', stats.salesToday, true);
+    
+    // Tendencia
+    const trendEl = document.getElementById('kpi-sales-trend');
+    if (trendEl) {
+        let trendPercent = 0;
+        if (stats.salesYesterday > 0) {
+            trendPercent = ((stats.salesToday - stats.salesYesterday) / stats.salesYesterday) * 100;
+        } else if (stats.salesToday > 0) {
+            trendPercent = 100;
+        }
+        
+        const trendIcon = trendPercent >= 0 ? 'fa-arrow-up' : 'fa-arrow-down';
+        const trendClass = trendPercent >= 0 ? 'up' : 'down';
+        trendEl.className = `kpi-trend ${trendClass}`;
+        trendEl.innerHTML = `<i class="fa ${trendIcon} me-1"></i> ${Math.abs(trendPercent).toFixed(1)}% vs ayer`;
+    }
+
+    // Utilidad Neta
+    updateKpi('kpi-net-profit', stats.financials.netProfit, true);
+
+    // Alertas
+    const totalAlerts = (stats.alerts.lowStock || 0) + (stats.alerts.pendingOrders || 0);
+    updateKpi('kpi-alerts-count', totalAlerts, false);
+
+    // Deudores
+    updateKpi('kpi-debtors', stats.alerts.debtors || 0, false);
+
+    // --- NUEVAS TARJETAS ---
+    if (stats.general) {
+        updateKpi('kpi-inventory-value', stats.general.inventoryValue, true);
+        updateKpi('kpi-total-products', stats.general.totalProducts, false);
+        updateKpi('kpi-total-clients', stats.general.totalClients, false);
+        updateKpi('kpi-total-suppliers', stats.general.totalSuppliers, false);
+        updateKpi('kpi-pending-po', stats.general.pendingPOPayments, true);
+    }
+}
+
+function updateKpi(id, value, isMoney) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('skeleton');
+    
+    // Animación CountUp simple
+    const start = 0;
+    const end = value;
+    const duration = 1000;
+    const startTime = performance.now();
+
+    const format = (num) => {
+        return isMoney 
+            ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(num)
+            : new Intl.NumberFormat('es-CO').format(Math.floor(num));
+    };
+
+    const animate = (currentTime) => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Easing easeOutQuart
+        const ease = 1 - Math.pow(1 - progress, 4);
+        
+        const currentVal = start + (end - start) * ease;
+        el.textContent = format(currentVal);
+
+        if (progress < 1) {
+            requestAnimationFrame(animate);
+        } else {
+            el.textContent = format(end);
+        }
+    };
+    
+    requestAnimationFrame(animate);
+}
+
+// --- GRÁFICOS (Chart.js) ---
+function renderCharts(stats) {
+    const isDark = document.body.classList.contains('dark-mode');
+    const textColor = isDark ? '#cbd5e1' : '#64748b';
+    const gridColor = isDark ? '#334155' : '#e2e8f0';
+
+    // 1. Top Productos (Bar Chart)
+    const ctxProducts = document.getElementById('topProductsChart');
+    if (ctxProducts) {
+        new Chart(ctxProducts.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: stats.topProducts.map(p => p.name),
+                datasets: [{
+                    label: 'Unidades Vendidas',
+                    data: stats.topProducts.map(p => p.qty),
+                    backgroundColor: 'rgba(13, 42, 87, 0.7)',
+                    borderColor: 'rgba(13, 42, 87, 1)',
+                    borderWidth: 1,
+                    borderRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                        titleColor: isDark ? '#f1f5f9' : '#0f172a',
+                        bodyColor: isDark ? '#cbd5e1' : '#334155',
+                        borderColor: gridColor,
+                        borderWidth: 1
+                    }
+                },
+                scales: { 
+                    y: { 
+                        beginAtZero: true,
+                        grid: { color: gridColor },
+                        ticks: { color: textColor }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: textColor }
+                    }
+                }
+            }
+        });
+    }
+
+    // 2. Métodos de Pago (Doughnut)
+    const ctxPayment = document.getElementById('paymentMethodsChart');
+    if (ctxPayment) {
+        new Chart(ctxPayment.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: ['Efectivo', 'Transferencia', 'Crédito'],
+                datasets: [{
+                    data: [stats.paymentMethods.cash, stats.paymentMethods.transfer, stats.paymentMethods.credit],
+                    backgroundColor: ['#2ecc71', '#3498db', '#f1c40f'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                borderColor: isDark ? '#1e293b' : '#ffffff',
+                plugins: { 
+                    legend: { 
+                        position: 'bottom', 
+                        labels: { 
+                            boxWidth: 12, 
+                            font: { size: 11 },
+                            color: textColor
+                        } 
+                    } 
+                }
+            }
+        });
+    }
+}
+
+// --- ACTIVIDAD RECIENTE ---
+function renderActivity(activities) {
+    const container = document.getElementById('activity-list');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!activities || activities.length === 0) {
+        container.innerHTML = '<div class="text-muted small">No hay actividad reciente.</div>';
+        return;
+    }
+
+    activities.forEach(act => {
+        const date = new Date(act.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        const html = `
+            <div class="activity-item">
+                <div class="fw-bold text-dark" style="font-size: 0.95rem;">${act.description}</div>
+                <div class="text-muted small"><i class="fa fa-clock me-1"></i>${date}</div>
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', html);
     });
+}
 
-    // Lógica Sidebar Colapsable
-    const toggleBtn = document.getElementById('sidebar-toggle');
-    toggleBtn.addEventListener('click', () => {
-        sidebar.classList.toggle('collapsed');
-        localStorage.setItem('sidebar-collapsed', sidebar.classList.contains('collapsed'));
-    });
-    if(localStorage.getItem('sidebar-collapsed') === 'true') sidebar.classList.add('collapsed');
-  }
+// --- ALERTAS ---
+function renderAlerts(alertCounts, lowStockProducts) {
+    const container = document.getElementById('alerts-container');
+    if (!container) return;
+    container.innerHTML = '';
 
-  // Función para mostrar alertas
-  function showAlert(message, type = 'info') {
-    const alertsContainer = document.getElementById('dashboard-alerts');
-    if (!alertsContainer) return;
-    const alert = document.createElement('div');
-    alert.className = `alert alert-${type} alert-dismissible fade show`;
-    alert.role = 'alert';
-    alert.innerHTML = 
-    `${message}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>`;
-    alertsContainer.appendChild(alert);
-  }
+    // 1. Stock Bajo
+    if (lowStockProducts && lowStockProducts.length > 0) {
+        const rows = lowStockProducts.map(p => `
+            <tr>
+                <td class="ps-3"><small class="fw-bold text-dark">${p.code}</small></td>
+                <td><small class="text-dark">${p.name}</small></td>
+                <td class="text-center"><small class="text-muted">${p.min_stock}</small></td>
+                <td class="text-center pe-3"><small class="fw-bold text-danger">${p.stock}</small></td>
+            </tr>
+        `).join('');
 
-  function formatCOP(value) {
-    return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value || 0);
-  }
-
-  const container = document.getElementById('dashboard-cards');
-  const alertsContainer = document.getElementById('low-stock-alerts');
-  const data = await window.api.getDashboardData();
-  const suppliersCount = await window.api.getSuppliersCount();
-  const purchaseOrdersCount = await window.api.getPurchaseOrdersCount();
-  const lowStock = await window.api.getLowStockProducts();
-  let alertsHtml = '';
-  if (lowStock.length) {
-    alertsHtml = `<div class="col-12 mb-3">
-      <div class="alert alert-danger d-flex justify-content-between align-items-center" role="alert">
-        <div>
-          <strong>¡Productos en stock mínimo!</strong> (${lowStock.length} productos)
-        </div>
-        <button id="export-low-stock-btn" class="btn btn-sm btn-danger">
-          <i class="fa fa-file-pdf me-1"></i> Exportar PDF
-        </button>
-      </div>
-      <div class="card p-3 mt-2" style="max-height: 150px; overflow-y: auto;">
-          <ul class="mb-0">
-            ${lowStock.map(p => `<li><i class='fa fa-triangle-exclamation text-danger me-2'></i>${p.name} (${p.code}) - Stock: <strong>${p.stock}</strong> / Mínimo: <strong>${p.min_stock}</strong></li>`).join('')}
-          </ul>
-      </div>
-    </div>`;
-    alertsContainer.innerHTML = alertsHtml;
-
-    document.getElementById('export-low-stock-btn').addEventListener('click', async () => {
-      const result = await window.api.exportLowStockPDF();
-      if (result.success) {
-        showAlert(`Reporte de bajo stock guardado en: ${result.filePath}`, 'success');
-      } else {
-        showAlert(result.message, 'danger');
-      }
-    });
-  }
-
-  // Configuración de las tarjetas del Dashboard
-  const cards = [
-    { title: 'Ventas Hoy', value: formatCOP(data.salesToday), icon: 'fa-cash-register', color: 'success', link: 'sales.html', textClass: 'text-success fw-bold' },
-    { title: 'Total Facturas', value: data.salesCount, icon: 'fa-receipt', color: 'primary', link: 'sales.html' },
-    { title: 'Clientes', value: data.clients, icon: 'fa-users', color: 'info', link: 'clients.html' },
-    { title: 'Productos', value: data.products, icon: 'fa-box', color: 'warning', link: 'products.html' },
-    { title: 'Servicios', value: data.services, icon: 'fa-concierge-bell', color: 'secondary', link: 'services.html' },
-    { title: 'Cotizaciones', value: data.quotes, icon: 'fa-file-invoice', color: 'dark', link: 'quotes.html' },
-    { title: 'Proveedores', value: suppliersCount, icon: 'fa-truck', color: 'secondary', link: 'suppliers.html' },
-    { title: 'Órdenes Compra', value: purchaseOrdersCount, icon: 'fa-clipboard-list', color: 'danger', link: 'purchase_orders.html' }
-  ];
-
-  container.innerHTML = `
-    <div class="row g-3 mb-4">
-        ${cards.map(c => `
-            <div class="col-md-3">
-                <div class="card shadow-sm h-100 border-start border-4 border-${c.color}">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <h6 class="text-muted text-uppercase small fw-bold mb-1">${c.title}</h6>
-                                <h3 class="mb-0 ${c.textClass || ''}">${c.value}</h3>
-                            </div>
-                            <div class="rounded-circle bg-${c.color} bg-opacity-10 p-3 text-${c.color}">
-                                <i class="fa ${c.icon} fa-2x"></i>
-                            </div>
-                        </div>
+        const alertHtml = `
+            <div class="alert alert-danger p-0 overflow-hidden mb-3" style="border: 1px solid #f5c6cb;">
+                <div class="d-flex align-items-center p-3 bg-danger bg-opacity-10">
+                    <i class="fa fa-exclamation-triangle me-3 fs-4 text-danger"></i>
+                    <div>
+                        <div class="fw-bold text-danger">${lowStockProducts.length} Productos con Stock Bajo</div>
+                        <div class="small text-danger opacity-75">Requieren reabastecimiento urgente.</div>
                     </div>
-                    <a href="${c.link}" class="card-footer bg-transparent border-0 text-muted small text-decoration-none d-flex justify-content-between align-items-center">
-                        Ver detalles <i class="fa fa-chevron-right"></i>
-                    </a>
+                </div>
+                <div class="bg-white" style="max-height: 200px; overflow-y: auto;">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th class="ps-3 small text-muted">Cód</th>
+                                <th class="small text-muted">Producto</th>
+                                <th class="text-center small text-muted">Min</th>
+                                <th class="text-center pe-3 small text-muted">Actual</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows}
+                        </tbody>
+                    </table>
                 </div>
             </div>
-        `).join('')}
-    </div>
-    
-    <!-- Gráfico de Ventas -->
-    <div class="col-12">
-      <div class="card p-4 shadow-sm border-0">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h5 class="card-title mb-0 fw-bold text-primary"><i class="fa fa-chart-line me-2"></i>Tendencia de Ventas (Últimos 7 días)</h5>
-        </div>
-        <div style="position: relative; height: 300px; width: 100%;">
-            <canvas id="salesChart"></canvas>
-        </div>
-      </div>
-    </div>
-  `;
+        `;
+        container.insertAdjacentHTML('beforeend', alertHtml);
+    }
 
-  // Cargar Chart.js dinámicamente y renderizar gráfico
-  const script = document.createElement('script');
-  script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
-  script.onload = async () => {
-    const salesData = await window.api.getSalesLastDays(7);
-    const ctx = document.getElementById('salesChart').getContext('2d');
-    
-    new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: salesData.map(d => d.date),
-        datasets: [{
-          label: 'Ventas ($)',
-          data: salesData.map(d => d.total),
-          borderColor: '#1E3A8A',
-          backgroundColor: 'rgba(30, 58, 138, 0.1)',
-          borderWidth: 2,
-          fill: true,
-          tension: 0.4
-        }]
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { display: false }
-        },
-        scales: {
-          y: { beginAtZero: true }
+    // 2. Órdenes Pendientes
+    if (alertCounts && alertCounts.pendingOrders > 0) {
+        const alertHtml = `
+            <div class="alert alert-warning d-flex align-items-center mb-2 py-2">
+                <i class="fa fa-truck-loading me-3 fs-4"></i>
+                <div>
+                    <div class="fw-bold">${alertCounts.pendingOrders} Órdenes de Compra Pendientes</div>
+                    <div class="small">Mercancía por recibir.</div>
+                </div>
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', alertHtml);
+    }
+
+    if ((!alertCounts || (alertCounts.lowStock === 0 && alertCounts.pendingOrders === 0))) {
+        container.innerHTML = `
+            <div class="text-center py-4 text-success">
+                <i class="fa fa-check-circle fs-1 mb-2 opacity-50"></i>
+                <p class="mb-0 fw-bold">Todo en orden</p>
+                <small>No hay alertas críticas en el sistema.</small>
+            </div>
+        `;
+    }
+
+    // Botón exportar PDF Stock
+    const btnExport = document.getElementById('export-low-stock-pdf');
+    if (btnExport) {
+        if (lowStockProducts && lowStockProducts.length > 0) {
+            btnExport.classList.remove('d-none');
+            btnExport.onclick = async () => {
+                const res = await window.api.exportLowStockPDF();
+                if (res.success) {
+                    Swal.fire('Exportado', 'Reporte guardado correctamente', 'success');
+                } else {
+                    Swal.fire('Error', res.message, 'error');
+                }
+            };
+        } else {
+            btnExport.classList.add('d-none');
         }
-      }
-    });
-  };
-  document.head.appendChild(script);
-});
+    }
+}

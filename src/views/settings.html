@@ -13,6 +13,7 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script defer src="../js/settings.js"></script>
+      <script src="../js/layout.js"></script>
     <script>
       if (!localStorage.getItem('logueado')) {
         window.location.href = 'login.html';
@@ -122,17 +123,19 @@
                 </div>
                 <div class="col-md-8">
                   <h6 class="mb-3">Usuarios Registrados</h6>
-                  <table class="table table-striped align-middle">
-                    <thead>
-                      <tr>
-                        <th>Usuario</th>
-                        <th>Nombre</th>
-                        <th>Rol</th>
-                        <th>Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody id="users-table"></tbody>
-                  </table>
+                  <div class="table-responsive">
+                    <table class="table table-striped align-middle">
+                      <thead>
+                        <tr>
+                          <th>Usuario</th>
+                          <th>Nombre</th>
+                          <th>Rol</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody id="users-table"></tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>

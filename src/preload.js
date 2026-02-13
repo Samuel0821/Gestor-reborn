@@ -111,6 +111,8 @@ markCreditAsPaid: (saleId, method, reference) => ipcRenderer.invoke("mark-credit
   // dashboard
   getDashboardData: () => ipcRenderer.invoke("get-dashboard-data"),
   getSalesLastDays: (days) => ipcRenderer.invoke("get-sales-last-days", days),
+  getAdvancedDashboardStats: () => ipcRenderer.invoke("get-advanced-dashboard-stats"),
+  getRecentActivity: () => ipcRenderer.invoke("get-recent-activity"),
 
   // reset
   resetDatabase: () => ipcRenderer.invoke("reset-database"),

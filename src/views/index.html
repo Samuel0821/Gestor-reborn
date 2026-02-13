@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
   <link rel="stylesheet" href="../styles.css">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="../js/layout.js"></script> <!-- Nuevo Layout Global -->
   <script defer src="../js/dashboard.js"></script>
     <script>
       if (!localStorage.getItem('logueado')) {
@@ -15,16 +17,240 @@
     </script>
 </head>
 <body>
-  <div class="container py-4">
-    <div class="row mb-3" id="dashboard-cards"></div>
-    <div id="low-stock-alerts"></div>
-    <div class="row">
-      <div class="col-12">
-        <button id="export-low-stock-pdf" class="btn btn-danger d-none">
-          <i class="fa fa-file-pdf me-2"></i>Descargar PDF de Productos Bajos de Stock
-        </button>
+  <div class="container-fluid py-4 px-4">
+    
+    <!-- 1. Banner de Bienvenida -->
+    <div class="welcome-banner d-flex justify-content-between align-items-center">
+      <div>
+        <h2 class="text-white mb-1" id="welcome-msg">Buen días,  </h2>
+        <p class="mb-0 opacity-75">Aquí tienes el resumen de tu negocio hoy.</p>
+      </div>
+      <div class="text-end d-none d-md-block">
+        <div class="fs-6 opacity-75" id="current-date">Cargando fecha...</div>
       </div>
     </div>
+
+    <!-- 2. Barra de Herramientas (Filtros y Modo Oscuro) -->
+    <div class="dashboard-toolbar d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+      <div class="d-flex align-items-center gap-2">
+        <label class="fw-bold small text-muted"><i class="fa fa-filter me-1"></i>Periodo:</label>
+        <input type="date" id="filter-start-date" class="form-control form-control-sm" style="width: 130px;">
+        <span class="text-muted">-</span>
+        <input type="date" id="filter-end-date" class="form-control form-control-sm" style="width: 130px;">
+        <button id="apply-filter-btn" class="btn btn-sm btn-primary"><i class="fa fa-check"></i></button>
+      </div>
+    </div>
+
+    <!-- 3. KPIs Principales (Financieros y Alertas) -->
+    <div class="row g-4 mb-4">
+      <!-- Ventas Hoy (Destacado) -->
+      <div class="col-md-6 col-lg-3">
+        <div class="kpi-card">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="kpi-label">Ventas Hoy</div>
+              <div class="kpi-value skeleton" id="kpi-sales-today">$0</div>
+              <div class="kpi-trend skeleton" id="kpi-sales-trend">
+                <i class="fa fa-arrow-up me-1"></i> 0% vs ayer
+              </div>
+            </div>
+            <div class="kpi-icon-wrapper bg-primary bg-opacity-10 text-primary">
+              <i class="fa fa-cash-register"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Utilidad Neta (Mes) -->
+      <div class="col-md-6 col-lg-3">
+        <div class="kpi-card">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="kpi-label">Utilidad Bruta</div>
+              <div class="kpi-value text-success skeleton" id="kpi-net-profit">$0</div>
+              <div class="small text-muted mt-1">Ventas - Costos</div>
+            </div>
+            <div class="kpi-icon-wrapper bg-success bg-opacity-10 text-success">
+              <i class="fa fa-chart-line"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alertas / Pendientes -->
+      <div class="col-md-6 col-lg-3">
+        <div class="kpi-card">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="kpi-label">Alertas Activas</div>
+              <div class="kpi-value text-danger skeleton" id="kpi-alerts-count">0</div>
+              <div class="small text-muted mt-1">Stock bajo y pendientes</div>
+            </div>
+            <div class="kpi-icon-wrapper bg-danger bg-opacity-10 text-danger">
+              <i class="fa fa-bell"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Clientes Deudores -->
+      <div class="col-md-6 col-lg-3">
+        <div class="kpi-card">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="kpi-label">Cartera Pendiente</div>
+              <div class="kpi-value text-warning skeleton" id="kpi-debtors">0</div>
+              <div class="small text-muted mt-1">Clientes con deuda</div>
+            </div>
+            <div class="kpi-icon-wrapper bg-warning bg-opacity-10 text-warning">
+              <i class="fa fa-users"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Gráficos Estratégicos -->
+    <div class="row g-4 mb-4">
+      <div class="col-lg-8">
+        <div class="card border-0 shadow-sm h-100">
+          <div class="card-header bg-white border-0 py-3">
+            <h5 class="mb-0 fw-bold text-primary"><i class="fa fa-star me-2"></i>Top 5 Productos Más Vendidos</h5>
+          </div>
+          <div class="card-body">
+            <div class="chart-container">
+              <canvas id="topProductsChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+          <div class="card-header bg-white border-0 py-3">
+            <h5 class="mb-0 fw-bold text-primary"><i class="fa fa-wallet me-2"></i>Métodos de Pago</h5>
+          </div>
+          <div class="card-body d-flex align-items-center justify-content-center">
+            <div class="chart-container" style="height: 220px;">
+              <canvas id="paymentMethodsChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. Nuevas Tarjetas de Gestión (Inventario y Operaciones) -->
+    <h5 class="mb-3 text-muted fw-bold"><i class="fa fa-cubes me-2"></i>Resumen Operativo</h5>
+    <div class="row g-3 mb-4">
+      <!-- Inventario Valorizado -->
+      <div class="col-md-4 col-lg-3">
+        <div class="kpi-card small-card">
+          <div class="d-flex align-items-center">
+            <div class="kpi-icon-wrapper bg-info bg-opacity-10 text-info mb-0 me-3" style="width: 45px; height: 45px; font-size: 20px;">
+              <i class="fa fa-boxes-stacked"></i>
+            </div>
+            <div>
+              <div class="kpi-label small">Valor Inventario (Costo)</div>
+              <div class="kpi-value fs-5 mb-0 skeleton" id="kpi-inventory-value">$0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Total Productos -->
+      <div class="col-md-4 col-lg-3">
+        <div class="kpi-card small-card">
+          <div class="d-flex align-items-center">
+            <div class="kpi-icon-wrapper bg-secondary bg-opacity-10 text-secondary mb-0 me-3" style="width: 45px; height: 45px; font-size: 20px;">
+              <i class="fa fa-barcode"></i>
+            </div>
+            <div>
+              <div class="kpi-label small">Total Productos</div>
+              <div class="kpi-value fs-5 mb-0 skeleton" id="kpi-total-products">0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Clientes -->
+      <div class="col-md-4 col-lg-2">
+        <div class="kpi-card small-card">
+          <div class="d-flex align-items-center">
+            <div class="kpi-icon-wrapper bg-primary bg-opacity-10 text-primary mb-0 me-3" style="width: 45px; height: 45px; font-size: 20px;">
+              <i class="fa fa-users"></i>
+            </div>
+            <div>
+              <div class="kpi-label small">Clientes</div>
+              <div class="kpi-value fs-5 mb-0 skeleton" id="kpi-total-clients">0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Proveedores -->
+      <div class="col-md-4 col-lg-2">
+        <div class="kpi-card small-card">
+          <div class="d-flex align-items-center">
+            <div class="kpi-icon-wrapper bg-dark bg-opacity-10 text-dark mb-0 me-3" style="width: 45px; height: 45px; font-size: 20px;">
+              <i class="fa fa-truck"></i>
+            </div>
+            <div>
+              <div class="kpi-label small">Proveedores</div>
+              <div class="kpi-value fs-5 mb-0 skeleton" id="kpi-total-suppliers">0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Deuda a Proveedores -->
+      <div class="col-md-4 col-lg-2">
+        <div class="kpi-card small-card">
+          <div class="d-flex align-items-center">
+            <div class="kpi-icon-wrapper bg-danger bg-opacity-10 text-danger mb-0 me-3" style="width: 45px; height: 45px; font-size: 20px;">
+              <i class="fa fa-file-invoice-dollar"></i>
+            </div>
+            <div>
+              <div class="kpi-label small">Cuentas x Pagar</div>
+              <div class="kpi-value fs-6 mb-0 text-danger skeleton" id="kpi-pending-po">$0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. Actividad Reciente y Alertas Detalladas -->
+    <div class="row g-4">
+      <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+          <div class="card-header bg-white border-0 py-3 d-flex justify-content-between">
+            <h5 class="mb-0 fw-bold text-primary">Actividad Reciente</h5>
+            <small class="text-muted">Últimos movimientos</small>
+          </div>
+          <div class="card-body">
+            <div class="activity-timeline" id="activity-list">
+              <!-- JS Injected -->
+              <div class="text-center py-4 text-muted skeleton">Cargando actividad...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+          <div class="card-header bg-white border-0 py-3 d-flex justify-content-between">
+            <h5 class="mb-0 fw-bold text-danger">Panel de Alertas</h5>
+            <button id="export-low-stock-pdf" class="btn btn-sm btn-outline-danger">
+              <i class="fa fa-file-pdf"></i> Reporte Stock
+            </button>
+          </div>
+          <div class="card-body">
+            <div id="alerts-container">
+               <!-- JS Injected -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </body>
 </html>

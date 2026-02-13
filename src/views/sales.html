@@ -23,6 +23,7 @@
 
   <!-- Tu script -->
   <script defer src="../js/sales.js"></script>
+  <script src="../js/layout.js"></script>
 </head>
 <body>
   <div class="container py-4">
@@ -55,29 +56,41 @@
             <!-- Selección de cliente (opcional) -->
             <div class="card p-4 mb-4">
               <h5 class="mb-3">Cliente (opcional)</h5>
-              <select id="sale-client" class="form-select">
-                <option value="">-- Venta sin cliente --</option>
-              </select>
+              <div class="input-group">
+                <span class="input-group-text"><i class="fa fa-user"></i></span>
+                <select id="sale-client" class="form-select">
+                  <option value="">-- Venta sin cliente --</option>
+                </select>
+              </div>
             </div>
 
             <!-- 🔹 Nuevo campo para escanear código de barras -->
             <div class="mb-3">
               <label for="barcode-input" class="form-label">Escanear / Ingresar código de barras</label>
-              <input type="text" id="barcode-input" class="form-control" placeholder="Escanea o escribe y presiona Enter">
+              <div class="input-group">
+                <span class="input-group-text"><i class="fa fa-barcode"></i></span>
+                <input type="text" id="barcode-input" class="form-control" placeholder="Escanea o escribe y presiona Enter" autofocus>
+              </div>
             </div>
             <!-- 🔹 Fin campo nuevo -->
         
             <div class="col-md-6">
               <label class="form-label">Producto</label>
-              <input list="products-list" id="sale-product-input" class="form-control" placeholder="Buscar producto...">
-              <datalist id="products-list"></datalist>
+              <div class="input-group">
+                <span class="input-group-text"><i class="fa fa-box"></i></span>
+                <input list="products-list" id="sale-product-input" class="form-control" placeholder="Buscar producto...">
+                <datalist id="products-list"></datalist>
+              </div>
             </div>
             <div class="col-md-3">
               <label class="form-label">Cantidad</label>
-              <input id="sale-quantity" type="number" class="form-control" min="1" value="1">
+              <div class="input-group">
+                <span class="input-group-text"><i class="fa fa-hashtag"></i></span>
+                <input id="sale-quantity" type="number" class="form-control" min="1" value="1">
+              </div>
             </div>
             <div class="col-md-3 d-flex align-items-end">
-              <button class="btn btn-primary w-100">Agregar</button>
+              <button class="btn btn-primary w-100"><i class="fa fa-plus me-2"></i>Agregar</button>
             </div>
           </form>
         </div>
@@ -85,19 +98,24 @@
         <!-- Items de la venta -->
         <div class="card p-4 mb-4">
           <h5 class="mb-3">Items de la venta</h5>
-          <table class="table table-striped">
-            <thead>
-              <tr><th>Ítem</th><th>Código</th><th>Producto</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th>Acciones</th></tr>
-            </thead>
-            <tbody id="sale-items"></tbody>
-          </table>
+          <div class="table-responsive">
+            <table class="table table-striped align-middle">
+              <thead>
+                <tr><th>Ítem</th><th>Código</th><th>Producto</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th>Acciones</th></tr>
+              </thead>
+              <tbody id="sale-items"></tbody>
+            </table>
+          </div>
           <div class="text-end fw-bold" id="sale-total">TOTAL: $0</div>
           <div class="col-12 mt-3">
             <label for="sale-type" class="form-label">Tipo de Venta</label>
-            <select id="sale-type" class="form-select">
-              <option value="cash">Contado</option>
-              <option value="credit">Crédito</option>
-            </select>
+            <div class="input-group">
+              <span class="input-group-text"><i class="fa fa-money-bill-wave"></i></span>
+              <select id="sale-type" class="form-select">
+                <option value="cash">Contado</option>
+                <option value="credit">Crédito</option>
+              </select>
+            </div>
           </div>
           <div class="mt-2">
             <button id="finalize-sale" class="btn btn-success px-4">Finalizar Venta</button>

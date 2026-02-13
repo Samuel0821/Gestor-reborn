@@ -28,7 +28,7 @@
     });
 
     // Eliminar la barra de menú por defecto (Archivo, Vista, etc.)
-    //mainWindow.setMenu(null);
+    mainWindow.setMenu(null);
 
     // Siempre iniciar en login.html
     mainWindow.loadFile(path.join(__dirname, "views", "login.html"));
@@ -168,6 +168,8 @@
       .stroke();
   }
 
+  const loginAttempts = new Map();
+
   function registerIpcHandlers() {
       // Clientes
       ipcMain.handle("get-clients", () => db.getClients());
@@ -278,7 +280,35 @@
       ipcMain.handle("delete-service", (event, id) => db.deleteService(id));
 
       // Usuarios
-      ipcMain.handle("login", (event, creds) => db.login(creds.username, creds.password));
+      ipcMain.handle("login", async (event, creds) => {
+        const { username, password } = creds;
+        const now = Date.now();
+        
+        // Rate Limiting: Protección contra fuerza bruta
+        const attempt = loginAttempts.get(username) || { count: 0, lockUntil: 0 };
+
+        if (attempt.lockUntil > now) {
+          const seconds = Math.ceil((attempt.lockUntil - now) / 1000);
+          return { success: false, message: `Demasiados intentos. Espere ${seconds}s.` };
+        }
+
+        const res = db.login(username, password);
+
+        if (res.success) {
+          loginAttempts.delete(username); // Resetear intentos al entrar
+        } else {
+          attempt.count++;
+          if (attempt.count >= 3) {
+            attempt.lockUntil = now + 30000; // Bloqueo de 30s tras 3 fallos
+            attempt.count = 0;
+            loginAttempts.set(username, attempt);
+            return { success: false, message: "Demasiados intentos. Bloqueado por 30s." };
+          }
+          loginAttempts.set(username, attempt);
+        }
+        return res;
+      });
+
       ipcMain.handle("get-users", () => db.getUsers());
       ipcMain.handle("create-user", (event, data) => db.createUser(data));
       ipcMain.handle("update-user", (event, data) => db.updateUser(data));
@@ -477,6 +507,136 @@
       ipcMain.handle("get-dashboard-data", () => db.getDashboardData());
       ipcMain.handle("get-sales-last-days", (event, days) => db.getSalesLastDays(days));
       ipcMain.handle("reset-database", () => db.resetDatabase());
+      
+      // --- DASHBOARD AVANZADO (NUEVO) ---
+      ipcMain.handle("get-advanced-dashboard-stats", async (event, { startDate, endDate } = {}) => {
+        try {
+          const now = new Date();
+          // Si no llegan fechas, usar mes actual por defecto
+          const start = startDate || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+          const end = endDate || new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+          const today = now.toISOString().slice(0, 10);
+          
+          // 1. Ventas Hoy
+          const salesToday = db.db.prepare("SELECT SUM(total_amount) as total FROM sales WHERE date(sale_date) = ?").get(today);
+          
+          // 2. Ventas Ayer (Para variación)
+          const yesterday = new Date(now);
+          yesterday.setDate(yesterday.getDate() - 1);
+          const salesYesterday = db.db.prepare("SELECT SUM(total_amount) as total FROM sales WHERE date(sale_date) = ?").get(yesterday.toISOString().slice(0, 10));
+
+          // 3. Top 5 Productos (Mes Actual)
+          const topProducts = db.db.prepare(`
+            SELECT p.name, SUM(si.quantity) as qty 
+            FROM sale_items si
+            JOIN sales s ON si.sale_id = s.id
+            JOIN products p ON si.product_id = p.id
+            WHERE date(s.sale_date) BETWEEN ? AND ?
+            GROUP BY p.id
+            ORDER BY qty DESC
+            LIMIT 5
+          `).all(start, end);
+
+          // 4. Métodos de Pago (Mes Actual)
+          const paymentMethods = db.db.prepare(`
+            SELECT 
+              SUM(cash_payment) as cash, 
+              SUM(transfer_payment) as transfer,
+              (SELECT SUM(outstanding_balance) FROM sales WHERE sale_type = 'credit' AND date(sale_date) BETWEEN ? AND ?) as credit
+            FROM sales 
+            WHERE date(sale_date) BETWEEN ? AND ?
+          `).get(start, end, start, end);
+
+          // 5. Resumen Financiero Mensual
+          const income = db.db.prepare("SELECT SUM(total_amount) as total FROM sales WHERE date(sale_date) BETWEEN ? AND ?").get(start, end).total || 0;
+          const expenses = db.db.prepare("SELECT SUM(amount) as total FROM expenses WHERE date BETWEEN ? AND ?").get(start, end).total || 0;
+          
+          // Calcular Costo de Ventas (Para Utilidad Bruta)
+          const soldItems = db.db.prepare(`
+            SELECT si.quantity, si.conversion_factor, si.variant_id, 
+                   p.purchase_price as base_cost, pv.purchase_price as variant_cost
+            FROM sale_items si
+            JOIN sales s ON si.sale_id = s.id
+            LEFT JOIN products p ON si.product_id = p.id
+            LEFT JOIN product_variants pv ON si.variant_id = pv.id
+            WHERE date(s.sale_date) BETWEEN ? AND ?
+          `).all(start, end);
+
+          let totalCost = 0;
+          for (const item of soldItems) {
+             // Prioridad: Costo variante > Costo base * factor
+             let cost = (item.variant_cost && item.variant_cost > 0) 
+                     ? item.variant_cost 
+                     : (item.base_cost || 0) * (item.conversion_factor || 1);
+             totalCost += cost * item.quantity;
+          }
+          
+          // 6. Conteo de Alertas
+          const lowStockCount = db.db.prepare("SELECT COUNT(*) as count FROM products WHERE stock <= min_stock").get().count;
+          const pendingOrdersCount = db.db.prepare("SELECT COUNT(*) as count FROM purchase_orders WHERE status = 'pending'").get().count;
+          const debtorsCount = db.db.prepare("SELECT COUNT(DISTINCT client_id) as count FROM sales WHERE sale_type = 'credit' AND outstanding_balance > 0").get().count;
+
+          // 7. NUEVAS TARJETAS (SNAPSHOTS)
+          const totalProducts = db.db.prepare("SELECT COUNT(*) as c FROM products").get().c;
+          const inventoryValue = db.db.prepare("SELECT SUM(stock * purchase_price) as v FROM products").get().v || 0;
+          const totalClients = db.db.prepare("SELECT COUNT(*) as c FROM clients").get().c;
+          const totalSuppliers = db.db.prepare("SELECT COUNT(*) as c FROM suppliers").get().c;
+          const totalQuotes = db.db.prepare("SELECT COUNT(*) as c FROM quotes").get().c;
+          const totalPOs = db.db.prepare("SELECT COUNT(*) as c FROM purchase_orders").get().c;
+          const pendingPOPayments = db.db.prepare("SELECT SUM(outstanding_balance) as v FROM purchase_orders WHERE payment_status != 'paid'").get().v || 0;
+
+          return {
+            salesToday: salesToday.total || 0,
+            salesYesterday: salesYesterday.total || 0,
+            topProducts,
+            paymentMethods: {
+              cash: paymentMethods.cash || 0,
+              transfer: paymentMethods.transfer || 0,
+              credit: paymentMethods.credit || 0
+            },
+            financials: {
+              income,
+              expenses,
+              netProfit: income - totalCost // Ahora muestra Utilidad Bruta (Ventas - Costos)
+            },
+            alerts: {
+              lowStock: lowStockCount,
+              pendingOrders: pendingOrdersCount,
+              debtors: debtorsCount
+            },
+            general: {
+              totalProducts,
+              inventoryValue,
+              totalClients,
+              totalSuppliers,
+              totalQuotes,
+              totalPOs,
+              pendingPOPayments
+            }
+          };
+        } catch (err) {
+          console.error("Error en dashboard avanzado:", err);
+          return null;
+        }
+      });
+
+      ipcMain.handle("get-recent-activity", async () => {
+        try {
+          // Si existe tabla audit_logs, usarla. Si no, simular con últimas ventas y compras.
+          // Asumiremos que audit_logs existe por el contexto previo, si no, fallback a ventas.
+          const logs = db.db.prepare(`
+            SELECT 'venta' as type, 'Venta realizada #' || invoice_number as description, sale_date as date FROM sales ORDER BY id DESC LIMIT 5
+          `).all();
+          
+          // Mezclar con compras recientes
+          const orders = db.db.prepare(`
+            SELECT 'compra' as type, 'Orden de compra #' || id as description, order_date as date FROM purchase_orders ORDER BY id DESC LIMIT 5
+          `).all();
+
+          return [...logs, ...orders].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 8);
+        } catch (err) { return []; }
+      });
+
       ipcMain.handle("select-file", async (event, options) => {
           const result = await dialog.showOpenDialog(options);
           return result.canceled ? null : result.filePaths[0];
