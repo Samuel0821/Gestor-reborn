@@ -30,7 +30,7 @@ Es la pantalla principal que ofrece una visión global del estado de su negocio 
 
 *   **Tarjetas Informativas:** Visualice rápidamente el total de Clientes, Productos, Proveedores, Ventas del día, Cotizaciones, Servicios y Órdenes de Compra.
 *   **Gráfico de Rendimiento:** Un gráfico interactivo muestra la tendencia de ventas de los últimos 7 días.
-*   **Alertas de Stock:** Si algún producto está por debajo del stock mínimo, aparecerá una alerta roja con la lista de artículos que necesitan reabastecimiento urgente. Puede descargar esta lista en PDF directamente desde la alerta.
+*   **Alertas:** Notificaciones automáticas sobre **Stock Bajo** y **Cuentas por Pagar** (facturas de proveedores vencidas o próximas a vencer).
 *   **Menú Lateral:** Navegación rápida a todos los módulos del sistema. Puede colapsar este menú usando el botón de hamburguesa (☰) en la parte superior izquierda.
 
 ---
@@ -102,8 +102,11 @@ Genere propuestas comerciales profesionales sin descontar inventario.
 Controle el reabastecimiento con sus proveedores.
 
 *   **Generar Orden:** Seleccione el proveedor y agregue los productos que desea pedir, con sus costos de compra.
+*   **Opciones de Compra:** Puede marcar si la orden **Incluye IVA** y establecer una **Fecha de Vencimiento** para el pago.
 *   **Estado:** Las órdenes se crean en estado "Pendiente".
+*   **Editar:** Permite modificar órdenes que aún no han sido recibidas.
 *   **Recibir Mercancía:** Cuando llegue el pedido físico, ingrese a la orden y haga clic en el botón de recibir. Esto **sumará automáticamente** las cantidades al stock de sus productos.
+*   **Pagos y Retenciones:** Al registrar un pago a proveedor, puede aplicar **Retenciones en la Fuente**. El sistema descontará la retención del pago neto pero reducirá la deuda total por el valor completo.
 
 ---
 
@@ -123,6 +126,7 @@ Analice la salud financiera de su negocio mediante pestañas especializadas:
     *   **Ingresos Reales (Caja):** Dinero realmente recibido en el periodo (incluye abonos a créditos antiguos).
     *   **Utilidad Real:** (Precio Venta - Precio Compra).
 *   **Reporte de Egresos:** Listado detallado de gastos registrados. Puede ver el detalle de cada gasto, descargar su comprobante individual o exportar el reporte completo a PDF.
+*   **Reporte de Retenciones (DIAN):** Tabla detallada y resumen por concepto de las retenciones aplicadas a proveedores, lista para facilitar la declaración de impuestos.
 *   **Reporte de Modificaciones:** (Solo Admin) Auditoría de cambios importantes en el sistema (ej. edición de facturas).
 *   **Exportar:** Descargue los reportes en PDF.
 

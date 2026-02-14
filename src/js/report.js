@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     navDiv.innerHTML = `
         <button type="button" class="btn btn-primary active" id="btn-rep-sales"><i class="fa fa-shopping-cart me-2"></i>Reporte Ventas</button>
         <button type="button" class="btn btn-outline-primary" id="btn-rep-expenses"><i class="fa fa-money-bill-wave me-2"></i>Reporte Egresos</button>
+        <button type="button" class="btn btn-outline-primary" id="btn-rep-retentions"><i class="fa fa-university me-2"></i>Retenciones (DIAN)</button>
         ${role === 'admin' ? '<button type="button" class="btn btn-outline-primary" id="btn-rep-audit"><i class="fa fa-user-shield me-2"></i>Reporte Modificaciones</button>' : ''}
     `;
     
@@ -24,16 +25,17 @@ document.addEventListener('DOMContentLoaded', () => {
         reportFormCard.parentNode.insertBefore(navDiv, reportFormCard);
     }
 
-    let activeTab = 'sales'; // 'sales', 'expenses', 'audit'
+    let activeTab = 'sales'; // 'sales', 'expenses', 'audit', 'retentions'
 
     // Manejadores de eventos para las pestañas
     const btnSales = document.getElementById('btn-rep-sales');
     const btnExpenses = document.getElementById('btn-rep-expenses');
     const btnAudit = document.getElementById('btn-rep-audit');
+    const btnRetentions = document.getElementById('btn-rep-retentions');
 
     function setActiveTab(tab, btn) {
         activeTab = tab;
-        [btnSales, btnExpenses, btnAudit].forEach(b => {
+        [btnSales, btnExpenses, btnAudit, btnRetentions].forEach(b => {
             if(b) {
                 b.classList.remove('btn-primary', 'active');
                 b.classList.add('btn-outline-primary');
@@ -55,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btnSales.addEventListener('click', () => setActiveTab('sales', btnSales));
     btnExpenses.addEventListener('click', () => setActiveTab('expenses', btnExpenses));
+    btnRetentions.addEventListener('click', () => setActiveTab('retentions', btnRetentions));
     if(btnAudit) btnAudit.addEventListener('click', () => setActiveTab('audit', btnAudit));
 
     let currentSalesReport = [];
@@ -75,6 +78,8 @@ document.addEventListener('DOMContentLoaded', () => {
             await loadExpensesReport(startDate, endDate);
         } else if (activeTab === 'audit') {
             await loadAuditReport(startDate, endDate);
+        } else if (activeTab === 'retentions') {
+            await loadRetentionsReport(startDate, endDate);
         }
     }
 
@@ -325,6 +330,77 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error(err);
             Swal.fire('Error', "Error al cargar reporte de egresos.", 'error');
+        }
+    }
+
+    async function loadRetentionsReport(startDate, endDate) {
+        try {
+            // Nota: Debes implementar getRetentionsReport en el backend (index.js/database.js)
+            // Debería retornar: [{ date, supplier_name, po_number, retention_type, retention_amount, total_payment }]
+            const retentions = await window.api.getRetentionsReport({ startDate, endDate });
+            
+            if (!retentions || retentions.length === 0) {
+                container.innerHTML = `<h5>Reporte de Retenciones del ${startDate} al ${endDate}</h5><div class="alert alert-info">No hay retenciones registradas en este período.</div>`;
+                Swal.fire('Info', 'No hay retenciones registradas.', 'info');
+                return;
+            }
+
+            let totalRetained = 0;
+            // Agrupar por concepto para facilitar el pago a la DIAN
+            const summaryByType = {};
+
+            let rows = retentions.map(r => {
+                totalRetained += r.retention_amount;
+                
+                // Sumar al agrupado
+                const typeKey = r.retention_type || 'Otros';
+                summaryByType[typeKey] = (summaryByType[typeKey] || 0) + r.retention_amount;
+
+                return `
+                    <tr>
+                        <td>${r.date}</td>
+                        <td>${r.supplier_name} <br><small class="text-muted">OC #${r.po_number} | Fact: ${r.supplier_invoice_number || 'S/N'}</small></td>
+                        <td>${r.retention_type}%</td>
+                        <td class="text-end">${formatCOP(r.retention_amount)}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Generar HTML del resumen por concepto
+            let summaryHtml = '<div class="row mb-4"><div class="col-md-6"><div class="card"><div class="card-header bg-light fw-bold">Resumen por Concepto (A Pagar DIAN)</div><ul class="list-group list-group-flush">';
+            for (const [type, amount] of Object.entries(summaryByType)) {
+                summaryHtml += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                    Retención ${type}%
+                    <span class="fw-bold">${formatCOP(amount)}</span>
+                </li>`;
+            }
+            summaryHtml += '</ul></div></div></div>';
+
+            container.innerHTML = `
+                <h5>Reporte de Retenciones en la Fuente (${startDate} al ${endDate})</h5>
+                ${summaryHtml}
+                <table class="table table-striped table-bordered mt-3">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Fecha Pago</th>
+                            <th>Proveedor / Orden</th>
+                            <th>Tarifa</th>
+                            <th class="text-end">Valor Retenido</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                    <tfoot>
+                        <tr class="fw-bold fs-5">
+                            <td colspan="3" class="text-end">TOTAL A PAGAR (DIAN):</td>
+                            <td class="text-end text-danger">${formatCOP(totalRetained)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            `;
+            Swal.fire('Éxito', 'Reporte de retenciones generado.', 'success');
+        } catch (err) {
+            console.error(err);
+            Swal.fire('Error', "Error al cargar reporte de retenciones. Verifique que el backend tenga la función implementada.", 'error');
         }
     }
 

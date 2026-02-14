@@ -100,10 +100,11 @@ El sistema utiliza un modelo relacional robusto. Las tablas principales son:
 10. **cash_register_sessions:** Control de turnos de caja (apertura/cierre).
 11. **cash_movements:** Auditoría de movimientos de dinero en caja.
 12. **quotes / quote_items:** Gestión de cotizaciones. `quote_items` incluye `variant_id` y `skip_stock`.
-13. **purchase_orders / purchase_order_items:** Gestión de compras y reabastecimiento.
-14. **services / service_products:** Definición de servicios (incluye `client_id`) y recetas de materiales. `service_products` incluye `variant_id`.
-15. **company_settings:** Configuración global (Logo, NIT, Datos de contacto).
-16. **audit_logs:** Registro de acciones críticas para auditoría (usuario, acción, detalles, fecha).
+13. **purchase_orders / purchase_order_items:** Gestión de compras. `purchase_orders` incluye `include_iva` y `due_date`.
+14. **purchase_payments:** Registro de pagos a proveedores con soporte para `retention_amount` y `retention_type`.
+15. **services / service_products:** Definición de servicios (incluye `client_id`) y recetas de materiales. `service_products` incluye `variant_id`.
+16. **company_settings:** Configuración global (Logo, NIT, Datos de contacto).
+17. **audit_logs:** Registro de acciones críticas para auditoría (usuario, acción, detalles, fecha).
 
 ## 6. Seguridad
 

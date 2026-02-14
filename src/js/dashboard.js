@@ -31,10 +31,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadDashboardData(startDate, endDate) {
   try {
-      const [stats, recentActivity, lowStock] = await Promise.all([
+      const [stats, recentActivity, lowStock, dueOrders] = await Promise.all([
           window.api.getAdvancedDashboardStats({ startDate, endDate }),
           window.api.getRecentActivity(),
-          window.api.getLowStockProducts()
+          window.api.getLowStockProducts(),
+          window.api.getDuePurchaseOrders()
       ]);
 
       if (stats) {
@@ -43,7 +44,7 @@ async function loadDashboardData(startDate, endDate) {
       }
       
       renderActivity(recentActivity);
-      renderAlerts(stats ? stats.alerts : {}, lowStock);
+      renderAlerts(stats ? stats.alerts : {}, lowStock, dueOrders);
 
   } catch (error) {
       console.error("Error cargando dashboard:", error);
@@ -236,7 +237,7 @@ function renderActivity(activities) {
 }
 
 // --- ALERTAS ---
-function renderAlerts(alertCounts, lowStockProducts) {
+function renderAlerts(alertCounts, lowStockProducts, dueOrders) {
     const container = document.getElementById('alerts-container');
     if (!container) return;
     container.innerHTML = '';
@@ -281,6 +282,44 @@ function renderAlerts(alertCounts, lowStockProducts) {
         container.insertAdjacentHTML('beforeend', alertHtml);
     }
 
+    // 2. Cuentas por Pagar (Vencidas o Próximas)
+    if (dueOrders && dueOrders.length > 0) {
+        const rows = dueOrders.map(o => `
+            <tr>
+                <td class="ps-3"><small class="fw-bold text-dark">${o.po_number || o.id}</small></td>
+                <td><small class="text-dark">${o.supplier_name}</small></td>
+                <td class="text-center"><small class="text-danger fw-bold">${o.due_date}</small></td>
+                <td class="text-end pe-3"><small>${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(o.outstanding_balance)}</small></td>
+            </tr>
+        `).join('');
+
+        const alertHtml = `
+            <div class="alert alert-warning p-0 overflow-hidden mb-3" style="border: 1px solid #ffeeba;">
+                <div class="d-flex align-items-center p-3 bg-warning bg-opacity-10">
+                    <i class="fa fa-clock me-3 fs-4 text-warning"></i>
+                    <div>
+                        <div class="fw-bold text-dark">${dueOrders.length} Cuentas por Pagar (Vencidas/Próximas)</div>
+                        <div class="small text-muted">Facturas que requieren atención inmediata.</div>
+                    </div>
+                </div>
+                <div class="bg-white" style="max-height: 200px; overflow-y: auto;">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th class="ps-3 small text-muted">OC#</th>
+                                <th class="small text-muted">Proveedor</th>
+                                <th class="text-center small text-muted">Vence</th>
+                                <th class="text-end pe-3 small text-muted">Saldo</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', alertHtml);
+    }
+
     // 2. Órdenes Pendientes
     if (alertCounts && alertCounts.pendingOrders > 0) {
         const alertHtml = `
@@ -295,7 +334,7 @@ function renderAlerts(alertCounts, lowStockProducts) {
         container.insertAdjacentHTML('beforeend', alertHtml);
     }
 
-    if ((!alertCounts || (alertCounts.lowStock === 0 && alertCounts.pendingOrders === 0))) {
+    if ((!alertCounts || (alertCounts.lowStock === 0 && alertCounts.pendingOrders === 0 && (!dueOrders || dueOrders.length === 0)))) {
         container.innerHTML = `
             <div class="text-center py-4 text-success">
                 <i class="fa fa-check-circle fs-1 mb-2 opacity-50"></i>

@@ -1,6 +1,7 @@
 let allOrders = [];
 let orderItems = [];
 let availableProducts = [];
+let editingOrderId = null;
 
 document.addEventListener("DOMContentLoaded", () => {
     // Layout manejado por layout.js
@@ -109,7 +110,7 @@ function renderTable() {
         tr.innerHTML = `
             <td class="ps-4 fw-bold">${order.po_number || order.id}</td>
             <td>${order.supplier_name}</td>
-            <td>${new Date(order.order_date).toLocaleDateString()}</td>
+            <td>${new Date(order.order_date).toLocaleDateString()}<br><small class="text-muted">Vence: ${order.due_date || '-'}</small></td>
             <td>${invoiceDisplay}</td>
             <td class="text-end fw-bold">${formatCurrency(order.total_amount)}</td>
             <td class="text-end text-danger">${isReceived ? formatCurrency(order.outstanding_balance) : '-'}</td>
@@ -119,6 +120,10 @@ function renderTable() {
                 <div class="btn-group">
                     <button class="btn btn-sm btn-outline-primary" onclick="exportPDF(${order.id})" title="Ver PDF"><i class="fas fa-file-pdf"></i></button>
                     
+                    ${!isReceived ? 
+                        `<button class="btn btn-sm btn-outline-warning" onclick="editOrder(${order.id})" title="Editar"><i class="fas fa-edit"></i></button>` : ''
+                    }
+
                     ${!isReceived ? 
                         `<button class="btn btn-sm btn-success" onclick="receiveOrder(${order.id})" title="Recibir Mercancía"><i class="fas fa-check"></i></button>` : 
                         `<button class="btn btn-sm btn-outline-success" onclick="openPaymentModal(${order.id})" title="Registrar Pago" ${(order.outstanding_balance <= 0) ? 'disabled' : ''}><i class="fas fa-hand-holding-usd"></i></button>`
@@ -231,9 +236,63 @@ function openPaymentModal(id) {
     
     // Reset form
     document.getElementById('payAmount').value = order.outstanding_balance; // Sugerir pagar todo
+    document.getElementById('payAmount').dataset.originalBalance = order.outstanding_balance; // Guardar base para cálculo
     document.getElementById('payAmount').max = order.outstanding_balance;
     document.getElementById('payReference').value = '';
     document.getElementById('payNotes').value = '';
+
+    // --- INYECCIÓN DE CONTROLES DE RETENCIÓN (SI NO EXISTEN) ---
+    const payBody = document.querySelector('#paymentModal .modal-body');
+    if (!document.getElementById('retention-container')) {
+        const retentionHtml = `
+            <div id="retention-container" class="mb-3 pb-3 border-bottom">
+                <h6 class="text-muted mb-2">Retenciones (DIAN)</h6>
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <label class="form-label small">Concepto</label>
+                        <select id="payRetentionType" class="form-select form-select-sm">
+                            <option value="0">-- Sin Retención --</option>
+                            <option value="2.5">Compras Gral (2.5%)</option>
+                            <option value="3.5">Compras Simpl. (3.5%)</option>
+                            <option value="4">Servicios (4%)</option>
+                            <option value="11">Honorarios (11%)</option>
+                            <option value="100">Otro / Manual</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small">Valor Retenido</label>
+                        <input type="number" id="payRetentionAmount" class="form-control form-control-sm" value="0" min="0">
+                    </div>
+                </div>
+                <div class="form-text small text-end mt-1" id="net-pay-preview"></div>
+            </div>
+        `;
+        payBody.insertAdjacentHTML('afterbegin', retentionHtml);
+
+        // Lógica de cálculo automático de retención
+        const typeSelect = document.getElementById('payRetentionType');
+        const amountInput = document.getElementById('payRetentionAmount');
+        const payInput = document.getElementById('payAmount');
+
+        typeSelect.addEventListener('change', () => {
+            const rate = parseFloat(typeSelect.value);
+            const baseAmount = parseFloat(payInput.dataset.originalBalance) || 0;
+            if (rate > 0 && rate !== 100) {
+                // Calcular retención sugerida basada en el monto a pagar (asumiendo que es la base)
+                const retention = Math.round(baseAmount * (rate / 100));
+                amountInput.value = retention;
+                // Restar automáticamente del monto a pagar
+                payInput.value = Math.max(0, baseAmount - retention);
+            } else if (rate === 0) {
+                amountInput.value = 0;
+                payInput.value = baseAmount; // Restaurar valor original
+            }
+        });
+    } else {
+        // Resetear campos si ya existían
+        document.getElementById('payRetentionType').value = "0";
+        document.getElementById('payRetentionAmount').value = "0";
+    }
     
     currentPaymentModal = new bootstrap.Modal(document.getElementById('paymentModal'));
     currentPaymentModal.show();
@@ -246,6 +305,10 @@ async function submitPayment() {
     const method = document.getElementById('payMethod').value;
     const reference = document.getElementById('payReference').value;
     const notes = document.getElementById('payNotes').value;
+    
+    // Capturar retención
+    const retentionAmount = parseFloat(document.getElementById('payRetentionAmount')?.value) || 0;
+    const retentionType = document.getElementById('payRetentionType')?.options[document.getElementById('payRetentionType').selectedIndex].text || '';
 
     if (!amount || amount <= 0) return Swal.fire('Error', 'Ingrese un monto válido', 'warning');
     if (!date) return Swal.fire('Error', 'Seleccione una fecha', 'warning');
@@ -256,7 +319,9 @@ async function submitPayment() {
         date,
         method,
         reference,
-        notes
+        notes,
+        retentionAmount, // Nuevo campo
+        retentionType    // Nuevo campo
     });
 
     if (res.success) {
@@ -304,10 +369,52 @@ async function openHistoryModal(id) {
 
 async function openCreateModal() {
     // Resetear estado
+    editingOrderId = null;
     orderItems = [];
     document.getElementById('createOrderForm').reset();
     document.getElementById('newOrderItemsBody').innerHTML = '<tr><td colspan="5" class="text-center text-muted">No hay productos agregados</td></tr>';
     document.getElementById('newOrderTotal').textContent = formatCurrency(0);
+    const modalTitle = document.querySelector('#createOrderModal .modal-title');
+    if(modalTitle) modalTitle.textContent = "Nueva Orden de Compra";
+
+    // --- INYECCIÓN DE FECHA DE VENCIMIENTO ---
+    if (!document.getElementById('newOrderDueDate')) {
+        const dateHtml = `
+            <div class="mb-3">
+                <label class="form-label">Fecha de Vencimiento (Pago)</label>
+                <input type="date" id="newOrderDueDate" class="form-control">
+            </div>
+        `;
+        const notesField = document.getElementById('newOrderNotes');
+        if(notesField) notesField.parentNode.insertAdjacentHTML('afterend', dateHtml);
+    } else {
+        document.getElementById('newOrderDueDate').value = '';
+    }
+
+    // --- INYECCIÓN DE CONTROL DE IVA (SI NO EXISTE) ---
+    const formContainer = document.getElementById('createOrderForm');
+    // Buscamos si ya inyectamos el switch de IVA
+    if (!document.getElementById('iva-control-container')) {
+        const ivaHtml = `
+            <div id="iva-control-container" class="mb-3 d-flex align-items-center bg-light p-2 rounded border">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="newOrderIva">
+                    <label class="form-check-label fw-bold" for="newOrderIva">Incluir IVA (19%)</label>
+                </div>
+                <small class="ms-3 text-muted">Si se activa, se calculará el impuesto sobre el total.</small>
+            </div>
+        `;
+        // Insertar antes de la tabla de productos (o después de las notas)
+        const table = document.querySelector('#createOrderModal table');
+        if(table) table.parentNode.insertBefore(document.createRange().createContextualFragment(ivaHtml), table);
+
+        // Listener para recalcular al cambiar el switch
+        document.getElementById('newOrderIva').addEventListener('change', renderOrderItems);
+    } else {
+        // Resetear switch
+        document.getElementById('newOrderIva').checked = false;
+    }
+    // --------------------------------------------------
 
     // Cargar Proveedores
     try {
@@ -334,6 +441,81 @@ async function openCreateModal() {
     // Mostrar Modal
     const modal = new bootstrap.Modal(document.getElementById('createOrderModal'));
     modal.show();
+}
+
+async function editOrder(id) {
+    const order = await window.api.getPurchaseOrderById(id);
+    if (!order) return;
+
+    editingOrderId = id;
+    orderItems = [];
+    
+    // Resetear formulario
+    document.getElementById('createOrderForm').reset();
+    
+    // Asegurar que el control de IVA existe (reutilizando lógica de inyección)
+    if (!document.getElementById('iva-control-container')) {
+        // Inyectar fecha primero si no existe
+        if (!document.getElementById('newOrderDueDate')) {
+            const dateHtml = `
+                <div class="mb-3">
+                    <label class="form-label">Fecha de Vencimiento (Pago)</label>
+                    <input type="date" id="newOrderDueDate" class="form-control">
+                </div>
+            `;
+            const notesField = document.getElementById('newOrderNotes');
+            if(notesField) notesField.parentNode.insertAdjacentHTML('afterend', dateHtml);
+        }
+
+        const ivaHtml = `
+            <div id="iva-control-container" class="mb-3 d-flex align-items-center bg-light p-2 rounded border">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="newOrderIva">
+                    <label class="form-check-label fw-bold" for="newOrderIva">Incluir IVA (19%)</label>
+                </div>
+                <small class="ms-3 text-muted">Si se activa, se calculará el impuesto sobre el total.</small>
+            </div>
+        `;
+        const table = document.querySelector('#createOrderModal table');
+        if(table) table.parentNode.insertBefore(document.createRange().createContextualFragment(ivaHtml), table);
+        document.getElementById('newOrderIva').addEventListener('change', renderOrderItems);
+    }
+
+    // Cargar Proveedores y seleccionar
+    try {
+        const suppliers = await window.api.getSuppliers();
+        const supplierSelect = document.getElementById('newOrderSupplier');
+        supplierSelect.innerHTML = '<option value="">-- Seleccione un proveedor --</option>';
+        suppliers.forEach(s => {
+            supplierSelect.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+        });
+        supplierSelect.value = order.supplier_id;
+    } catch (e) { console.error(e); }
+
+    // Cargar Productos
+    try {
+        availableProducts = await window.api.getProducts();
+        const datalist = document.getElementById('productList');
+        datalist.innerHTML = '';
+        availableProducts.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            datalist.appendChild(opt);
+        });
+    } catch (e) { console.error(e); }
+
+    // Llenar datos
+    document.getElementById('newOrderNotes').value = order.notes || '';
+    document.getElementById('newOrderDueDate').value = order.due_date || '';
+    const ivaCheck = document.getElementById('newOrderIva');
+    if(ivaCheck) ivaCheck.checked = !!order.include_iva;
+
+    orderItems = order.items.map(i => ({ ...i, subtotal: i.price * i.quantity }));
+    renderOrderItems();
+
+    const modalEl = document.getElementById('createOrderModal');
+    modalEl.querySelector('.modal-title').textContent = `Editar Orden #${order.po_number || order.id}`;
+    new bootstrap.Modal(modalEl).show();
 }
 
 function addItemToOrder() {
@@ -381,6 +563,7 @@ function renderOrderItems() {
     const tbody = document.getElementById('newOrderItemsBody');
     tbody.innerHTML = '';
     let total = 0;
+    const includeIva = document.getElementById('newOrderIva')?.checked || false;
 
     orderItems.forEach((item, index) => {
         total += item.subtotal;
@@ -401,7 +584,26 @@ function renderOrderItems() {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No hay productos agregados</td></tr>';
     }
 
-    document.getElementById('newOrderTotal').textContent = formatCurrency(total);
+    // Cálculos finales
+    let ivaAmount = 0;
+    let grandTotal = total;
+
+    if (includeIva) {
+        ivaAmount = total * 0.19;
+        grandTotal = total + ivaAmount;
+    }
+
+    // Actualizar visualización del total
+    const totalEl = document.getElementById('newOrderTotal');
+    if (includeIva) {
+        totalEl.innerHTML = `
+            <div style="font-size:0.8em; color:#666;">Subtotal: ${formatCurrency(total)}</div>
+            <div style="font-size:0.8em; color:#666;">IVA (19%): ${formatCurrency(ivaAmount)}</div>
+            <div style="font-size:1.2em; font-weight:bold;">Total: ${formatCurrency(grandTotal)}</div>
+        `;
+    } else {
+        totalEl.textContent = formatCurrency(grandTotal);
+    }
 }
 
 function removeOrderItem(index) {
@@ -412,6 +614,8 @@ function removeOrderItem(index) {
 async function submitNewOrder() {
     const supplierId = document.getElementById('newOrderSupplier').value;
     const notes = document.getElementById('newOrderNotes').value;
+    const dueDate = document.getElementById('newOrderDueDate')?.value;
+    const includeIva = document.getElementById('newOrderIva')?.checked || false;
 
     if (!supplierId) {
         Swal.fire('Error', 'Debe seleccionar un proveedor', 'warning');
@@ -422,11 +626,26 @@ async function submitNewOrder() {
         return;
     }
 
-    const result = await window.api.createPurchaseOrder({
-        supplier_id: supplierId,
-        items: orderItems,
-        notes: notes
-    });
+    let result;
+    if (editingOrderId) {
+        result = await window.api.updatePurchaseOrder({
+            id: editingOrderId,
+            supplier_id: supplierId,
+            items: orderItems,
+            notes: notes,
+            due_date: dueDate,
+            include_iva: includeIva,
+            order_date: new Date().toISOString() // Actualizar fecha de modificación
+        });
+    } else {
+        result = await window.api.createPurchaseOrder({
+            supplier_id: supplierId,
+            items: orderItems,
+            notes: notes,
+            due_date: dueDate,
+            include_iva: includeIva
+        });
+    }
 
     if (result.success) {
         // Cerrar modal

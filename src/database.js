@@ -248,6 +248,30 @@ try {
   }
 } catch (e) { console.error("Error migración purchase_payments:", e); }
 
+// MIGRACIÓN: Agregar include_iva a purchase_orders
+try {
+  const poColumns = db.prepare("PRAGMA table_info(purchase_orders)").all();
+  if (!poColumns.some(c => c.name === "include_iva")) {
+    db.prepare("ALTER TABLE purchase_orders ADD COLUMN include_iva INTEGER DEFAULT 0").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar retenciones a purchase_payments
+try {
+  const ppColumns = db.prepare("PRAGMA table_info(purchase_payments)").all();
+  if (!ppColumns.some(c => c.name === "retention_amount")) {
+    db.prepare("ALTER TABLE purchase_payments ADD COLUMN retention_amount REAL DEFAULT 0").run();
+    db.prepare("ALTER TABLE purchase_payments ADD COLUMN retention_type TEXT").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar due_date a purchase_orders
+try {
+  const poColumns = db.prepare("PRAGMA table_info(purchase_orders)").all();
+  if (!poColumns.some(c => c.name === "due_date")) {
+    db.prepare("ALTER TABLE purchase_orders ADD COLUMN due_date DATE").run();
+  }
+} catch (e) { /* ignorar */ }
 
 db.prepare(`
 CREATE TABLE IF NOT EXISTS sale_items (
@@ -1533,12 +1557,12 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
 
 // ORDENES DE COMPRA (Purchase Orders)
 function createPurchaseOrder(data) {
-  const insertPO = db.prepare("INSERT INTO purchase_orders (supplier_id, total_amount, notes) VALUES (?, ?, ?)");
+  const insertPO = db.prepare("INSERT INTO purchase_orders (supplier_id, total_amount, notes, include_iva, due_date) VALUES (?, ?, ?, ?, ?)");
   const insertItem = db.prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
   const getProduct = db.prepare("SELECT id, code, name, purchase_price FROM products WHERE id = ?");
 
   const trx = db.transaction((data) => {
-    const po = insertPO.run(data.supplier_id, 0, data.notes || null);
+    const po = insertPO.run(data.supplier_id, 0, data.notes || null, data.include_iva ? 1 : 0, data.due_date || null);
     const poId = po.lastInsertRowid;
     let total = 0;
     for (const it of data.items) {
@@ -1550,6 +1574,12 @@ function createPurchaseOrder(data) {
       total += subtotal;
       insertItem.run(poId, it.product_id, prodName, prodCode, it.quantity, price, subtotal);
     }
+
+    // Calcular IVA si aplica
+    if (data.include_iva) {
+      total = total * 1.19; // Sumar 19%
+    }
+
     db.prepare("UPDATE purchase_orders SET total_amount = ? WHERE id = ?").run(total, poId);
     
     const poNumber = nextConsecutive("OC", "po_number", "purchase_orders");
@@ -1638,18 +1668,23 @@ function deletePurchaseOrder(id) {
   }
 }
 
-function updatePurchaseOrder({ id, supplier_id, order_date, items = [], notes = null }) {
-    const updatePO = db.prepare("UPDATE purchase_orders SET supplier_id = ?, order_date = ?, total_amount = ?, notes = ? WHERE id = ?");
+function updatePurchaseOrder({ id, supplier_id, order_date, items = [], notes = null, include_iva = false, due_date = null }) {
+    const updatePO = db.prepare("UPDATE purchase_orders SET supplier_id = ?, order_date = ?, total_amount = ?, notes = ?, include_iva = ?, due_date = ? WHERE id = ?");
     const deleteItems = db.prepare("DELETE FROM purchase_order_items WHERE purchase_order_id = ?");
     const insertItem = db.prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
     const getProduct = db.prepare("SELECT id, code, name FROM products WHERE id = ?");
 
-    const trx = db.transaction((id, supplier_id, order_date, items, notes) => {
+    const trx = db.transaction((id, supplier_id, order_date, items, notes, include_iva, due_date) => {
         let total = 0;
         for (const it of items) {
             total += it.subtotal;
         }
-        updatePO.run(supplier_id, order_date, total, notes, id);
+        
+        if (include_iva) {
+            total = total * 1.19;
+        }
+
+        updatePO.run(supplier_id, order_date, total, notes, include_iva ? 1 : 0, due_date, id);
         deleteItems.run(id);
         for (const it of items) {
             const prod = getProduct.get(it.product_id);
@@ -1661,7 +1696,7 @@ function updatePurchaseOrder({ id, supplier_id, order_date, items = [], notes = 
     });
 
     try {
-        const updatedId = trx(id, supplier_id, order_date, items, notes);
+        const updatedId = trx(id, supplier_id, order_date, items, notes, include_iva, due_date);
         return { success: true, message: "Orden de Compra actualizada", id: updatedId };
     } catch (err) {
         return { success: false, message: String(err) };
@@ -1689,7 +1724,7 @@ function getPurchasePayments(orderId) {
   }
 }
 
-function addPurchasePayment({ orderId, amount, method, reference, date, notes }) {
+function addPurchasePayment({ orderId, amount, method, reference, date, notes, retentionAmount = 0, retentionType = '' }) {
   try {
     const order = getPurchaseOrderById(orderId);
     if (!order) return { success: false, message: "Orden de compra no encontrada" };
@@ -1699,12 +1734,13 @@ function addPurchasePayment({ orderId, amount, method, reference, date, notes })
     const transaction = db.transaction(() => {
       // A. Insertar el pago
       db.prepare(`
-        INSERT INTO purchase_payments (purchase_order_id, date, amount, method, reference, notes)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(orderId, date, amount, method, reference, notes);
+        INSERT INTO purchase_payments (purchase_order_id, date, amount, method, reference, notes, retention_amount, retention_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(orderId, date, amount, method, reference, notes, retentionAmount, retentionType);
 
       // B. Actualizar la Orden de Compra
-      const newPaid = (order.paid_amount || 0) + amount;
+      const totalDebtReduction = amount + retentionAmount; // La deuda baja por lo pagado + lo retenido
+      const newPaid = (order.paid_amount || 0) + totalDebtReduction;
       
       // Si el saldo era 0 y el estado pendiente (migración de datos viejos), asumimos saldo inicial = total
       let currentBalance = order.outstanding_balance;
@@ -1713,7 +1749,7 @@ function addPurchasePayment({ orderId, amount, method, reference, date, notes })
           currentBalance = order.total_amount;
       }
       
-      const newBalance = currentBalance - amount;
+      const newBalance = currentBalance - totalDebtReduction;
       const newStatus = newBalance <= 50 ? 'paid' : 'partial'; // Margen de error pequeño por decimales
 
       db.prepare(`
@@ -1738,6 +1774,43 @@ function addPurchasePayment({ orderId, amount, method, reference, date, notes })
     console.error("Error al registrar pago de compra:", err);
     return { success: false, message: err.message };
   }
+}
+
+function getRetentionsReport({ startDate, endDate }) {
+  try {
+      const sql = `
+          SELECT 
+              p.date,
+              s.name as supplier_name,
+              o.po_number,
+              o.supplier_invoice_number,
+              p.retention_type,
+              p.retention_amount,
+              p.amount as net_payment
+          FROM purchase_payments p
+          JOIN purchase_orders o ON p.purchase_order_id = o.id
+          JOIN suppliers s ON o.supplier_id = s.id
+          WHERE p.retention_amount > 0
+          AND p.date BETWEEN ? AND ?
+          ORDER BY p.date DESC
+      `;
+      return db.prepare(sql).all(startDate, endDate);
+  } catch (err) {
+      console.error(err);
+      return [];
+  }
+}
+
+function getDuePurchaseOrders() {
+  return db.prepare(`
+    SELECT po.*, s.name as supplier_name 
+    FROM purchase_orders po
+    JOIN suppliers s ON po.supplier_id = s.id
+    WHERE po.payment_status != 'paid' 
+    AND po.due_date IS NOT NULL 
+    AND po.due_date <= date('now', '+7 days')
+    ORDER BY po.due_date ASC
+  `).all();
 }
 
 // GESTIÓN DE SERVICIOS
@@ -1961,6 +2034,8 @@ module.exports = {
   ,createPurchaseOrder, getPurchaseOrders, getPurchaseOrderById, receivePurchaseOrder, deletePurchaseOrder, updatePurchaseOrder, 
   // Pagos compras
   updatePurchaseInvoiceNumber, addPurchasePayment, getPurchasePayments,
+  getRetentionsReport,
+  getDuePurchaseOrders,
   // Servicios
   getServices, getServiceById, createService, updateService, deleteService,
   // Usuarios

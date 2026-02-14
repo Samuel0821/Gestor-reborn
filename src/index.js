@@ -260,6 +260,8 @@
       ipcMain.handle("update-purchase-invoice-number", (event, { id, invoiceNumber }) => db.updatePurchaseInvoiceNumber(id, invoiceNumber));
       ipcMain.handle("add-purchase-payment", (event, data) => db.addPurchasePayment(data));
       ipcMain.handle("get-purchase-payments", (event, orderId) => db.getPurchasePayments(orderId));
+      ipcMain.handle("get-retentions-report", (event, filters) => db.getRetentionsReport(filters));
+      ipcMain.handle("get-due-purchase-orders", () => db.getDuePurchaseOrders());
 
       // Cotizaciones
       ipcMain.handle("create-quote", (event, data) => db.createQuote(data));
@@ -575,6 +577,15 @@
           const lowStockCount = db.db.prepare("SELECT COUNT(*) as count FROM products WHERE stock <= min_stock").get().count;
           const pendingOrdersCount = db.db.prepare("SELECT COUNT(*) as count FROM purchase_orders WHERE status = 'pending'").get().count;
           const debtorsCount = db.db.prepare("SELECT COUNT(DISTINCT client_id) as count FROM sales WHERE sale_type = 'credit' AND outstanding_balance > 0").get().count;
+          
+          // Alerta de Cuentas por Pagar (Vencidas o próximas 7 días)
+          const payableAlertsCount = db.db.prepare(`
+            SELECT COUNT(*) as count 
+            FROM purchase_orders 
+            WHERE payment_status != 'paid' 
+            AND due_date IS NOT NULL 
+            AND due_date <= date('now', '+7 days')
+          `).get().count;
 
           // 7. NUEVAS TARJETAS (SNAPSHOTS)
           const totalProducts = db.db.prepare("SELECT COUNT(*) as c FROM products").get().c;
@@ -602,7 +613,8 @@
             alerts: {
               lowStock: lowStockCount,
               pendingOrders: pendingOrdersCount,
-              debtors: debtorsCount
+              debtors: debtorsCount,
+              payable: payableAlertsCount
             },
             general: {
               totalProducts,
@@ -649,7 +661,7 @@
         ipcMain.handle("get-inventory", async () => {
                 try {
                     const products = db.getProducts();
-                    const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.sale_price)), 0);
+                    const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.purchase_price || 0)), 0);
                     return { products, totalInventoryValue };
                 } catch (err) {
                     console.error("Error al obtener el inventario:", err);
@@ -1514,7 +1526,7 @@
                 try {
                     const products = db.getProducts() || [];
                     const company = db.getCompanySettings() || {};
-                    const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.sale_price)), 0);
+                    const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.purchase_price || 0)), 0);
 
                     const { filePath, canceled } = await dialog.showSaveDialog({
                         title: "Guardar reporte PDF",
@@ -1552,7 +1564,7 @@
                     // --- Agregar el valor total del inventario al PDF ---
                     doc.moveDown(2);
                     doc.font("Helvetica-Bold").fontSize(12);
-                    doc.text("Valor Total del Inventario (Precio Venta):", 50, doc.y, { align: "right", width: 300 });
+                    doc.text("Valor Total del Inventario (Costo):", 50, doc.y, { align: "right", width: 300 });
                     doc.font("Helvetica").fontSize(12).text(formatCOP(totalInventoryValue), { align: "right" });
 
                     doc.end();
@@ -1571,7 +1583,7 @@
 
         try {
             const products = db.getProducts() || [];
-            const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.sale_price)), 0);
+            const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.purchase_price || 0)), 0);
 
             const { filePath, canceled } = await dialog.showSaveDialog({
                 title: "Guardar reporte Excel",
@@ -1605,7 +1617,7 @@
             // --- Agregar el valor total del inventario al Excel ---
             worksheet.addRow({}); // Fila vacía para separación
             const totalRow = worksheet.addRow({
-                name: "VALOR TOTAL DEL INVENTARIO (PRECIO VENTA)",
+                name: "VALOR TOTAL DEL INVENTARIO (COSTO)",
                 sale_price: totalInventoryValue
             });
 
@@ -1683,7 +1695,18 @@
         y += productHeight + 5;
       }
 
-      doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(order.total_amount)}`, 400, y + 20, { align: "right", width: 160 });
+      if (order.include_iva) {
+        const total = order.total_amount;
+        const subtotal = total / 1.19;
+        const iva = total - subtotal;
+
+        doc.font("Helvetica").fontSize(10);
+        doc.text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 10, { align: "right", width: 160 });
+        doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 25, { align: "right", width: 160 });
+        doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 40, { align: "right", width: 160 });
+      } else {
+        doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(order.total_amount)}`, 400, y + 20, { align: "right", width: 160 });
+      }
 
       doc.end();
       await new Promise((res, rej) => {

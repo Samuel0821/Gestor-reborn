@@ -34,7 +34,10 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
     - Descuento automático de materiales del inventario al guardar un servicio (Gestión inteligente para evitar doble descuento al facturar).
 5.  **Compras y Proveedores:**
     - Generación de Órdenes de Compra.
+    - Soporte para **IVA Opcional** y **Fecha de Vencimiento** en compras.
+    - Edición de órdenes de compra pendientes.
     - Recepción de mercancía con actualización automática de stock.
+    - Gestión de pagos a proveedores con aplicación de **Retenciones en la Fuente**.
     - Base de datos de proveedores.
 6.  **Cotizaciones:**
     - Generación de cotizaciones profesionales en PDF.
@@ -47,6 +50,7 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
     - Reportes de utilidad real (Ventas - Costos).
     - **Gestión de Gastos:** Registro, visualización de detalles y generación de Comprobantes de Egreso en PDF.
     - **Reporte de Egresos:** Control detallado de gastos con exportación a PDF.
+    - **Reporte de Retenciones:** Informe para la DIAN con el detalle de retenciones aplicadas en compras.
     - **Auditoría:** Registro de modificaciones sensibles (ej. edición de ventas).
 8.  **Soporte Técnico:**
     - Módulo integrado para envío de reportes de error directamente al desarrollador.
