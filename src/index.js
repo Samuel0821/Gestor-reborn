@@ -28,7 +28,7 @@
     });
 
     // Eliminar la barra de menú por defecto (Archivo, Vista, etc.)
-    //mainWindow.setMenu(null);
+    mainWindow.setMenu(null);
 
     // Siempre iniciar en login.html
     mainWindow.loadFile(path.join(__dirname, "views", "login.html"));
