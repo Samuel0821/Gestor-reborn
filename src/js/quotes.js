@@ -20,7 +20,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem('persistentQuoteCart', JSON.stringify(quoteItems));
   }
 
-  // 1. Cargar lo que ya existía en persistencia (si hay)
+  // --- FILTRO POR CLIENTE (Mover al inicio para evitar ReferenceError) ---
+  const filterContainer = document.createElement("div");
+  filterContainer.className = "mb-3 d-flex align-items-center";
+  filterContainer.innerHTML = `
+    <label class="me-2 fw-bold">Filtrar por Cliente:</label>
+    <select id="filter-client-quote" class="form-select w-auto">
+        <option value="">-- Todos --</option>
+    </select>
+  `;
+  if (quotesList && quotesList.parentNode) {
+      quotesList.parentNode.insertBefore(filterContainer, quotesList);
+  }
+  const filterClientSelect = document.getElementById('filter-client-quote');
+  filterClientSelect.addEventListener('change', () => loadQuotes());
+
+  // --- Carga Inicial ---
+  await loadProducts();
+  await loadClients();
+  await loadQuotes();
+
+  // Cargar carritos guardados DESPUÉS de cargar productos para poder enriquecerlos
   const persistentCart = localStorage.getItem('persistentQuoteCart');
   if (persistentCart) {
     try {
@@ -28,16 +48,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (e) { console.error(e); }
   }
 
-  // Verificar si hay ítems transferidos desde Servicios
   const savedQuoteCart = sessionStorage.getItem('quoteCart');
   if (savedQuoteCart) {
     try {
       const newItems = JSON.parse(savedQuoteCart);
       quoteItems = quoteItems.concat(newItems);
-      sessionStorage.removeItem('quoteCart'); // Limpiar después de cargar
-      saveQuoteState();
+      sessionStorage.removeItem('quoteCart');
     } catch (e) { console.error(e); }
   }
+
+  // Enriquece todos los items cargados con la información de precios completa
+  quoteItems = quoteItems.map(item => {
+    if (!item.product_id) return item;
+    const product = allProducts.find(p => p.id === item.product_id);
+    if (!product) return item;
+    const source = item.variant_id ? product.variants.find(v => v.id === item.variant_id) : product;
+    if (!source) return item;
+    return { ...item, ...{ sale_price: source.sale_price, special_price: source.special_price, special_price_2: source.special_price_2 } };
+  });
+
+  renderQuoteItems(); // Renderizar una vez con los datos cargados y enriquecidos
 
   function formatCOP(value) {
     return new Intl.NumberFormat("es-CO", {
@@ -115,6 +145,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Función para agregar ítems a la cotización
   
   function addItemToQuote(prod, qty, price, productNameOverride = null, variant = null) {
+    const source = variant || prod;
     // Calcular costo: prioriza el de la variante, si no, calcula desde el padre.
     let purchasePrice = 0;
     if (variant) {
@@ -129,8 +160,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       product_name: productNameOverride || prod.name, // aquí siempre queda con variante si aplica
       quantity: qty,
       price: price,
-      sale_price: price,
-      special_price: (prod && !variant) ? prod.special_price : 0,
+      sale_price: source.sale_price || 0,
+      special_price: source.special_price || 0,
+      special_price_2: source.special_price_2 || 0,
       subtotal: price * qty,
       is_service: !prod, // Marcar si es un servicio
       purchase_price: purchasePrice,
@@ -140,17 +172,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // --- Cargar productos
-  async function loadProducts() {
-    allProducts = await window.api.getProducts();
-    renderProductDatalist(allProducts);
-  }
-
-  // --- Renderizar datalist
   function renderProductDatalist(products) {
     productDatalist.innerHTML = "";
     products.forEach(p => {
       const opt = document.createElement("option");
-      opt.value = p.name;
+      opt.value = `${p.name} (${p.code}) - Stock ${p.stock}`;
       opt.dataset.id = p.id;
       opt.dataset.price = p.sale_price;
       opt.dataset.stock = p.stock;
@@ -158,20 +184,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // --- FILTRO POR CLIENTE ---
-  const filterContainer = document.createElement("div");
-  filterContainer.className = "mb-3 d-flex align-items-center";
-  filterContainer.innerHTML = `
-    <label class="me-2 fw-bold">Filtrar por Cliente:</label>
-    <select id="filter-client-quote" class="form-select w-auto">
-        <option value="">-- Todos --</option>
-    </select>
-  `;
-  if (quotesList && quotesList.parentNode) {
-      quotesList.parentNode.insertBefore(filterContainer, quotesList);
+  async function loadProducts() {
+    allProducts = await window.api.getProducts();
+    renderProductDatalist(allProducts);
   }
-  const filterClientSelect = document.getElementById('filter-client-quote');
-  filterClientSelect.addEventListener('change', () => loadQuotes());
 
   // --- Cargar clientes
   async function loadClients() {
@@ -197,6 +213,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     totalDiv.textContent = `TOTAL: ${formatCOP(quoteItems.reduce((sum, item) => sum + item.subtotal, 0))}`;
     quoteItemsTbody.innerHTML = "";
     let total = 0;
+
+    function generatePriceOptions(item) {
+      let options = '';
+      const prices = [
+        { label: 'Normal', value: item.sale_price },
+        { label: 'Esp. 1', value: item.special_price },
+        { label: 'Esp. 2', value: item.special_price_2 }
+      ];
+      prices.forEach(p => {
+        if (p.value > 0) {
+          const isSelected = Math.abs(item.price - p.value) < 0.01;
+          options += `<option value="${p.value}" ${isSelected ? 'selected' : ''}>${p.label}: ${formatCOP(p.value)}</option>`;
+        }
+      });
+      return options;
+    }
+
     quoteItems.forEach((it, i) => {
       const isService = it.is_service || String(it.product_name).toLowerCase().startsWith('[servicio]');
       total += it.subtotal;
@@ -207,14 +240,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <td>${it.product_name}</td>
         <td>${it.quantity}</td>
         <td>
-          ${isService 
-            ? formatCOP(it.price) 
-            : `
-            <select class="form-select form-select-sm price-selector">
-              <option value="sale" data-price="${it.sale_price}" ${it.price===it.sale_price?'selected':''}>${formatCOP(it.sale_price)}</option>
-              ${it.special_price>0?`<option value="special" data-price="${it.special_price}" ${it.price===it.special_price?'selected':''}>${formatCOP(it.special_price)}</option>`:''}
-            </select>
-          `}
+          ${isService ? formatCOP(it.price) : `<select class="form-select form-select-sm price-selector" data-i="${i}">${generatePriceOptions(it)}</select>`}
         </td>
         <td>${formatCOP(it.price*it.quantity)}</td>
         <td>
@@ -222,16 +248,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         </td>
       `;
       quoteItemsTbody.appendChild(tr);
-
-      if (!isService) {
-        tr.querySelector('.price-selector')?.addEventListener('change', e=>{
-          const selectedOption = e.target.options[e.target.selectedIndex];
-          const newPrice = parseFloat(selectedOption.dataset.price);
-          quoteItems[i].price = newPrice;
-          quoteItems[i].subtotal = newPrice * quoteItems[i].quantity;
-          renderQuoteItems();
-        });
-      }
     });
 
     quoteItemsTbody.querySelectorAll(".remove").forEach(b=>{
@@ -242,6 +258,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     });
   }
+
+  // Delegación de eventos para el cambio de precios en cotizaciones
+  quoteItemsTbody.addEventListener('change', (e) => {
+    if (e.target.classList.contains('price-selector')) {
+      const index = Number(e.target.dataset.i);
+      const newPrice = parseFloat(e.target.value);
+      if (!isNaN(newPrice) && quoteItems[index]) {
+        quoteItems[index].price = newPrice;
+        quoteItems[index].subtotal = newPrice * quoteItems[index].quantity;
+        renderQuoteItems(); // Re-renderizar para actualizar subtotal y total
+      }
+    }
+  });
 
   // --- Agregar producto
   form.addEventListener("submit", async (e) => {
@@ -367,27 +396,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         for (const item of quote.items) {
             if (item.product_id) {
                 const product = allProducts.find(p => p.id === item.product_id);
-                if (product) {
-                    let basePrice = product.sale_price;
-                    let specialPrice = product.special_price;
-
+                if (product) { // Si el producto aún existe en el sistema
+                    let source = product; // Por defecto, la fuente de precios es el producto padre
                     if (item.variant_id && product.variants) {
                         const v = product.variants.find(v => v.id === item.variant_id);
-                        if (v) {
-                            basePrice = v.sale_price;
-                            specialPrice = 0;
-                        }
+                        if (v) source = v; // Si se encuentra la variante, se convierte en la fuente de precios
                     }
                     detailedItems.push({
                         ...item,
-                        sale_price: basePrice,
-                        special_price: specialPrice,
+                        // Aseguramos que el item tenga toda la info de precios para el selector
+                        sale_price: source.sale_price || 0,
+                        special_price: source.special_price || 0,
+                        special_price_2: source.special_price_2 || 0,
                     });
-                } else {
-                   detailedItems.push({ ...item, sale_price: item.price, special_price: 0 });
                 }
             } else {
-                detailedItems.push({ ...item, sale_price: item.price, special_price: 0 });
+                // Servicios o ítems sin producto asociado
+                detailedItems.push({ ...item, sale_price: item.price, special_price: 0, special_price_2: 0 });
             }
         }
         quoteItems = detailedItems;
@@ -666,8 +691,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  await loadProducts();
-  await loadClients();
-  await loadQuotes();
-  renderQuoteItems(); // Renderizar si hay ítems cargados desde servicios
 });

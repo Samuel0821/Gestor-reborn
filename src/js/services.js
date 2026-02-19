@@ -121,7 +121,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function addItemToService(prod, qty, variant) {
-      let itemPrice = variant ? variant.sale_price : prod.sale_price;
+      const source = variant || prod;
+      let itemPrice = source.sale_price;
       let itemName = variant ? `${prod.name} (${variant.name})` : prod.name;
       let variantId = variant ? variant.id : null;
 
@@ -134,7 +135,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: itemName,
           price: itemPrice,
           quantity: qty,
-          variant_id: variantId
+          variant_id: variantId,
+          sale_price: source.sale_price || 0,
+          special_price: source.special_price || 0,
+          special_price_2: source.special_price_2 || 0
         });
       }
       renderServiceProducts();
@@ -164,12 +168,34 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function renderServiceProducts() {
     productsTable.innerHTML = "";
+
+    function generatePriceOptions(item) {
+      let options = '';
+      const prices = [
+        { label: 'Normal', value: item.sale_price },
+        { label: 'Esp. 1', value: item.special_price },
+        { label: 'Esp. 2', value: item.special_price_2 }
+      ];
+
+      prices.forEach(p => {
+        if (p.value > 0) {
+          const isSelected = Math.abs(item.price - p.value) < 0.01;
+          options += `<option value="${p.value}" ${isSelected ? 'selected' : ''}>${p.label}: ${formatCOP(p.value)}</option>`;
+        }
+      });
+      return options;
+    }
+
     currentServiceProducts.forEach((p, index) => {
       const tr = document.createElement("tr");
+      const priceDisplay = (p.sale_price !== undefined) 
+        ? `<select class="form-select form-select-sm price-selector" data-index="${index}">${generatePriceOptions(p)}</select>`
+        : formatCOP(p.price);
+
       tr.innerHTML = `
         <td>${p.name}</td>
         <td>${p.quantity}</td>
-        <td>${formatCOP(p.price)}</td>
+        <td>${priceDisplay}</td>
         <td>${formatCOP(p.price * p.quantity)}</td>
         <td><button type="button" class="btn btn-sm btn-danger remove-prod" data-index="${index}">X</button></td>
       `;
@@ -184,6 +210,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     });
   }
+
+  // Delegación de eventos para el cambio de precios en la tabla de servicios
+  productsTable.addEventListener('change', (e) => {
+    if (e.target.classList.contains('price-selector')) {
+        const index = Number(e.target.dataset.index);
+        const newPrice = parseFloat(e.target.value);
+        if (!isNaN(newPrice) && currentServiceProducts[index]) {
+            currentServiceProducts[index].price = newPrice;
+            renderServiceProducts();
+        }
+    }
+  });
 
   // Guardar Servicio
   form.addEventListener("submit", async (e) => {
@@ -302,9 +340,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       currentServiceProducts = service.products.map(p => ({
         product_id: p.product_id,
         name: p.variant_name ? `${p.name} (${p.variant_name})` : p.name,
-        price: p.sale_price,
+        price: p.price || p.sale_price,
         quantity: p.quantity,
-        variant_id: p.variant_id
+        variant_id: p.variant_id,
+        sale_price: p.sale_price,
+        special_price: p.special_price,
+        special_price_2: p.special_price_2
       }));
       renderServiceProducts();
       cancelBtn.style.display = "inline-block";
@@ -342,10 +383,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           product_code: p.code,
           product_name: p.variant_name ? `${p.name} (${p.variant_name})` : p.name,
           quantity: p.quantity,
-          price: p.sale_price,
+          price: p.price || p.sale_price,
           sale_price: p.sale_price,
-          special_price: 0,
-          subtotal: p.sale_price * p.quantity,
+          special_price: p.special_price || 0,
+          special_price_2: p.special_price_2 || 0,
+          subtotal: (p.price || p.sale_price) * p.quantity,
           skip_stock: true, // ⚠️ IMPORTANTE: Evita doble descuento de inventario
           variant_id: p.variant_id
         });
@@ -393,10 +435,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           product_code: p.code,
           product_name: p.variant_name ? `${p.name} (${p.variant_name})` : p.name,
           quantity: p.quantity,
-          price: p.sale_price,
+          price: p.price || p.sale_price,
           sale_price: p.sale_price,
-          special_price: 0,
-          subtotal: p.sale_price * p.quantity,
+          special_price: p.special_price || 0,
+          special_price_2: p.special_price_2 || 0,
+          subtotal: (p.price || p.sale_price) * p.quantity,
           skip_stock: true, // ⚠️ IMPORTANTE: Evita doble descuento de inventario
           variant_id: p.variant_id
         });

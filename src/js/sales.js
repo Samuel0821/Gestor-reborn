@@ -17,13 +17,6 @@ function formatCOP(value) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // Layout manejado por layout.js
-
-  // Cargar carrito desde sessionStorage al iniciar
-  const savedCart = sessionStorage.getItem('shoppingCart');
-  if (savedCart) {
-    saleItems = JSON.parse(savedCart);
-  }
  
   // Referencias a elementos
   
@@ -41,6 +34,46 @@ document.addEventListener("DOMContentLoaded", async () => {
   const creditSearchInput = document.getElementById("credit-search-input");
   const creditSearchBtn = document.getElementById("credit-search-btn");
   const barcodeInput = document.getElementById("barcode-input");
+
+  // --- FILTRO POR CLIENTE (Mover al inicio para evitar ReferenceError) ---
+  const filterContainer = document.createElement("div");
+  filterContainer.className = "mb-3 d-flex align-items-center";
+  filterContainer.innerHTML = `
+    <label class="me-2 fw-bold">Filtrar por Cliente:</label>
+    <select id="filter-client" class="form-select w-auto">
+        <option value="">-- Todos --</option>
+    </select>
+  `;
+  if (salesList && salesList.parentNode) {
+      salesList.parentNode.insertBefore(filterContainer, salesList);
+  }
+  const filterClientSelect = document.getElementById('filter-client');
+  filterClientSelect.addEventListener('change', () => loadSales(false));
+
+  // --- Carga Inicial ---
+  await loadProducts();
+  await loadClients();
+  await loadFilterClients();
+
+  // Cargar carrito desde sessionStorage DESPUÉS de cargar productos para poder enriquecer los datos
+  const savedCart = sessionStorage.getItem('shoppingCart');
+  if (savedCart) {
+    try {
+      const parsedCart = JSON.parse(savedCart);
+      // Enriquece los items del carrito con la información de precios completa
+      saleItems = parsedCart.map(item => {
+        if (!item.product_id) return item;
+        const product = allProducts.find(p => p.id === item.product_id);
+        if (!product) return item;
+        const source = item.variant_id ? product.variants.find(v => v.id === item.variant_id) : product;
+        if (!source) return item;
+        return { ...item, ...{ sale_price: source.sale_price, special_price: source.special_price, special_price_2: source.special_price_2 } };
+      });
+    } catch (e) {
+      console.error("Error al cargar el carrito guardado:", e);
+      sessionStorage.removeItem('shoppingCart');
+    }
+  }
 
   function cancelEdit() {
     editingSaleId = null;
@@ -92,6 +125,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     saleItemsTbody.innerHTML = "";
     let total = 0;
 
+    // Generador de opciones de precios
+    function generatePriceOptions(item) {
+      let options = '';
+      const prices = [
+        { label: 'Normal', value: item.sale_price },
+        { label: 'Esp. 1', value: item.special_price },
+        { label: 'Esp. 2', value: item.special_price_2 }
+      ];
+
+      prices.forEach(p => {
+        if (p.value > 0) {
+          // Compara precios con una pequeña tolerancia para evitar errores de punto flotante
+          const isSelected = Math.abs(item.price - p.value) < 0.01;
+          options += `<option value="${p.value}" ${isSelected ? 'selected' : ''}>${p.label}: ${formatCOP(p.value)}</option>`;
+        }
+      });
+      return options;
+    }
+
     saleItems.forEach((it, i) => {
       total += it.subtotal;
       const tr = document.createElement("tr");
@@ -111,29 +163,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         <td>
           ${isService 
             ? formatCOP(it.price) 
-            : `
-            <select class="form-select form-select-sm price-selector">
-              <option value="sale" data-price="${it.sale_price}" ${it.price === it.sale_price ? 'selected' : ''}>${formatCOP(it.sale_price)}</option>
-              ${it.special_price > 0 ? `<option value="special" data-price="${it.special_price}" ${it.price === it.special_price ? 'selected' : ''}>${formatCOP(it.special_price)}</option>` : ''}
-            </select>
-          `}
+            : `<select class="form-select form-select-sm price-selector" data-i="${i}">${generatePriceOptions(it)}</select>`
+          }
         </td>
         <td>${formatCOP(it.price * it.quantity)}</td>
         <td><button class="btn btn-sm btn-danger remove" data-i="${i}">Eliminar</button></td>
       `;
 
       saleItemsTbody.appendChild(tr);
-
-      // Cambiar precio desde el selector (solo para productos)
-      if (!isService) {
-        tr.querySelector('.price-selector')?.addEventListener('change', (e) => {
-          const selectedOption = e.target.options[e.target.selectedIndex];
-          const newPrice = parseFloat(selectedOption.getAttribute('data-price'));
-          saleItems[i].price = newPrice;
-          saleItems[i].subtotal = newPrice * saleItems[i].quantity;
-          renderSaleItems();
-        });
-      }
 
       // Si es variante por kilos, escuchar cambios de cantidad
       if (isKgVariant) {
@@ -165,6 +202,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Guardar carrito en sessionStorage cada vez que se renderiza
     saveCart();
   }
+
+  // Delegación de eventos para el cambio de precios
+  saleItemsTbody.addEventListener('change', (e) => {
+    if (e.target.classList.contains('price-selector')) {
+      const index = Number(e.target.dataset.i);
+      const newPrice = parseFloat(e.target.value);
+      if (!isNaN(newPrice) && saleItems[index]) {
+        saleItems[index].price = newPrice;
+        saleItems[index].subtotal = newPrice * saleItems[index].quantity;
+        renderSaleItems(); // Re-renderizar para actualizar subtotal y total
+      }
+    }
+  });
+
 
   // -----------------------------
   // Agregar producto manual (formulario)
@@ -330,17 +381,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Reutilizable: agregar item a la venta
   
   function addItemToSale(prod, qty, variant) {
-    let itemPrice = variant ? variant.sale_price : prod.sale_price;
+    const source = variant || prod; // La fuente de precios es la variante si existe, si no, el producto.
+    let itemPrice = source.sale_price;
     let itemName = variant ? `${prod.name} (${variant.name})` : prod.name;
     let variantId = variant ? variant.id : null;
-
-    // Calcular costo: prioriza el de la variante, si no, calcula desde el padre.
-    let purchasePrice = 0;
-    if (variant) {
-        purchasePrice = variant.purchase_price > 0 ? variant.purchase_price : (prod.purchase_price || 0) * (variant.conversion_factor || 1);
-    } else if (prod) {
-        purchasePrice = prod.purchase_price || 0;
-    }
 
     const existingItemIndex = saleItems.findIndex(i => 
       i.product_id === prod.id && i.variant_id === variantId
@@ -355,12 +399,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         product_code: prod.code,
         product_name: itemName,
         quantity: qty,
-        price: itemPrice,
-        sale_price: itemPrice,
-        special_price: variant ? 0 : prod.special_price,
+        price: itemPrice, // Precio actual, por defecto el normal
+        sale_price: source.sale_price || 0,
+        special_price: source.special_price || 0,
+        special_price_2: source.special_price_2 || 0,
         subtotal: itemPrice * qty,
         variant_id: variantId,
-        purchase_price: purchasePrice
       });
     }
 
@@ -664,21 +708,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const SALES_LIMIT = 10;
   let loadMoreBtn;
 
-  // --- FILTRO POR CLIENTE ---
-  const filterContainer = document.createElement("div");
-  filterContainer.className = "mb-3 d-flex align-items-center";
-  filterContainer.innerHTML = `
-    <label class="me-2 fw-bold">Filtrar por Cliente:</label>
-    <select id="filter-client" class="form-select w-auto">
-        <option value="">-- Todos --</option>
-    </select>
-  `;
-  if (salesList && salesList.parentNode) {
-      salesList.parentNode.insertBefore(filterContainer, salesList);
-  }
-  const filterClientSelect = document.getElementById('filter-client');
-  // --------------------------
-
   // Crear botón de "Cargar más"
   const btnContainer = document.createElement("div");
   btnContainer.className = "text-center mt-3 mb-3";
@@ -768,7 +797,6 @@ document.addEventListener("DOMContentLoaded", async () => {
           filterClientSelect.appendChild(opt);
       });
   }
-  filterClientSelect.addEventListener('change', () => loadSales(false));
 
   async function loadSales(append = false) {
     if (!append) {
@@ -861,26 +889,23 @@ document.addEventListener("DOMContentLoaded", async () => {
         for (const item of items) {
             if (item.product_id) {
                 const product = allProducts.find(p => p.id === item.product_id);
-                if (product) {
-                    let basePrice = product.sale_price;
-                    let specialPrice = product.special_price;
-                    
+                if (product) { // Si el producto aún existe en el sistema
+                    let source = product; // Por defecto, la fuente de precios es el producto padre
                     if (item.variant_id && product.variants) {
                         const v = product.variants.find(v => v.id === item.variant_id);
-                        if (v) {
-                            basePrice = v.sale_price;
-                            specialPrice = 0;
-                        }
+                        if (v) source = v; // Si se encuentra la variante, se convierte en la fuente de precios
                     }
                     detailedItems.push({
                         ...item,
-                        sale_price: basePrice,
-                        special_price: specialPrice,
+                        // Aseguramos que el item tenga toda la info de precios para el selector
+                        sale_price: source.sale_price || 0,
+                        special_price: source.special_price || 0,
+                        special_price_2: source.special_price_2 || 0,
                     });
                 }
             } else {
                 // Servicios o ítems sin producto asociado
-                detailedItems.push({ ...item, sale_price: item.price, special_price: 0 });
+                detailedItems.push({ ...item, sale_price: item.price, special_price: 0, special_price_2: 0 });
             }
         }
         saleItems = detailedItems;
@@ -1342,9 +1367,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Inicialización
   
-  await loadProducts();
-  await loadClients();
-  await loadFilterClients();
   await loadSales();
   await loadCredits();
 

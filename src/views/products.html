@@ -39,39 +39,58 @@
                     <select id="product-category" class="form-select"></select>
                     <input id="product-category-new" class="form-control mt-2" placeholder="Nueva categoría (opcional)">
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label">Precio costo</label>
-                    <input id="product-purchase-price" type="number" step="0.01" class="form-control">
+
+                <!-- Sección de Precios y Utilidad -->
+                <div class="col-12 mt-4 pt-3 border-top">
+                    <h6 class="mb-3">Precios y Utilidad</h6>
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <label class="form-label">Precio Costo</label>
+                            <input id="product-purchase-price" type="number" step="0.01" class="form-control" placeholder="0">
+                        </div>
+                        <div class="col-md-9">
+                            <div class="row">
+                                <div class="col-md-3"><label class="form-label">Margen Normal (%)</label><input type="number" id="product-margin-normal" class="form-control" placeholder="0"></div>
+                                <div class="col-md-4"><label class="form-label">Margen Esp. 1 (%)</label><input type="number" id="product-margin-special-1" class="form-control" placeholder="0"></div>
+                                <div class="col-md-4"><label class="form-label">Margen Esp. 2 (%)</label><input type="number" id="product-margin-special-2" class="form-control" placeholder="0"></div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Precio Venta (Normal)</label>
+                            <input id="product-sale-price" type="number" step="0.01" class="form-control" required placeholder="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Precio Especial 1</label>
+                            <input id="product-special-price" type="number" step="0.01" class="form-control" placeholder="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Precio Especial 2</label>
+                            <input id="product-special-price-2" type="number" step="0.01" class="form-control" placeholder="0">
+                        </div>
+                    </div>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label">Precio venta</label>
-                    <input id="product-sale-price" type="number" step="0.01" class="form-control" required>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Precio especial</label>
-                    <input id="product-special-price" type="number" step="0.01" class="form-control">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Stock</label>
-                    <input id="product-stock" type="number" class="form-control" value="0" required>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Stock mínimo</label>
-                    <input id="product-min-stock" type="number" class="form-control" value="0" required>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Proveedor</label>
-                    <select id="product-supplier" class="form-select"></select>
+
+                <!-- Sección de Inventario y Proveedor -->
+                <div class="col-12 mt-4 pt-3 border-top">
+                    <h6 class="mb-3">Inventario y Proveedor</h6>
+                    <div class="row g-3">
+                        <div class="col-md-4"><label class="form-label">Stock Actual</label><input id="product-stock" type="number" class="form-control" value="0" required></div>
+                        <div class="col-md-4"><label class="form-label">Stock Mínimo</label><input id="product-min-stock" type="number" class="form-control" value="0" required></div>
+                        <div class="col-md-4"><label class="form-label">Proveedor</label><select id="product-supplier" class="form-select"></select></div>
+                    </div>
                 </div>
 
                 <div class="col-12 mt-4">
                     <h6 class="mb-3">Unidades de Venta (Variantes)</h6>
-                    <div class="row g-3 mb-1">
-                        <div class="col-md-3"><label class="form-label small text-muted mb-0">Nombre</label></div>
-                        <div class="col-md-2"><label class="form-label small text-muted mb-0">Costo</label></div>
-                        <div class="col-md-2"><label class="form-label small text-muted mb-0">Precio</label></div>
-                        <div class="col-md-2"><label class="form-label small text-muted mb-0">Factor</label></div>
-                        <div class="col-md-3"></div>
+                    <!-- NUEVOS ENCABEZADOS PARA VARIANTES -->
+                    <div class="row g-1 mb-2 d-none d-lg-flex small text-muted">
+                        <div class="col-lg-2">Nombre</div>
+                        <div class="col-lg-1">Costo</div>
+                        <div class="col-lg-2">P. Normal</div>
+                        <div class="col-lg-2">P. Esp. 1</div>
+                        <div class="col-lg-2">P. Esp. 2</div>
+                        <div class="col-lg-1">Factor</div>
+                        <div class="col-lg-2">Acción</div>
                     </div>
                     <div id="variants-container">
                         </div>

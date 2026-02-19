@@ -96,6 +96,14 @@ try {
   }
 } catch (e) { /* ignorar */ }
 
+// MIGRACIÓN: Agregar price a service_products para guardar el precio seleccionado
+try {
+  const spColumns = db.prepare("PRAGMA table_info(service_products)").all();
+  if (!spColumns.some(c => c.name === "price")) {
+    db.prepare("ALTER TABLE service_products ADD COLUMN price REAL DEFAULT 0").run();
+  }
+} catch (e) { /* ignorar */ }
+
 // TABLAS
 db.prepare(`
 CREATE TABLE IF NOT EXISTS clients (
@@ -123,6 +131,7 @@ CREATE TABLE IF NOT EXISTS products (
   purchase_price REAL,
   sale_price REAL NOT NULL,
   special_price REAL NOT NULL DEFAULT 0,
+  special_price_2 REAL NOT NULL DEFAULT 0,
   stock INTEGER NOT NULL DEFAULT 0,
   min_stock INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
@@ -146,6 +155,8 @@ CREATE TABLE IF NOT EXISTS product_variants (
   product_id INTEGER NOT NULL,
   name TEXT NOT NULL,
   sale_price REAL NOT NULL,
+  special_price REAL NOT NULL DEFAULT 0,
+  special_price_2 REAL NOT NULL DEFAULT 0,
   conversion_factor REAL NOT NULL,
   purchase_price REAL DEFAULT 0,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
@@ -270,6 +281,26 @@ try {
   const poColumns = db.prepare("PRAGMA table_info(purchase_orders)").all();
   if (!poColumns.some(c => c.name === "due_date")) {
     db.prepare("ALTER TABLE purchase_orders ADD COLUMN due_date DATE").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar special_price_2 y special_price_3 a products
+try {
+  const pColumns = db.prepare("PRAGMA table_info(products)").all();
+  if (!pColumns.some(c => c.name === "special_price_2")) {
+    db.prepare("ALTER TABLE products ADD COLUMN special_price_2 REAL NOT NULL DEFAULT 0").run();
+  }
+  // special_price_3 ha sido eliminado por solicitud.
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar special_price y special_price_2 a product_variants
+try {
+  const pvColumns = db.prepare("PRAGMA table_info(product_variants)").all();
+  if (!pvColumns.some(c => c.name === "special_price")) {
+    db.prepare("ALTER TABLE product_variants ADD COLUMN special_price REAL NOT NULL DEFAULT 0").run();
+  }
+  if (!pvColumns.some(c => c.name === "special_price_2")) {
+    db.prepare("ALTER TABLE product_variants ADD COLUMN special_price_2 REAL NOT NULL DEFAULT 0").run();
   }
 } catch (e) { /* ignorar */ }
 
@@ -607,7 +638,7 @@ function getProducts() {
     ORDER BY p.name
   `).all();
   // Obtener variantes para cada producto
-  const getVariants = db.prepare("SELECT * FROM product_variants WHERE product_id = ? ORDER BY name");
+  const getVariants = db.prepare("SELECT id, product_id, name, sale_price, special_price, special_price_2, conversion_factor, purchase_price FROM product_variants WHERE product_id = ? ORDER BY name");
   for (const p of products) {
       p.variants = getVariants.all(p.id);
   }
@@ -632,8 +663,8 @@ function addProduct(p) {
     const catId = ensureCategoryId(p.category);
     const result = db.transaction(() => {
         const productRes = db.prepare(`
-            INSERT INTO products (code, name, category, category_id, purchase_price, sale_price, special_price, stock, min_stock, supplier_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO products (code, name, category, category_id, purchase_price, sale_price, special_price, special_price_2, stock, min_stock, supplier_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             p.code,
             p.name,
@@ -642,6 +673,7 @@ function addProduct(p) {
             p.purchase_price || 0,
             p.sale_price || 0,
             p.special_price || 0,
+            p.special_price_2 || 0,
             p.stock || 0,
             p.min_stock || 0,
             p.supplier_id || null
@@ -649,11 +681,11 @@ function addProduct(p) {
         const productId = productRes.lastInsertRowid;
         if (p.variants && p.variants.length > 0) {
             const insertVariant = db.prepare(`
-                INSERT INTO product_variants (product_id, name, sale_price, conversion_factor, purchase_price)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO product_variants (product_id, name, sale_price, special_price, special_price_2, conversion_factor, purchase_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             `);
             for (const v of p.variants) {
-                insertVariant.run(productId, v.name, v.sale_price, v.conversion_factor, v.purchase_price || 0);
+                insertVariant.run(productId, v.name, v.sale_price, v.special_price || 0, v.special_price_2 || 0, v.conversion_factor, v.purchase_price || 0);
             }
         }
         return productId;
@@ -669,8 +701,8 @@ function updateProduct(p) {
     const catId = ensureCategoryId(p.category);
     db.transaction(() => {
         db.prepare(`
-            UPDATE products
-            SET code=?, name=?, category=?, category_id=?, purchase_price=?, sale_price=?, special_price=?, stock=?, min_stock=?, supplier_id=?
+            UPDATE products 
+            SET code=?, name=?, category=?, category_id=?, purchase_price=?, sale_price=?, special_price=?, special_price_2=?, stock=?, min_stock=?, supplier_id=?
             WHERE id=?
         `).run(
             p.code,
@@ -680,6 +712,7 @@ function updateProduct(p) {
             p.purchase_price || 0,
             p.sale_price || 0,
             p.special_price || 0,
+            p.special_price_2 || 0,
             p.stock || 0,
             p.min_stock || 0,
             p.supplier_id || null,
@@ -689,11 +722,11 @@ function updateProduct(p) {
         db.prepare("DELETE FROM product_variants WHERE product_id=?").run(p.id);
         if (p.variants && p.variants.length > 0) {
             const insertVariant = db.prepare(`
-                INSERT INTO product_variants (product_id, name, sale_price, conversion_factor, purchase_price)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO product_variants (product_id, name, sale_price, special_price, special_price_2, conversion_factor, purchase_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             `);
             for (const v of p.variants) {
-                insertVariant.run(p.id, v.name, v.sale_price, v.conversion_factor, v.purchase_price || 0);
+                insertVariant.run(p.id, v.name, v.sale_price, v.special_price || 0, v.special_price_2 || 0, v.conversion_factor, v.purchase_price || 0);
             }
         }
     })();
@@ -1817,7 +1850,7 @@ function getDuePurchaseOrders() {
 function getServices() {
   return db.prepare(`
     SELECT s.*, c.name as client_name,
-      (SELECT COALESCE(SUM(sp.quantity * COALESCE(pv.sale_price, p.sale_price)), 0)
+      (SELECT COALESCE(SUM(sp.quantity * CASE WHEN sp.price > 0 THEN sp.price ELSE COALESCE(pv.sale_price, p.sale_price) END), 0)
        FROM service_products sp 
        JOIN products p ON sp.product_id = p.id 
        LEFT JOIN product_variants pv ON sp.variant_id = pv.id
@@ -1833,9 +1866,11 @@ function getServiceById(id) {
   const service = db.prepare("SELECT * FROM services WHERE id = ?").get(id);
   if (service) {
     const products = db.prepare(`
-      SELECT sp.product_id, sp.quantity, sp.variant_id,
+      SELECT sp.product_id, sp.quantity, sp.variant_id, sp.price,
              p.name, p.code, 
              COALESCE(pv.sale_price, p.sale_price) as sale_price,
+             COALESCE(pv.special_price, p.special_price) as special_price,
+             COALESCE(pv.special_price_2, p.special_price_2) as special_price_2,
              pv.name as variant_name
       FROM service_products sp
       JOIN products p ON sp.product_id = p.id
@@ -1849,7 +1884,7 @@ function getServiceById(id) {
 
 function createService(data) {
   const insert = db.prepare("INSERT INTO services (name, description, price, client_id) VALUES (?, ?, ?, ?)");
-  const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity, variant_id) VALUES (?, ?, ?, ?)");
+  const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity, variant_id, price) VALUES (?, ?, ?, ?, ?)");
   const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
   const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
   
@@ -1858,7 +1893,7 @@ function createService(data) {
     const serviceId = info.lastInsertRowid;
     if (data.products && data.products.length > 0) {
       for (const p of data.products) {
-        insertItem.run(serviceId, p.product_id, p.quantity, p.variant_id || null);
+        insertItem.run(serviceId, p.product_id, p.quantity, p.variant_id || null, p.price || 0);
         
         let factor = 1;
         if (p.variant_id) {
@@ -1883,7 +1918,7 @@ function createService(data) {
 function updateService(data) {
   const update = db.prepare("UPDATE services SET name = ?, description = ?, price = ?, client_id = ? WHERE id = ?");
   const deleteItems = db.prepare("DELETE FROM service_products WHERE service_id = ?");
-  const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity, variant_id) VALUES (?, ?, ?, ?)");
+  const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity, variant_id, price) VALUES (?, ?, ?, ?, ?)");
   
   // Preparar consultas para manejo de stock
   const getOldItems = db.prepare("SELECT product_id, quantity, variant_id FROM service_products WHERE service_id = ?");
@@ -1908,7 +1943,7 @@ function updateService(data) {
 
     if (data.products && data.products.length > 0) {
       for (const p of data.products) {
-        insertItem.run(data.id, p.product_id, p.quantity, p.variant_id || null);
+        insertItem.run(data.id, p.product_id, p.quantity, p.variant_id || null, p.price || 0);
         let factor = 1;
         if (p.variant_id) {
             const v = getVariant.get(p.variant_id);

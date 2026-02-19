@@ -1,6 +1,6 @@
 # Manual Técnico - GestorFX
 
-**Versión del Sistema:** 1.01 (Reborn)
+**Versión del Sistema:** 1.0.5
 **Desarrollado por:** Grisalis Technologies
 
 ---
@@ -89,8 +89,8 @@ Gestor-reborn/
 El sistema utiliza un modelo relacional robusto. Las tablas principales son:
 
 1.  **users:** Autenticación (username, password_hash SHA-256, role).
-2.  **products:** Inventario maestro (código, costo, precio, stock, stock mínimo).
-3.  **product_variants:** Unidades de medida alternativas para productos (ej. Kilo, Bulto). Incluye `purchase_price` para cálculo preciso de utilidad.
+2.  **products:** Inventario maestro (código, costo, `sale_price`, `special_price`, `special_price_2`, stock, stock mínimo).
+3.  **product_variants:** Unidades de medida alternativas para productos (ej. Kilo, Bulto). Incluye `purchase_price` y su propio set de precios (`sale_price`, `special_price`, `special_price_2`).
 4.  **categories:** Categorización de productos.
 5.  **clients:** Base de datos de clientes.
 6.  **suppliers:** Base de datos de proveedores.
@@ -102,7 +102,7 @@ El sistema utiliza un modelo relacional robusto. Las tablas principales son:
 12. **quotes / quote_items:** Gestión de cotizaciones. `quote_items` incluye `variant_id` y `skip_stock`.
 13. **purchase_orders / purchase_order_items:** Gestión de compras. `purchase_orders` incluye `include_iva` y `due_date`.
 14. **purchase_payments:** Registro de pagos a proveedores con soporte para `retention_amount` y `retention_type`.
-15. **services / service_products:** Definición de servicios (incluye `client_id`) y recetas de materiales. `service_products` incluye `variant_id`.
+15. **services / service_products:** Definición de servicios (incluye `client_id`) y recetas de materiales. `service_products` incluye `variant_id` y `price` (para persistencia del precio seleccionado).
 16. **company_settings:** Configuración global (Logo, NIT, Datos de contacto).
 17. **audit_logs:** Registro de acciones críticas para auditoría (usuario, acción, detalles, fecha).
 

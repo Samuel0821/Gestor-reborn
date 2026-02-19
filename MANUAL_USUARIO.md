@@ -1,6 +1,6 @@
 # Manual de Usuario - GestorFX
 
-**Versión del Sistema:** 1.0.2   
+**Versión del Sistema:** 1.0.5   
 **Desarrollado por:** Grisalis Technologies
 
 ---
@@ -44,7 +44,7 @@ El corazón del sistema para facturación rápida y eficiente.
     *   **Búsqueda Manual:** Escriba el nombre o código en el campo "Producto" y selecciónelo de la lista desplegable.
     *   **Variantes:** Si el producto tiene presentaciones (ej. "Bulto" vs "Kilo"), el sistema le pedirá seleccionar cuál desea vender.
 2.  **Seleccionar Cliente:** Elija un cliente de la lista o déjelo en blanco para "Cliente General".
-3.  **Ajustar Precios:** En la tabla de ítems, puede cambiar entre "Precio Normal" y "Precio Especial" si el producto lo permite.
+3.  **Ajustar Precios:** En la tabla de ítems, encontrará un menú desplegable para elegir entre **Precio Normal, Especial 1 y Especial 2** para cada producto agregado.
 4.  **Finalizar:** Verifique el total y haga clic en **"Finalizar Venta" (F9)**.
 
 ### 4.2. Procesar Pago
@@ -72,7 +72,9 @@ En la pestaña lateral o sección inferior, puede ver las ventas a crédito pend
 Administre todo su catálogo de artículos.
 
 *   **Crear Producto:** Ingrese Código, Nombre, Categoría, Costo, Precio de Venta y Stock.
-*   **Variantes (Unidades de Medida):** Ahora puede vender un mismo producto en diferentes presentaciones (ej. Unidad, Caja, Metro) con precios, costos y factores de conversión distintos. Esto permite un cálculo exacto de la utilidad por presentación.
+*   **Precios Múltiples:** Puede definir hasta 3 precios de venta por producto: **Normal, Especial 1 y Especial 2**.
+*   **Cálculo por Margen:** El sistema puede autocompletar los precios de venta. Simplemente ingrese el **Precio de Costo** y el **porcentaje de margen** que desea ganar para cada tipo de precio, y el sistema hará el cálculo automáticamente.
+*   **Variantes (Unidades de Medida):** Venda un mismo producto en diferentes presentaciones (ej. Unidad, Caja, Metro). Cada variante puede tener sus propios costos y su propio juego de 3 precios de venta, con la opción de calcularlos también por margen de utilidad.
 *   **Stock Mínimo:** Defina una cantidad mínima para que el sistema le avise cuándo reabastecer.
 *   **Exportar:** Botones para descargar su inventario completo en **Excel** o **PDF**.
 
@@ -82,7 +84,7 @@ Administre todo su catálogo de artículos.
 Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 
 *   **Crear Servicio:** Defina el nombre, precio y asocie un **Cliente** específico para llevar un mejor control.
-*   **Asociar Materiales:** Puede vincular productos del inventario al servicio. Soporta variantes: puede seleccionar si usa un "Bulto" o un "Kilo", y el sistema calculará el costo de los materiales basándose en esa selección.
+*   **Asociar Materiales:** Puede vincular productos del inventario al servicio. Soporta variantes y **selección de precios** (Normal, Esp 1, Esp 2). El sistema guardará el precio específico que elija para cada material, respetándolo al editar o facturar.
 *   **Gestión de Inventario:** Al guardar un servicio, los materiales se descuentan del inventario inmediatamente. Al facturar el servicio (enviar a Ventas), el sistema sabe que ya se descontaron y no lo hace dos veces.
 *   **Acciones Rápidas:** Desde la lista de servicios puede enviarlos directamente a la pantalla de **Ventas** o **Cotizaciones** con un solo clic.
 
@@ -91,7 +93,7 @@ Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 ## 7. Módulo de Cotizaciones
 Genere propuestas comerciales profesionales sin descontar inventario.
 
-*   **Crear:** Seleccione cliente y productos. Soporta variantes: el precio y nombre se ajustan a la presentación seleccionada.
+*   **Crear:** Seleccione cliente y productos. Soporta variantes y selección de precios múltiples (Normal, Esp 1, Esp 2) directamente en el carrito.
 *   **Editar:** Puede modificar cotizaciones guardadas previamente.
 *   **Exportar:** Genere un PDF formal con el logo de su empresa para enviar al cliente.
 *   **Aprobar:** Cuando el cliente acepte, haga clic en "Aprobar". El sistema verificará el stock disponible (convirtiendo las variantes a la unidad base del inventario) y abrirá la ventana de pago para convertirla en una Venta real inmediatamente.
