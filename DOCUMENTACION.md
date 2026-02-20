@@ -14,21 +14,27 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
 1.  **Dashboard Interactivo:**
     - Gráficos de ventas en tiempo real (Chart.js).
     - Indicadores clave de rendimiento (KPIs).
+    - **Gestión Operativa:** Widgets para visualizar Servicios Programados pendientes y Borradores de servicios abiertos.
     - Alertas automáticas de stock mínimo.
 2.  **Punto de Venta (POS):**
     - Facturación rápida con soporte para lector de código de barras.
     - Manejo de variantes de productos (Unidades de medida) con precios y costos específicos.
+    - **Precios Múltiples:** Selección de 3 listas de precios (Normal, Especial 1, Especial 2).
     - Pagos mixtos (Efectivo + Transferencia).
     - Ventas a crédito y gestión de abonos.
     - **Recibos de Caja:** Generación de comprobantes de ingreso numerados y exportables a PDF.
     - **Edición de Facturas:** Permite modificar ventas existentes recalculando inventario y saldos automáticamente.
 3.  **Inventario Avanzado:**
     - Gestión de productos, categorías y proveedores.
+    - **Cálculo de Precios:** Lógica bidireccional automática (Margen % <-> Precio Venta). Soporte para decimales en stock y precios.
     - **Variantes de Producto:** Soporte para múltiples presentaciones (ej. Kilo, Bulto) con factor de conversión y costo de compra individual.
     - Control de stock y alertas de reabastecimiento.
     - Exportación de inventario a Excel y PDF.
 4.  **Servicios:**
     - Creación de paquetes de servicios (Mano de obra + Insumos).
+    - **Ciclo de Vida:** Estados (Abierto, Cotizado, Finalizado, Anulado) y Ejecución (Pendiente, Realizado).
+    - **Programación:** Asignación de fecha programada y control de realización operativa.
+    - **Abonos:** Registro de pagos parciales (anticipos) que impactan caja y se descuentan al facturar.
     - **Soporte de Variantes:** Los materiales asociados pueden ser variantes específicas, calculando el costo y precio correctamente.
     - Vinculación de clientes a las órdenes de servicio.
     - Descuento automático de materiales del inventario al guardar un servicio (Gestión inteligente para evitar doble descuento al facturar).

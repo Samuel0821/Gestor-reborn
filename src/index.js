@@ -28,7 +28,7 @@
     });
 
     // Eliminar la barra de menú por defecto (Archivo, Vista, etc.)
-    mainWindow.setMenu(null);
+    //mainWindow.setMenu(null);
 
     // Siempre iniciar en login.html
     mainWindow.loadFile(path.join(__dirname, "views", "login.html"));
@@ -275,11 +275,18 @@
       ipcMain.handle("update-quote-details", (event, data) => db.updateQuoteDetails(data));
 
       // Servicios
-      ipcMain.handle("get-services", () => db.getServices());
+      ipcMain.handle("get-services", (event, limit, offset, status, executionStatus) => db.getServices(limit, offset, status, executionStatus));
       ipcMain.handle("get-service-by-id", (event, id) => db.getServiceById(id));
       ipcMain.handle("create-service", (event, data) => db.createService(data));
       ipcMain.handle("update-service", (event, data) => db.updateService(data));
       ipcMain.handle("delete-service", (event, id) => db.deleteService(id));
+      ipcMain.handle("update-service-status", (event, { id, status }) => db.updateServiceStatus(id, status));
+      ipcMain.handle("cancel-service", (event, id) => db.cancelService(id));
+      ipcMain.handle("add-service-payment", (event, { serviceId, amount, method, reference }) => db.addServicePayment(serviceId, amount, method, reference));
+      ipcMain.handle("get-service-payments", (event, serviceId) => db.getServicePayments(serviceId));
+      ipcMain.handle("mark-service-performed", (event, id) => db.markServicePerformed(id));
+      ipcMain.handle("get-pending-scheduled-services", () => db.getPendingScheduledServices());
+      ipcMain.handle("get-open-services-list", () => db.getOpenServicesList());
 
       // Usuarios
       ipcMain.handle("login", async (event, creds) => {
@@ -595,8 +602,10 @@
           const totalQuotes = db.db.prepare("SELECT COUNT(*) as c FROM quotes").get().c;
           const totalPOs = db.db.prepare("SELECT COUNT(*) as c FROM purchase_orders").get().c;
           const pendingPOPayments = db.db.prepare("SELECT SUM(outstanding_balance) as v FROM purchase_orders WHERE payment_status != 'paid'").get().v || 0;
+          const openServices = db.db.prepare("SELECT COUNT(*) as c FROM services WHERE status = 'Abierto'").get().c;
 
           return {
+            openServices,
             salesToday: salesToday.total || 0,
             salesYesterday: salesYesterday.total || 0,
             topProducts,
@@ -787,6 +796,7 @@
               let totalCash = 0;
               let totalTransfer = 0;
               let totalCredit = 0;
+              let totalPrevious = 0;
 
               // Escribir los datos de las ventas
               for (const sale of salesArray) {
@@ -799,6 +809,12 @@
                 const transfer = sale.transfer_payment || 0;
                 const change = Math.max(0, (tendered + transfer) - saleTotal);
                 const realCash = Math.max(0, tendered - change);
+
+                // Calcular abonos previos para esta venta
+                const currentTransfer = sale.transfer_payment || 0;
+                const currentCredit = sale.outstanding_balance || 0;
+                const currentPrevious = Math.max(0, saleTotal - realCash - currentTransfer - currentCredit);
+                totalPrevious += currentPrevious;
 
                 for (const item of sale.items) {
                   // Verificar salto de página
@@ -874,6 +890,9 @@
               doc.font("Helvetica").fontSize(10);
               doc.text(`Total en Efectivo: ${formatCOP(totalCash)}`);
               doc.text(`Total en Créditos: ${formatCOP(totalCredit)}`);
+              if (totalPrevious > 0) {
+                doc.text(`Abonos/Pagos Previos: ${formatCOP(totalPrevious)}`);
+              }
               
               if (paymentMethodsSummary && paymentMethodsSummary.transfersByBank) {
                 doc.moveDown(0.5);

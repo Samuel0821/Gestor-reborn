@@ -41,7 +41,7 @@ db.pragma("foreign_keys = ON");
 try {
   const columns = db.prepare("PRAGMA table_info(products)").all();
   if (!columns.some(c => c.name === "min_stock")) {
-    db.prepare("ALTER TABLE products ADD COLUMN min_stock INTEGER NOT NULL DEFAULT 0").run();
+    db.prepare("ALTER TABLE products ADD COLUMN min_stock REAL NOT NULL DEFAULT 0").run();
   }
 } catch (e) { /* ignorar errores si ya existe */ }
 
@@ -104,6 +104,40 @@ try {
   }
 } catch (e) { /* ignorar */ }
 
+// MIGRACIÓN: Agregar status a services
+try {
+  const sCols = db.prepare("PRAGMA table_info(services)").all();
+  if (!sCols.some(c => c.name === "status")) {
+    db.prepare("ALTER TABLE services ADD COLUMN status TEXT DEFAULT 'Abierto'").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar scheduled_date y performed_at a services
+try {
+  const sCols = db.prepare("PRAGMA table_info(services)").all();
+  if (!sCols.some(c => c.name === "scheduled_date")) {
+    db.prepare("ALTER TABLE services ADD COLUMN scheduled_date DATE").run();
+  }
+  if (!sCols.some(c => c.name === "performed_at")) {
+    db.prepare("ALTER TABLE services ADD COLUMN performed_at DATETIME").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Tabla de pagos de servicios (Abonos)
+try {
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS service_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      service_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      method TEXT NOT NULL, -- 'cash', 'transfer'
+      reference TEXT,
+      date DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
+    )
+  `).run();
+} catch (e) { console.error("Error migración service_payments:", e); }
+
 // TABLAS
 db.prepare(`
 CREATE TABLE IF NOT EXISTS clients (
@@ -132,8 +166,8 @@ CREATE TABLE IF NOT EXISTS products (
   sale_price REAL NOT NULL,
   special_price REAL NOT NULL DEFAULT 0,
   special_price_2 REAL NOT NULL DEFAULT 0,
-  stock INTEGER NOT NULL DEFAULT 0,
-  min_stock INTEGER NOT NULL DEFAULT 0,
+  stock REAL NOT NULL DEFAULT 0,
+  min_stock REAL NOT NULL DEFAULT 0,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 )`).run();
 
@@ -441,7 +475,8 @@ CREATE TABLE IF NOT EXISTS services (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   description TEXT,
-  price REAL NOT NULL DEFAULT 0
+  price REAL NOT NULL DEFAULT 0,
+  status TEXT DEFAULT 'Abierto'
 )`).run();
 
 // MIGRACIÓN: Agregar client_id a services
@@ -754,7 +789,8 @@ function createSale({
   outstanding_balance = 0, 
   cash_payment = 0, 
   transfer_payment = 0,
-  transfer_reference = null
+  transfer_reference = null,
+  service_id = null
 }) {
   const insertSale = db.prepare(`
     INSERT INTO sales (
@@ -777,7 +813,7 @@ function createSale({
   const getProduct = db.prepare("SELECT id, code, name, stock FROM products WHERE id = ?");
   const getVariant = db.prepare("SELECT * FROM product_variants WHERE id = ?");
 
-  const trx = db.transaction((client_id, items, cash_payment, transfer_payment, transfer_reference) => {
+  const trx = db.transaction((client_id, items, cash_payment, transfer_payment, transfer_reference, service_id) => {
     const now = new Date();
     const formattedDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
 
@@ -870,11 +906,23 @@ function createSale({
     }
     db.prepare("UPDATE sales SET invoice_number = ? WHERE id = ?").run(next, saleId);
 
+    // --- MIGRACIÓN DE ABONOS DE SERVICIO ---
+    if (service_id) {
+        const servicePayments = db.prepare("SELECT * FROM service_payments WHERE service_id = ?").all(service_id);
+        for (const sp of servicePayments) {
+            // Insertar como pago histórico asociado a esta venta (NO afecta caja actual, solo historial de venta)
+            insertPayment.run(saleId, sp.method, sp.amount, sp.amount, 0, sp.reference, sp.date);
+        }
+        // Actualizar estado del servicio a Finalizado
+        db.prepare("UPDATE services SET status = 'Finalizado' WHERE id = ?").run(service_id);
+    }
+    // ---------------------------------------
+
     return saleId;
   });
 
   try {
-    const id = trx(client_id, items, cash_payment, transfer_payment, transfer_reference);
+    const id = trx(client_id, items, cash_payment, transfer_payment, transfer_reference, service_id);
     return { success: true, message: "Venta registrada", id };
   } catch (err) {
     return { success: false, message: String(err) };
@@ -1326,13 +1374,14 @@ function getDashboardData() {
   const salesCount = db.prepare("SELECT COUNT(*) as c FROM sales").get().c;
   const quotes = db.prepare("SELECT COUNT(*) as c FROM quotes").get().c;
   const services = db.prepare("SELECT COUNT(*) as c FROM services").get().c;
-  
+  const openServices = db.prepare("SELECT COUNT(*) as c FROM services WHERE status = 'Abierto'").get().c;
+
   // Ventas de hoy (Dinero)
   const today = new Date().toISOString().slice(0, 10);
   const salesTodayRes = db.prepare("SELECT SUM(total_amount) as total FROM sales WHERE date(sale_date) = ?").get(today);
   const salesToday = salesTodayRes ? (salesTodayRes.total || 0) : 0;
 
-  return { clients, products, salesCount, quotes, services, salesToday };
+  return { clients, products, salesCount, quotes, services, salesToday, openServices };
 }
 
 function getSalesLastDays(days = 7) {
@@ -1568,6 +1617,9 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
     const salesTransfer = detailedSales.reduce((acc, s) => acc + (s.transfer_payment || 0), 0);
     const salesCredit = detailedSales.reduce((acc, s) => acc + (s.outstanding_balance || 0), 0);
 
+    // Calcular pagos previos (Abonos de servicios o anticipos)
+    const salesPrevious = Math.max(0, totalGeneral - (salesCash + salesTransfer + salesCredit));
+
     // Usamos los totales reales de sale_payments en lugar de sumar las ventas
     const totalCash = realTotalCash;
     const totalTransfer = realTotalTransfer;
@@ -1580,7 +1632,8 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
       totalTransfer, 
       salesCash,
       salesTransfer,
-      salesCredit
+      salesCredit,
+      salesPrevious
     };
   } catch (err) {
     console.error("Error en getSalesReport:", err);
@@ -1847,8 +1900,8 @@ function getDuePurchaseOrders() {
 }
 
 // GESTIÓN DE SERVICIOS
-function getServices() {
-  return db.prepare(`
+function getServices(limit = 10, offset = 0, status = null, executionStatus = null) {
+  let query = `
     SELECT s.*, c.name as client_name,
       (SELECT COALESCE(SUM(sp.quantity * CASE WHEN sp.price > 0 THEN sp.price ELSE COALESCE(pv.sale_price, p.sale_price) END), 0)
        FROM service_products sp 
@@ -1858,8 +1911,29 @@ function getServices() {
       ) as materials_cost
     FROM services s 
     LEFT JOIN clients c ON s.client_id = c.id
-    ORDER BY s.name
-  `).all();
+  `;
+
+  const params = [];
+  const conditions = [];
+
+  if (status && status !== 'all') {
+    conditions.push("s.status = ?");
+    params.push(status);
+  }
+
+  if (executionStatus && executionStatus !== 'all') {
+    if (executionStatus === 'pending') conditions.push("s.performed_at IS NULL");
+    else if (executionStatus === 'performed') conditions.push("s.performed_at IS NOT NULL");
+  }
+
+  if (conditions.length > 0) {
+    query += " WHERE " + conditions.join(" AND ");
+  }
+
+  query += " ORDER BY s.id DESC LIMIT ? OFFSET ?";
+  params.push(limit, offset);
+
+  return db.prepare(query).all(...params);
 }
 
 function getServiceById(id) {
@@ -1883,13 +1957,13 @@ function getServiceById(id) {
 }
 
 function createService(data) {
-  const insert = db.prepare("INSERT INTO services (name, description, price, client_id) VALUES (?, ?, ?, ?)");
+  const insert = db.prepare("INSERT INTO services (name, description, price, client_id, status, scheduled_date) VALUES (?, ?, ?, ?, 'Abierto', ?)");
   const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity, variant_id, price) VALUES (?, ?, ?, ?, ?)");
   const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
   const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
   
   const trx = db.transaction((data) => {
-    const info = insert.run(data.name, data.description, data.price, data.client_id || null);
+    const info = insert.run(data.name, data.description, data.price, data.client_id || null, data.scheduled_date || null);
     const serviceId = info.lastInsertRowid;
     if (data.products && data.products.length > 0) {
       for (const p of data.products) {
@@ -1916,7 +1990,12 @@ function createService(data) {
 }
 
 function updateService(data) {
-  const update = db.prepare("UPDATE services SET name = ?, description = ?, price = ?, client_id = ? WHERE id = ?");
+  const current = db.prepare("SELECT status FROM services WHERE id = ?").get(data.id);
+  if (current && current.status === 'Finalizado') {
+    throw new Error("No se puede editar un servicio finalizado.");
+  }
+
+  const update = db.prepare("UPDATE services SET name = ?, description = ?, price = ?, client_id = ?, scheduled_date = ? WHERE id = ?");
   const deleteItems = db.prepare("DELETE FROM service_products WHERE service_id = ?");
   const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity, variant_id, price) VALUES (?, ?, ?, ?, ?)");
   
@@ -1926,7 +2005,7 @@ function updateService(data) {
   const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
 
   const trx = db.transaction((data) => {
-    update.run(data.name, data.description, data.price, data.client_id || null, data.id);
+    update.run(data.name, data.description, data.price, data.client_id || null, data.scheduled_date || null, data.id);
     
     // 1. Restaurar stock de ítems antiguos antes de borrarlos
     const oldItems = getOldItems.all(data.id);
@@ -1964,6 +2043,11 @@ function updateService(data) {
 }
 
 function deleteService(id) {
+  const current = db.prepare("SELECT status FROM services WHERE id = ?").get(id);
+  if (current && current.status === 'Finalizado') {
+    throw new Error("No se puede eliminar un servicio finalizado.");
+  }
+
   const getItems = db.prepare("SELECT product_id, quantity FROM service_products WHERE service_id = ?");
   const getItemsWithVariant = db.prepare("SELECT product_id, quantity, variant_id FROM service_products WHERE service_id = ?");
   const updateStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
@@ -1971,14 +2055,17 @@ function deleteService(id) {
   const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
 
   const trx = db.transaction((id) => {
-    const items = getItemsWithVariant.all(id);
-    for(const item of items) {
-        let factor = 1;
-        if (item.variant_id) {
-            const v = getVariant.get(item.variant_id);
-            if (v) factor = v.conversion_factor;
+    // Solo devolver stock si NO estaba anulado (porque al anular ya se devolvió)
+    if (current.status !== 'Anulado') {
+        const items = getItemsWithVariant.all(id);
+        for(const item of items) {
+            let factor = 1;
+            if (item.variant_id) {
+                const v = getVariant.get(item.variant_id);
+                if (v) factor = v.conversion_factor;
+            }
+            updateStock.run(item.quantity * factor, item.product_id);
         }
-        updateStock.run(item.quantity * factor, item.product_id);
     }
     delService.run(id);
   });
@@ -1988,6 +2075,115 @@ function deleteService(id) {
   } catch (err) {
     return { success: false, message: String(err) };
   }
+}
+
+function getPendingScheduledServices(limit = 5) {
+  return db.prepare(`
+    SELECT s.id, s.name, s.scheduled_date, c.name as client_name
+    FROM services s
+    LEFT JOIN clients c ON s.client_id = c.id
+    WHERE s.scheduled_date IS NOT NULL 
+      AND s.performed_at IS NULL
+      AND s.status != 'Anulado'
+    ORDER BY s.scheduled_date ASC
+    LIMIT ?
+  `).all(limit);
+}
+
+function getOpenServicesList(limit = 5) {
+  return db.prepare(`
+    SELECT s.id, s.name, c.name as client_name, s.price
+    FROM services s
+    LEFT JOIN clients c ON s.client_id = c.id
+    WHERE s.status = 'Abierto'
+    ORDER BY s.id DESC
+    LIMIT ?
+  `).all(limit);
+}
+
+function markServicePerformed(id) {
+  try {
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    db.prepare("UPDATE services SET performed_at = ? WHERE id = ?").run(now, id);
+    return { success: true, message: "Servicio marcado como realizado" };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function updateServiceStatus(id, status) {
+  try {
+    db.prepare("UPDATE services SET status = ? WHERE id = ?").run(status, id);
+    return { success: true, message: "Estado actualizado" };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function cancelService(id) {
+  const current = db.prepare("SELECT status FROM services WHERE id = ?").get(id);
+  if (!current) throw new Error("Servicio no encontrado");
+  if (current.status === 'Finalizado') throw new Error("No se puede anular un servicio finalizado.");
+  if (current.status === 'Anulado') throw new Error("El servicio ya está anulado.");
+
+  const getItems = db.prepare("SELECT product_id, quantity, variant_id FROM service_products WHERE service_id = ?");
+  const updateStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
+  const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
+
+  const trx = db.transaction(() => {
+    const items = getItems.all(id);
+    for(const item of items) {
+        let factor = 1;
+        if (item.variant_id) {
+            const v = getVariant.get(item.variant_id);
+            if (v) factor = v.conversion_factor;
+        }
+        updateStock.run(item.quantity * factor, item.product_id);
+    }
+    db.prepare("UPDATE services SET status = 'Anulado' WHERE id = ?").run(id);
+  });
+
+  try {
+    trx();
+    return { success: true, message: "Servicio anulado y stock restaurado." };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function addServicePayment(serviceId, amount, method, reference) {
+  const service = db.prepare("SELECT name FROM services WHERE id = ?").get(serviceId);
+  if (!service) throw new Error("Servicio no encontrado");
+
+  const trx = db.transaction(() => {
+    // 1. Registrar pago en servicio
+    db.prepare(`
+      INSERT INTO service_payments (service_id, amount, method, reference)
+      VALUES (?, ?, ?, ?)
+    `).run(serviceId, amount, method, reference);
+
+    // 2. Registrar movimiento de caja si es efectivo (Impacto real en caja HOY)
+    if (method === 'cash') {
+       const session = db.prepare("SELECT id FROM cash_register_sessions WHERE status = 'open' ORDER BY opened_at DESC LIMIT 1").get();
+       if (session) {
+         db.prepare(`
+           INSERT INTO cash_movements (session_id, type, description, amount)
+           VALUES (?, 'in', ?, ?)
+         `).run(session.id, `Abono Servicio #${serviceId} - ${service.name}`, amount);
+       }
+    }
+  });
+  
+  try {
+    trx();
+    return { success: true, message: "Abono registrado correctamente" };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function getServicePayments(serviceId) {
+  return db.prepare("SELECT * FROM service_payments WHERE service_id = ? ORDER BY date DESC").all(serviceId);
 }
 
 // AUTENTICACIÓN Y USUARIOS
@@ -2072,7 +2268,7 @@ module.exports = {
   getRetentionsReport,
   getDuePurchaseOrders,
   // Servicios
-  getServices, getServiceById, createService, updateService, deleteService,
+  getServices, getServiceById, createService, updateService, deleteService, updateServiceStatus, cancelService, addServicePayment, getServicePayments, markServicePerformed, getPendingScheduledServices, getOpenServicesList,
   // Usuarios
   login, getUsers, createUser, deleteUser, updateUser,
   getSalesLastDays,

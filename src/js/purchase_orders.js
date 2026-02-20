@@ -6,6 +6,66 @@ let editingOrderId = null;
 document.addEventListener("DOMContentLoaded", () => {
     // Layout manejado por layout.js
 
+    // --- ESTILOS PERSONALIZADOS PARA EL MENÚ DESPLEGABLE (Modo Oscuro + Efecto Flotante) ---
+    const dropdownStyles = document.createElement('style');
+    dropdownStyles.innerHTML = `
+      /* Contenedor del menú */
+      .dropdown-menu {
+          border-radius: 12px;
+          border: none;
+          padding: 8px;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+          animation: fadeInDrop 0.2s ease-out;
+      }
+      @keyframes fadeInDrop { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+  
+      /* Items del menú */
+      .dropdown-item {
+          border-radius: 8px;
+          margin-bottom: 3px;
+          padding: 8px 15px;
+          transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Efecto suave */
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+          cursor: pointer;
+      }
+  
+      /* Iconos dentro de los items */
+      .dropdown-item i {
+          width: 20px;
+          text-align: center;
+          transition: transform 0.2s;
+      }
+  
+      /* EFECTO FLOTANTE AL PASAR EL CURSOR (HOVER) */
+      .dropdown-item:hover {
+          background-color: #f0f2f5;
+          transform: translateX(6px); /* Se mueve a la derecha */
+          box-shadow: -4px 4px 10px rgba(0,0,0,0.08); /* Sombra sutil */
+      }
+      .dropdown-item:hover i {
+          transform: scale(1.2); /* El icono crece un poco */
+      }
+  
+      /* --- ADAPTACIÓN MODO OSCURO --- */
+      body.dark-mode .dropdown-menu {
+          background-color: #2d333b; /* Gris oscuro elegante */
+          border: 1px solid #444c56;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      }
+      body.dark-mode .dropdown-item {
+          color: #c9d1d9;
+      }
+      body.dark-mode .dropdown-item:hover {
+          background-color: #373e47;
+          color: #ffffff;
+          box-shadow: -4px 4px 10px rgba(0,0,0,0.3);
+      }
+      body.dark-mode .dropdown-divider { border-top-color: #444c56; }
+    `;
+    document.head.appendChild(dropdownStyles);
+
     // Conectar botones principales (ya que se quitaron los onclick del HTML)
     document.getElementById('btn-new-order')?.addEventListener('click', openCreateModal);
     document.getElementById('btn-refresh-orders')?.addEventListener('click', loadOrders);
@@ -117,23 +177,29 @@ function renderTable() {
             <td class="text-center">${statusBadge}</td>
             <td class="text-center">${payBadge}</td>
             <td class="text-end pe-4">
-                <div class="btn-group">
-                    <button class="btn btn-sm btn-outline-primary" onclick="exportPDF(${order.id})" title="Ver PDF"><i class="fas fa-file-pdf"></i></button>
-                    
-                    ${!isReceived ? 
-                        `<button class="btn btn-sm btn-outline-warning" onclick="editOrder(${order.id})" title="Editar"><i class="fas fa-edit"></i></button>` : ''
-                    }
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Acciones
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><button class="dropdown-item" onclick="exportPDF(${order.id})"><i class="fas fa-file-pdf me-2 text-primary"></i> Ver PDF</button></li>
+                        
+                        ${!isReceived ? 
+                            `<li><button class="dropdown-item" onclick="editOrder(${order.id})"><i class="fas fa-edit me-2 text-warning"></i> Editar</button></li>` : ''
+                        }
 
-                    ${!isReceived ? 
-                        `<button class="btn btn-sm btn-success" onclick="receiveOrder(${order.id})" title="Recibir Mercancía"><i class="fas fa-check"></i></button>` : 
-                        `<button class="btn btn-sm btn-outline-success" onclick="openPaymentModal(${order.id})" title="Registrar Pago" ${(order.outstanding_balance <= 0) ? 'disabled' : ''}><i class="fas fa-hand-holding-usd"></i></button>`
-                    }
-                    
-                    ${isReceived ? 
-                        `<button class="btn btn-sm btn-outline-info" onclick="openHistoryModal(${order.id})" title="Historial Pagos"><i class="fas fa-history"></i></button>` : ''
-                    }
-                    
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteOrder(${order.id})" title="Eliminar"><i class="fas fa-trash"></i></button>
+                        ${!isReceived ? 
+                            `<li><button class="dropdown-item" onclick="receiveOrder(${order.id})"><i class="fas fa-check me-2 text-success"></i> Recibir Mercancía</button></li>` : 
+                            `<li><button class="dropdown-item" onclick="openPaymentModal(${order.id})" ${(order.outstanding_balance <= 0) ? 'disabled' : ''}><i class="fas fa-hand-holding-usd me-2 text-success"></i> Registrar Pago</button></li>`
+                        }
+                        
+                        ${isReceived ? 
+                            `<li><button class="dropdown-item" onclick="openHistoryModal(${order.id})"><i class="fas fa-history me-2 text-info"></i> Historial Pagos</button></li>` : ''
+                        }
+                        
+                        <li><hr class="dropdown-divider"></li>
+                        <li><button class="dropdown-item" onclick="deleteOrder(${order.id})"><i class="fas fa-trash me-2 text-danger"></i> Eliminar</button></li>
+                    </ul>
                 </div>
             </td>
         `;

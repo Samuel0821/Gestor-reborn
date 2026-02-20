@@ -35,6 +35,66 @@ document.addEventListener("DOMContentLoaded", async () => {
   const creditSearchBtn = document.getElementById("credit-search-btn");
   const barcodeInput = document.getElementById("barcode-input");
 
+  // --- ESTILOS PERSONALIZADOS PARA EL MENÚ DESPLEGABLE (Modo Oscuro + Efecto Flotante) ---
+  const dropdownStyles = document.createElement('style');
+  dropdownStyles.innerHTML = `
+    /* Contenedor del menú */
+    .dropdown-menu {
+        border-radius: 12px;
+        border: none;
+        padding: 8px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        animation: fadeInDrop 0.2s ease-out;
+    }
+    @keyframes fadeInDrop { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Items del menú */
+    .dropdown-item {
+        border-radius: 8px;
+        margin-bottom: 3px;
+        padding: 8px 15px;
+        transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Efecto suave */
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+    }
+
+    /* Iconos dentro de los items */
+    .dropdown-item i {
+        width: 20px;
+        text-align: center;
+        transition: transform 0.2s;
+    }
+
+    /* EFECTO FLOTANTE AL PASAR EL CURSOR (HOVER) */
+    .dropdown-item:hover {
+        background-color: #f0f2f5;
+        transform: translateX(6px); /* Se mueve a la derecha */
+        box-shadow: -4px 4px 10px rgba(0,0,0,0.08); /* Sombra sutil */
+    }
+    .dropdown-item:hover i {
+        transform: scale(1.2); /* El icono crece un poco */
+    }
+
+    /* --- ADAPTACIÓN MODO OSCURO --- */
+    body.dark-mode .dropdown-menu {
+        background-color: #2d333b; /* Gris oscuro elegante */
+        border: 1px solid #444c56;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    body.dark-mode .dropdown-item {
+        color: #c9d1d9;
+    }
+    body.dark-mode .dropdown-item:hover {
+        background-color: #373e47;
+        color: #ffffff;
+        box-shadow: -4px 4px 10px rgba(0,0,0,0.3);
+    }
+    body.dark-mode .dropdown-divider { border-top-color: #444c56; }
+  `;
+  document.head.appendChild(dropdownStyles);
+
   // --- FILTRO POR CLIENTE (Mover al inicio para evitar ReferenceError) ---
   const filterContainer = document.createElement("div");
   filterContainer.className = "mb-3 d-flex align-items-center";
@@ -470,7 +530,21 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Modal de pago (nuevo)
  
-  function showPaymentModal(totalAmount, clientId, saleType) {
+  async function showPaymentModal(totalAmount, clientId, saleType) {
+    // Verificar si hay abonos previos (si viene de un servicio)
+    let serviceId = null;
+    let previousPaymentsTotal = 0;
+    
+    // Buscar service_id en los items
+    const serviceItem = saleItems.find(i => i.service_id);
+    if (serviceItem) {
+        serviceId = serviceItem.service_id;
+        const payments = await window.api.getServicePayments(serviceId);
+        previousPaymentsTotal = payments.reduce((sum, p) => sum + p.amount, 0);
+    }
+
+    const remainingToPay = Math.max(0, totalAmount - previousPaymentsTotal);
+
     const modalHtml = `
       <div class="modal fade" id="paymentModal" tabindex="-1">
         <div class="modal-dialog">
@@ -481,6 +555,10 @@ document.addEventListener("DOMContentLoaded", async () => {
             </div>
             <div class="modal-body">
               <p><strong>Total:</strong> ${formatCOP(totalAmount)}</p>
+              ${previousPaymentsTotal > 0 ? `
+                  <p class="text-success"><strong>Abonado previamente:</strong> ${formatCOP(previousPaymentsTotal)}</p>
+                  <p class="text-danger"><strong>Restante a pagar:</strong> ${formatCOP(remainingToPay)}</p>
+              ` : ''}
               <div class="mb-2">
                 <label>Efectivo recibido</label>
                 <input type="number" id="cashReceived" class="form-control" value="0" min="0">
@@ -520,7 +598,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const cash = parseFloat(cashInput.value) || 0;
       const transfer = parseFloat(transferInput.value) || 0;
       const totalPaid = cash + transfer;
-      const change = totalPaid - totalAmount;
+      const change = totalPaid - remainingToPay; // Calcular cambio sobre lo que falta
       if (change >= 0) {
         changeInfo.textContent = `Cambio a devolver: ${formatCOP(change)}`;
       } else {
@@ -540,12 +618,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       const transferRef = document.getElementById("transferReference").value.trim();
       const totalPaid = cash + transfer;
 
-      if (totalPaid < totalAmount && saleType !== "credit") {
+      if (totalPaid < remainingToPay && saleType !== "credit") {
         Swal.fire('Error', "El monto pagado es insuficiente.", 'error');
         return;
       }
 
-      const outstandingBalance = saleType === "credit" ? totalAmount : Math.max(0, totalAmount - totalPaid);
+      const outstandingBalance = saleType === "credit" ? remainingToPay : Math.max(0, remainingToPay - totalPaid);
       const paidAmount = saleType === "credit" ? 0 : totalPaid;
 
       const saleData = {
@@ -557,7 +635,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         sale_type: saleType,
         cash_payment: cash,
         transfer_payment: transfer,
-        transfer_reference: transferRef
+        transfer_reference: transferRef,
+        service_id: serviceId // Enviar ID para migrar abonos
       };
 
       const res = await window.api.createSale(saleData);
@@ -609,15 +688,29 @@ document.addEventListener("DOMContentLoaded", async () => {
       const saleType = saleTypeSelect.value;
       const totalAmount = saleItems.reduce((sum, item) => sum + item.subtotal, 0);
 
+      // Verificar si hay abonos previos (si viene de un servicio)
+      let serviceId = null;
+      let previousPaymentsTotal = 0;
+      
+      // Buscar service_id en los items
+      const serviceItem = saleItems.find(i => i.service_id);
+      if (serviceItem) {
+          serviceId = serviceItem.service_id;
+          const payments = await window.api.getServicePayments(serviceId);
+          previousPaymentsTotal = payments.reduce((sum, p) => sum + p.amount, 0);
+      }
+
       if (saleType === 'credit') {
           if (!clientId) {
               Swal.fire('Atención', "Para una venta a crédito, debes seleccionar un cliente.", 'warning');
               return;
           }
           
+          const remainingToPay = Math.max(0, totalAmount - previousPaymentsTotal);
+
           const result = await Swal.fire({
               title: 'Confirmar Crédito',
-              text: `¿Confirmar venta a crédito por ${formatCOP(totalAmount)}?`,
+              text: `¿Confirmar venta a crédito? Total: ${formatCOP(totalAmount)}. Abonado: ${formatCOP(previousPaymentsTotal)}. Saldo pendiente: ${formatCOP(remainingToPay)}`,
               icon: 'question',
               showCancelButton: true,
               confirmButtonText: 'Sí, confirmar',
@@ -629,18 +722,20 @@ document.addEventListener("DOMContentLoaded", async () => {
                   client_id: clientId,
                   items: saleItems,
                   total_amount: totalAmount,
-                  paid_amount: 0,
-                  outstanding_balance: totalAmount,
+                  paid_amount: previousPaymentsTotal,
+                  outstanding_balance: remainingToPay,
                   sale_type: saleType,
                   cash_payment: 0,
                   transfer_payment: 0,
-                  transfer_reference: null
+                  transfer_reference: null,
+                  service_id: serviceId
               };
               const res = await window.api.createSale(saleData);
               if (!res.success) {
                   Swal.fire('Error', res.message, 'error');
                   return;
               }
+
               Swal.fire('Éxito', res.message || "Venta a crédito registrada exitosamente.", 'success');
               sessionStorage.removeItem('shoppingCart');
               saleItems = [];
@@ -651,7 +746,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           }
           return;
       }
-      showPaymentModal(totalAmount, clientId, saleType);
+      await showPaymentModal(totalAmount, clientId, saleType);
   }
 
   async function handleUpdateSale() {
@@ -724,7 +819,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Delegación de eventos para la lista de ventas (Eliminar, Exportar, Imprimir)
   salesList.addEventListener("click", async (e) => {
-    const target = e.target;
+    const target = e.target.closest('button');
+    if (!target) return;
 
     if (target.classList.contains("delete-sale")) {
       const result = await Swal.fire({
@@ -824,11 +920,19 @@ document.addEventListener("DOMContentLoaded", async () => {
             <strong>${s.invoice_number || `FACT-${String(s.id).padStart(3,"0")}`}</strong>
             — ${s.sale_date} — ${formatCOP(s.total_amount)}
             <div class="float-end">
-              <button class="btn btn-sm btn-primary export-invoice" data-id="${s.id}">Descargar Factura</button>
-              <button class="btn btn-sm btn-success ms-1 print-sale" data-id="${s.id}">Imprimir Factura</button>
-              <button class="btn btn-sm btn-info ms-1 export-receipt" data-id="${s.id}" title="Generar Recibo de Caja"><i class="fa fa-file-invoice-dollar"></i> Recibo</button>
-              <button class="btn btn-sm btn-warning ms-1 edit-sale" data-id="${s.id}">Editar</button>
-              <button class="btn btn-sm btn-danger ms-1 delete-sale" data-id="${s.id}">Eliminar Factura</button>
+              <div class="dropdown">
+                <button class="btn btn-sm btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  Acciones
+                </button>
+                <ul class="dropdown-menu">
+                  <li><button class="dropdown-item export-invoice" data-id="${s.id}"><i class="fa fa-file-pdf me-2 text-primary"></i> Descargar Factura</button></li>
+                  <li><button class="dropdown-item print-sale" data-id="${s.id}"><i class="fa fa-print me-2 text-success"></i> Imprimir Factura</button></li>
+                  <li><button class="dropdown-item export-receipt" data-id="${s.id}"><i class="fa fa-file-invoice-dollar me-2 text-info"></i> Recibo de Caja</button></li>
+                  <li><hr class="dropdown-divider"></li>
+                  <li><button class="dropdown-item edit-sale" data-id="${s.id}"><i class="fa fa-edit me-2 text-warning"></i> Editar</button></li>
+                  <li><button class="dropdown-item delete-sale" data-id="${s.id}"><i class="fa fa-trash me-2 text-danger"></i> Eliminar Factura</button></li>
+                </ul>
+              </div>
             </div>
           </div>
           <ul>${itemsHtml}</ul>
@@ -845,8 +949,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Restricción de roles
     const role = localStorage.getItem('user_role');
     if (role !== 'admin') {
-      salesList.querySelectorAll('.delete-sale').forEach(btn => btn.remove());
-      salesList.querySelectorAll('.edit-sale').forEach(btn => btn.remove()); // Solo admin puede editar por ahora
+      salesList.querySelectorAll('.delete-sale').forEach(btn => btn.closest('li').remove());
+      salesList.querySelectorAll('.edit-sale').forEach(btn => btn.closest('li').remove());
     }
 
     currentOffset += sales.length;

@@ -178,7 +178,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const totalIngresado = (report.totalCash || 0) + (report.totalTransfer || 0);
-            const totalVentasCalculado = (report.salesCash || 0) + (report.salesTransfer || 0) + (report.salesCredit || 0);
 
             tableHtml += `
                     </tbody>
@@ -192,9 +191,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <div class="d-flex justify-content-between"><span>Ventas en Efectivo:</span> <strong>${formatCOP(report.salesCash || 0)}</strong></div>
                                 <div class="d-flex justify-content-between mt-1"><span>Ventas en Transferencia:</span> <strong>${formatCOP(report.salesTransfer || 0)}</strong></div>
                                 <div class="d-flex justify-content-between mt-1 text-warning"><span>Ventas a Crédito:</span> <strong>${formatCOP(report.salesCredit || 0)}</strong></div>
+                                ${report.salesPrevious > 0 ? `<div class="d-flex justify-content-between mt-1 text-info"><span>Abonos/Pagos Previos:</span> <strong>${formatCOP(report.salesPrevious)}</strong></div>` : ''}
                                 <div class="d-flex justify-content-between fw-bold fs-5 mt-3 border-top pt-2">
                                     <span>Total Ventas:</span> 
-                                    <span>${formatCOP(totalVentasCalculado)}</span>
+                                    <span>${formatCOP(report.totalGeneral)}</span>
                                 </div>
 
                                 <h6 class="card-title border-bottom pb-2 mt-4">Ingresos Reales (Caja)</h6>

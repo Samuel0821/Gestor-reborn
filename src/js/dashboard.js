@@ -1,6 +1,31 @@
 document.addEventListener('DOMContentLoaded', async () => {
   // La lógica del layout ahora se maneja en layout.js
 
+  // --- ESTILOS PERSONALIZADOS PARA DASHBOARD (Modo Oscuro) ---
+  const dashboardStyles = document.createElement('style');
+  dashboardStyles.innerHTML = `
+    /* Adaptación de tarjetas y listas en modo oscuro */
+    body.dark-mode .card {
+        background-color: #1e293b;
+        border-color: #334155;
+    }
+    body.dark-mode .card-header {
+        background-color: #1e293b;
+        border-bottom-color: #334155;
+    }
+    body.dark-mode .list-group-item {
+        background-color: #1e293b;
+        border-color: #334155;
+        color: #cbd5e1;
+    }
+    body.dark-mode .list-group-item-action:hover {
+        background-color: #334155;
+        color: #fff;
+    }
+  `;
+  document.head.appendChild(dashboardStyles);
+  // -----------------------------------------------------------
+
   // 1. Configuración Inicial Dashboard
   const userName = localStorage.getItem('user_name') || 'Usuario';
   const welcomeMsg = document.getElementById('welcome-msg');
@@ -31,11 +56,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadDashboardData(startDate, endDate) {
   try {
-      const [stats, recentActivity, lowStock, dueOrders] = await Promise.all([
+      const [stats, recentActivity, lowStock, dueOrders, scheduledServices, openServices] = await Promise.all([
           window.api.getAdvancedDashboardStats({ startDate, endDate }),
           window.api.getRecentActivity(),
           window.api.getLowStockProducts(),
-          window.api.getDuePurchaseOrders()
+          window.api.getDuePurchaseOrders(),
+          window.api.getPendingScheduledServices(),
+          window.api.getOpenServicesList()
       ]);
 
       if (stats) {
@@ -45,6 +72,7 @@ async function loadDashboardData(startDate, endDate) {
       
       renderActivity(recentActivity);
       renderAlerts(stats ? stats.alerts : {}, lowStock, dueOrders);
+      renderServiceWidgets(scheduledServices, openServices);
 
   } catch (error) {
       console.error("Error cargando dashboard:", error);
@@ -92,6 +120,35 @@ function renderKPIs(stats) {
         updateKpi('kpi-total-clients', stats.general.totalClients, false);
         updateKpi('kpi-total-suppliers', stats.general.totalSuppliers, false);
         updateKpi('kpi-pending-po', stats.general.pendingPOPayments, true);
+        
+        // Inyectar tarjeta de Servicios Abiertos si no existe
+        if (!document.getElementById('kpi-open-services')) {
+            const kpiContainer = document.getElementById('kpi-sales-today')?.closest('.row');
+            if (kpiContainer) {
+                const html = `
+                <div class="col-md-3 mb-4">
+                    <div class="kpi-card" id="card-open-services" style="cursor: pointer;" title="Ir a Servicios Abiertos">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <div class="kpi-label">Servicios Abiertos</div>
+                                <div class="kpi-value text-primary" id="kpi-open-services">0</div>
+                                <div class="small text-muted mt-1">En ejecución</div>
+                            </div>
+                            <div class="kpi-icon-wrapper bg-primary bg-opacity-10 text-primary">
+                                <i class="fa fa-concierge-bell"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+                kpiContainer.insertAdjacentHTML('beforeend', html);
+                
+                document.getElementById('card-open-services').addEventListener('click', () => {
+                    sessionStorage.setItem('serviceFilterStatus', 'Abierto');
+                    window.location.href = 'services.html';
+                });
+            }
+        }
+        updateKpi('kpi-open-services', stats.openServices || 0, false);
     }
 }
 
@@ -361,4 +418,76 @@ function renderAlerts(alertCounts, lowStockProducts, dueOrders) {
             btnExport.classList.add('d-none');
         }
     }
+}
+
+function renderServiceWidgets(scheduled, open) {
+    let container = document.getElementById('services-widgets-row');
+    if (!container) {
+        // Buscar contenedor principal para inyectar la nueva fila
+        const mainContainer = document.querySelector('.content-container .container-fluid') || document.querySelector('.content-container');
+        if (mainContainer) {
+            container = document.createElement('div');
+            container.id = 'services-widgets-row';
+            container.className = 'row mt-4';
+            mainContainer.appendChild(container);
+        } else {
+             return; 
+        }
+    }
+    
+    container.innerHTML = '';
+
+    // Tarjeta: Servicios Programados (Pendientes de Ejecución)
+    const scheduledHtml = `
+        <div class="col-md-6 mb-4">
+            <div class="card shadow h-100">
+                <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                    <h6 class="m-0 font-weight-bold text-primary"><i class="fa fa-calendar-alt me-2"></i>Servicios Programados (Pendientes)</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush">
+                        ${scheduled && scheduled.length > 0 ? scheduled.map(s => `
+                            <a href="services.html" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div class="fw-bold">${s.name}</div>
+                                    <div class="small text-muted"><i class="fa fa-user me-1"></i>${s.client_name || 'Sin cliente'}</div>
+                                </div>
+                                <div class="text-end">
+                                    <div class="badge bg-info">${s.scheduled_date}</div>
+                                </div>
+                            </a>
+                        `).join('') : '<div class="text-center text-muted py-4">No hay servicios programados pendientes.</div>'}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Tarjeta: Servicios Abiertos (Borradores)
+    const openHtml = `
+        <div class="col-md-6 mb-4">
+            <div class="card shadow h-100">
+                <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                    <h6 class="m-0 font-weight-bold text-info"><i class="fa fa-edit me-2"></i>Borradores de Servicios (Abiertos)</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush">
+                        ${open && open.length > 0 ? open.map(s => `
+                            <a href="services.html" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div class="fw-bold">${s.name}</div>
+                                    <div class="small text-muted"><i class="fa fa-user me-1"></i>${s.client_name || 'Sin cliente'}</div>
+                                </div>
+                                <div class="text-end">
+                                    <div class="text-success fw-bold">${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(s.price)}</div>
+                                </div>
+                            </a>
+                        `).join('') : '<div class="text-center text-muted py-4">No hay servicios abiertos.</div>'}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = scheduledHtml + openHtml;
 }

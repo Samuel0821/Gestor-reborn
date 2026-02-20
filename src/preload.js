@@ -90,11 +90,18 @@ markCreditAsPaid: (saleId, method, reference) => ipcRenderer.invoke("mark-credit
     ipcRenderer.invoke("update-quote-details", data),
 
   // services
-  getServices: () => ipcRenderer.invoke("get-services"),
+  getServices: (limit, offset, status, executionStatus) => ipcRenderer.invoke("get-services", limit, offset, status, executionStatus),
   getServiceById: (id) => ipcRenderer.invoke("get-service-by-id", id),
   createService: (data) => ipcRenderer.invoke("create-service", data),
   updateService: (data) => ipcRenderer.invoke("update-service", data),
   deleteService: (id) => ipcRenderer.invoke("delete-service", id),
+  updateServiceStatus: (id, status) => ipcRenderer.invoke("update-service-status", { id, status }),
+  cancelService: (id) => ipcRenderer.invoke("cancel-service", id),
+  addServicePayment: (data) => ipcRenderer.invoke("add-service-payment", data),
+  getServicePayments: (serviceId) => ipcRenderer.invoke("get-service-payments", serviceId),
+  markServicePerformed: (id) => ipcRenderer.invoke("mark-service-performed", id),
+  getPendingScheduledServices: () => ipcRenderer.invoke("get-pending-scheduled-services"),
+  getOpenServicesList: () => ipcRenderer.invoke("get-open-services-list"),
 
   // users
   login: (creds) => ipcRenderer.invoke("login", creds),

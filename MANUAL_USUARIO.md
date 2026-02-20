@@ -31,6 +31,9 @@ Es la pantalla principal que ofrece una visión global del estado de su negocio 
 *   **Tarjetas Informativas:** Visualice rápidamente el total de Clientes, Productos, Proveedores, Ventas del día, Cotizaciones, Servicios y Órdenes de Compra.
 *   **Gráfico de Rendimiento:** Un gráfico interactivo muestra la tendencia de ventas de los últimos 7 días.
 *   **Alertas:** Notificaciones automáticas sobre **Stock Bajo** y **Cuentas por Pagar** (facturas de proveedores vencidas o próximas a vencer).
+*   **Gestión Operativa (NUEVO):**
+    *   **Servicios Programados:** Lista de servicios pendientes de ejecución ordenados por fecha.
+    *   **Borradores de Servicios:** Acceso rápido a servicios en estado "Abierto" para continuar trabajando.
 *   **Menú Lateral:** Navegación rápida a todos los módulos del sistema. Puede colapsar este menú usando el botón de hamburguesa (☰) en la parte superior izquierda.
 
 ---
@@ -73,7 +76,7 @@ Administre todo su catálogo de artículos.
 
 *   **Crear Producto:** Ingrese Código, Nombre, Categoría, Costo, Precio de Venta y Stock.
 *   **Precios Múltiples:** Puede definir hasta 3 precios de venta por producto: **Normal, Especial 1 y Especial 2**.
-*   **Cálculo por Margen:** El sistema puede autocompletar los precios de venta. Simplemente ingrese el **Precio de Costo** y el **porcentaje de margen** que desea ganar para cada tipo de precio, y el sistema hará el cálculo automáticamente.
+*   **Cálculo Inteligente:** El sistema calcula automáticamente los precios basándose en el margen de ganancia ingresado, o viceversa (calcula el margen si ingresa el precio directo). Soporta decimales.
 *   **Variantes (Unidades de Medida):** Venda un mismo producto en diferentes presentaciones (ej. Unidad, Caja, Metro). Cada variante puede tener sus propios costos y su propio juego de 3 precios de venta, con la opción de calcularlos también por margen de utilidad.
 *   **Stock Mínimo:** Defina una cantidad mínima para que el sistema le avise cuándo reabastecer.
 *   **Exportar:** Botones para descargar su inventario completo en **Excel** o **PDF**.
@@ -84,9 +87,16 @@ Administre todo su catálogo de artículos.
 Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 
 *   **Crear Servicio:** Defina el nombre, precio y asocie un **Cliente** específico para llevar un mejor control.
+*   **Estados del Servicio:**
+    *   **Abierto:** Borrador editable.
+    *   **Cotizado:** Enviado a cotización (bloqueado para edición).
+    *   **Finalizado:** Facturado y cerrado.
+    *   **Anulado:** Cancelado (devuelve stock).
+*   **Programación:** Asigne una **Fecha Programada** y marque el servicio como **"Realizado"** cuando se ejecute el trabajo operativo.
+*   **Abonos:** Registre pagos parciales (anticipos) mediante el botón "Registrar Abono". Estos ingresos entran a la caja del día.
 *   **Asociar Materiales:** Puede vincular productos del inventario al servicio. Soporta variantes y **selección de precios** (Normal, Esp 1, Esp 2). El sistema guardará el precio específico que elija para cada material, respetándolo al editar o facturar.
-*   **Gestión de Inventario:** Al guardar un servicio, los materiales se descuentan del inventario inmediatamente. Al facturar el servicio (enviar a Ventas), el sistema sabe que ya se descontaron y no lo hace dos veces.
-*   **Acciones Rápidas:** Desde la lista de servicios puede enviarlos directamente a la pantalla de **Ventas** o **Cotizaciones** con un solo clic.
+*   **Facturación:** Al enviar a Venta, el sistema descuenta los abonos previos del total a pagar.
+*   **Acciones:** Menú desplegable moderno para gestionar todas las operaciones (Editar, Anular, Ver Pagos, Marcar Realizado, etc.).
 
 ---
 
@@ -125,7 +135,7 @@ Analice la salud financiera de su negocio mediante pestañas especializadas:
 
 *   **Reporte de Ventas:**
     *   **Resumen de Ventas:** Total facturado (Contado + Crédito).
-    *   **Ingresos Reales (Caja):** Dinero realmente recibido en el periodo (incluye abonos a créditos antiguos).
+    *   **Ingresos Reales (Caja):** Dinero realmente recibido en el periodo (incluye abonos a créditos antiguos y abonos de servicios).
     *   **Utilidad Real:** (Precio Venta - Precio Compra).
 *   **Reporte de Egresos:** Listado detallado de gastos registrados. Puede ver el detalle de cada gasto, descargar su comprobante individual o exportar el reporte completo a PDF.
 *   **Reporte de Retenciones (DIAN):** Tabla detallada y resumen por concepto de las retenciones aplicadas a proveedores, lista para facilitar la declaración de impuestos.

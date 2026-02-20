@@ -38,6 +38,7 @@ El sistema utiliza tecnologías web modernas encapsuladas para ejecutarse como u
 *   **CSS3:** Estilos personalizados y diseño responsivo.
 *   **JavaScript (Vanilla ES6+):** Lógica del lado del cliente, manipulación del DOM y llamadas a la API expuesta por Electron.
 *   **Bootstrap 5:** Framework CSS para componentes UI (Modales, Tablas, Botones, Grid).
+*   **Estilos Dinámicos:** Inyección de CSS en tiempo de ejecución para componentes personalizados (Menús desplegables flotantes, Modo Oscuro).
 *   **FontAwesome 6:** Iconografía vectorial.
 *   **Chart.js:** Librería para la visualización de datos y gráficos en el Dashboard.
 
@@ -90,7 +91,7 @@ El sistema utiliza un modelo relacional robusto. Las tablas principales son:
 
 1.  **users:** Autenticación (username, password_hash SHA-256, role).
 2.  **products:** Inventario maestro (código, costo, `sale_price`, `special_price`, `special_price_2`, stock, stock mínimo).
-3.  **product_variants:** Unidades de medida alternativas para productos (ej. Kilo, Bulto). Incluye `purchase_price` y su propio set de precios (`sale_price`, `special_price`, `special_price_2`).
+3.  **product_variants:** Unidades de medida alternativas para productos. Incluye `purchase_price` y su propio set de precios (`sale_price`, `special_price`, `special_price_2`).
 4.  **categories:** Categorización de productos.
 5.  **clients:** Base de datos de clientes.
 6.  **suppliers:** Base de datos de proveedores.
@@ -102,9 +103,10 @@ El sistema utiliza un modelo relacional robusto. Las tablas principales son:
 12. **quotes / quote_items:** Gestión de cotizaciones. `quote_items` incluye `variant_id` y `skip_stock`.
 13. **purchase_orders / purchase_order_items:** Gestión de compras. `purchase_orders` incluye `include_iva` y `due_date`.
 14. **purchase_payments:** Registro de pagos a proveedores con soporte para `retention_amount` y `retention_type`.
-15. **services / service_products:** Definición de servicios (incluye `client_id`) y recetas de materiales. `service_products` incluye `variant_id` y `price` (para persistencia del precio seleccionado).
-16. **company_settings:** Configuración global (Logo, NIT, Datos de contacto).
-17. **audit_logs:** Registro de acciones críticas para auditoría (usuario, acción, detalles, fecha).
+15. **services / service_products:** Definición de servicios (incluye `client_id`, `status`, `scheduled_date`, `performed_at`) y recetas de materiales.
+16. **service_payments:** Registro de abonos a servicios (relacionado con `services`).
+17. **company_settings:** Configuración global (Logo, NIT, Datos de contacto).
+18. **audit_logs:** Registro de acciones críticas para auditoría (usuario, acción, detalles, fecha).
 
 ## 6. Seguridad
 
