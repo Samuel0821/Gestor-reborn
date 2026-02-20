@@ -1,6 +1,6 @@
 # Manual Técnico - GestorFX
 
-**Versión del Sistema:** 1.0.5
+**Versión del Sistema:** 1.0.6
 **Desarrollado por:** Grisalis Technologies
 
 ---

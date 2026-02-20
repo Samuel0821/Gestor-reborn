@@ -74,21 +74,31 @@ src/
   js/
     clients.js
     dashboard.js
+    expenses.js
     login.js
     products.js
+    purchase_orders.js
     quotes.js
     report.js
     sales.js
+    services.js
     settings.js
+    suppliers.js
+    support.js
   views/
     clients.html
+    expenses.html
     index.html
     login.html
     products.html
+    purchase_orders.html
     quotes.html
     reports.html
     sales.html
+    services.html
     settings.html
+    suppliers.html
+    support.html
 ```
 
 ## Instalación y ejecución
