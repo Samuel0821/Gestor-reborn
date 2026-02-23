@@ -48,8 +48,8 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("set-invoice-number", { id, invoiceNumber }),
   exportInvoicePDF: (id, includeIva) =>
     ipcRenderer.invoke("export-invoice-pdf", { id, includeIva }),
-  exportSaleReceiptPDF: (id, receivedBy) =>
-    ipcRenderer.invoke("export-sale-receipt-pdf", { id, receivedBy }),
+  exportSaleReceiptPDF: (id, receivedBy, observations) =>
+    ipcRenderer.invoke("export-sale-receipt-pdf", { id, receivedBy, observations }),
 
   // credits ⚠️ <-- AGREGAR ESTO
 getCredits: (searchTerm = "") => ipcRenderer.invoke("get-credits", searchTerm),

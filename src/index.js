@@ -28,7 +28,7 @@
     });
 
     // Eliminar la barra de menú por defecto (Archivo, Vista, etc.)
-    //mainWindow.setMenu(null);
+    mainWindow.setMenu(null);
 
     // Siempre iniciar en login.html
     mainWindow.loadFile(path.join(__dirname, "views", "login.html"));
@@ -1257,9 +1257,14 @@
       });
         
       // Exportar Recibo de Caja PDF
-      ipcMain.handle("export-sale-receipt-pdf", async (event, { id, receivedBy }) => {
+      ipcMain.handle("export-sale-receipt-pdf", async (event, { id, receivedBy, observations }) => {
         try {
-          const sale = db.getSaleById(id);
+          // Si se enviaron observaciones, actualizarlas en la BD primero
+          if (observations !== undefined) {
+            db.updateSaleNotes(id, observations);
+          }
+
+          const sale = db.getSaleById(id); // Obtener venta actualizada
           if (!sale) return { success: false, message: "Venta no encontrada" };
           
           // Asignar consecutivo si no tiene

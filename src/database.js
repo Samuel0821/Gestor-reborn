@@ -262,6 +262,14 @@ try {
   }
 } catch (e) { console.error("Error migración receipt_number:", e); }
 
+// MIGRACIÓN: Agregar notes a sales para observaciones en recibos
+try {
+  const sCols = db.prepare("PRAGMA table_info(sales)").all();
+  if (!sCols.some(c => c.name === "notes")) {
+    db.prepare("ALTER TABLE sales ADD COLUMN notes TEXT").run();
+  }
+} catch (e) { /* ignorar */ }
+
 // MIGRACIÓN: Tabla de pagos de compras y columnas financieras en purchase_orders
 try {
   db.prepare(`
@@ -1132,6 +1140,15 @@ function deleteSale(id) {
       db.prepare("DELETE FROM sales WHERE id = ?").run(id);
     })();
     return { success: true, message: "Venta eliminada completamente y stock restaurado" };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function updateSaleNotes(id, notes) {
+  try {
+    db.prepare("UPDATE sales SET notes = ? WHERE id = ?").run(notes, id);
+    return { success: true };
   } catch (err) {
     return { success: false, message: String(err) };
   }
@@ -2246,7 +2263,7 @@ module.exports = {
   // ventas
   createSale, createSaleFromQuote, getSales, getSaleById, getSaleItems, deleteSale, deleteSaleItem, assignReceiptNumber,
   getLastInvoiceNumber, setInvoiceNumber,
-  // creditos
+  updateSaleNotes, // creditos
   getCredits, addCreditPayment, markCreditAsPaid,
   // cotizaciones
   createQuote, getQuotes, getQuoteById, getQuoteItems, deleteQuote, updateQuote, updateQuoteDetails,

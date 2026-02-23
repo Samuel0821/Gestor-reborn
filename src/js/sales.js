@@ -856,8 +856,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     } else if (target.classList.contains("export-receipt")) {
         const saleId = Number(target.dataset.id);
         const currentUser = localStorage.getItem('user_name') || 'Usuario';
-        const res = await window.api.exportSaleReceiptPDF(saleId, currentUser);
-        Swal.fire(res.success ? 'Éxito' : 'Error', res.message || (res.success ? "Recibo exportado" : "Error"), res.success ? 'success' : 'error');
+        
+        // 1. Obtener datos actuales de la venta (para ver si ya tiene notas)
+        const sale = await window.api.getSaleById(saleId);
+        if (!sale) return;
+
+        // 2. Mostrar modal para ingresar/editar observaciones
+        const { value: observations } = await Swal.fire({
+            title: 'Generar Recibo de Caja',
+            input: 'textarea',
+            inputLabel: 'Observaciones',
+            inputValue: sale.notes || '', // Cargar notas existentes
+            inputPlaceholder: 'Escriba aquí las observaciones del recibo...',
+            showCancelButton: true,
+            confirmButtonText: 'Guardar y Descargar',
+            cancelButtonText: 'Cancelar'
+        });
+
+        if (observations !== undefined) { // Si el usuario no canceló
+            const res = await window.api.exportSaleReceiptPDF(saleId, currentUser, observations);
+            Swal.fire(res.success ? 'Éxito' : 'Error', res.message || (res.success ? "Recibo exportado" : "Error"), res.success ? 'success' : 'error');
+        }
     }
   });
 
