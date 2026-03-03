@@ -387,7 +387,7 @@
             // Espacio para firma
             y += 80;
             doc.moveTo(50, y).lineTo(250, y).stroke();
-            doc.fillColor("black").text("Firma Autorizado", 50, y + 5);
+            doc.fillColor("black").text("Recibió", 50, y + 5);
             
             doc.end();
             await new Promise((res, rej) => { stream.on("finish", res); stream.on("error", rej); });
