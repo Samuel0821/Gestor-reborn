@@ -25,6 +25,15 @@ Por seguridad y control financiero, el sistema le solicitará ingresar el **Valo
 
 ---
 
+## 3. Consulta Rápida de Precios (NUEVO)
+El sistema incluye una herramienta de consulta global para verificar costos sin salir de su pantalla actual.
+
+*   **Cómo Acceder:** Presione las teclas `Ctrl + B` o haga clic en el botón flotante azul de búsqueda (🏷️) en la esquina inferior izquierda.
+*   **Búsqueda:** Escriba el nombre o código. Verá inmediatamente los 3 precios (Normal, Esp 1, Esp 2) y el stock.
+*   **Variantes:** Si el producto tiene presentaciones (ej. Caja, Bulto), el sistema desplegará automáticamente los precios específicos de cada variante bajo el producto principal.
+
+---
+
 ## 3. Panel de Control (Dashboard)
 Es la pantalla principal que ofrece una visión global del estado de su negocio en tiempo real.
 

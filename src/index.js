@@ -1230,9 +1230,9 @@
           }
 
           const totalPaid = cash + transfer;
-          const change = totalPaid - total;
+          const change = totalPaid - total; // Esto ahora usará el cash_payment actualizado correctamente
           
-          if (change > 0 && !isCredit) {
+          if (change !== 0 && !isCredit) {
             let offset = 22;
             if (cash > 0 && transfer > 0) offset = 38;
             doc.text(`Cambio entregado: ${formatCOP(change)}`, 400, doc.y + offset, { align: "right", width: 150 });

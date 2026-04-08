@@ -133,4 +133,12 @@ document.addEventListener("DOMContentLoaded", () => {
             icon.classList.add('fa-moon');
         }
     });
+
+    // 4. Inyectar Buscador de Precios Global (price_lookup.js)
+    if (!document.getElementById('price-lookup-script')) {
+        const plScript = document.createElement('script');
+        plScript.id = 'price-lookup-script';
+        plScript.src = '../js/price_lookup.js';
+        document.body.appendChild(plScript);
+    }
 });

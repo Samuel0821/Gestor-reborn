@@ -1023,12 +1023,34 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
 
         // 4. Handle financial adjustments
         let newPaidAmount = originalSale.paid_amount;
+        let currentCashReceived = originalSale.cash_payment || 0;
+        let currentTransferReceived = originalSale.transfer_payment || 0;
         const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
         if (paymentAdjustment && paymentAdjustment.amount !== 0) {
             newPaidAmount += paymentAdjustment.amount;
-            if (paymentAdjustment.amount > 0) { // Additional payment
-                db.prepare(`INSERT INTO sale_payments (sale_id, method, amount, reference, created_at) VALUES (?, ?, ?, ?, ?)`).run(saleId, paymentAdjustment.method, paymentAdjustment.amount, paymentAdjustment.reference, now);
+
+            // Lógica de "Cambio": Si la venta ya tenía un excedente (cambio), el nuevo producto 
+            // consume ese excedente antes de pedir más dinero real.
+            const previousSurplus = Math.max(0, (currentCashReceived + currentTransferReceived) - originalSale.total_amount);
+            const realAdditionalMoney = Math.max(0, paymentAdjustment.amount - previousSurplus);
+
+            if (paymentAdjustment.method === 'cash') {
+                currentCashReceived += realAdditionalMoney;
+            } else if (paymentAdjustment.method === 'transfer') {
+                currentTransferReceived += realAdditionalMoney;
+            }
+
+            if (paymentAdjustment.amount > 0) { // Pago adicional
+                db.prepare(`INSERT INTO sale_payments (sale_id, method, amount, received, change, reference, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+                    saleId, 
+                    paymentAdjustment.method, 
+                    paymentAdjustment.amount, 
+                    realAdditionalMoney, 
+                    0, 
+                    paymentAdjustment.reference, 
+                    now
+                );
             } else { // Refund
                 db.prepare(`INSERT INTO expenses (description, amount, category, date) VALUES (?, ?, ?, ?)`).run(`Devolución Venta #${originalSale.invoice_number || saleId}`, Math.abs(paymentAdjustment.amount), 'Devolución', now.slice(0, 10));
             }
@@ -1038,7 +1060,7 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
         const newSaleType = newOutstandingBalance > 0 ? 'credit' : 'paid';
 
         // 5. Update the main sale record
-        db.prepare(`UPDATE sales SET client_id = ?, total_amount = ?, paid_amount = ?, outstanding_balance = ?, sale_type = ? WHERE id = ?`).run(clientId, newTotalAmount, newPaidAmount, newOutstandingBalance, newSaleType, saleId);
+        db.prepare(`UPDATE sales SET client_id = ?, total_amount = ?, paid_amount = ?, outstanding_balance = ?, sale_type = ?, cash_payment = ?, transfer_payment = ? WHERE id = ?`).run(clientId, newTotalAmount, newPaidAmount, newOutstandingBalance, newSaleType, currentCashReceived, currentTransferReceived, saleId);
 
         logAction(userName, 'Editar Venta', `Factura #${originalSale.invoice_number || saleId} modificada. Total: ${originalSale.total_amount} -> ${newTotalAmount}`);
     });

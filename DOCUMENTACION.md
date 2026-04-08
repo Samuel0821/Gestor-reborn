@@ -77,6 +77,7 @@ src/
     expenses.js
     login.js
     products.js
+      price_lookup.js
     purchase_orders.js
     quotes.js
     report.js

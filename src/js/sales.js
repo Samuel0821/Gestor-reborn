@@ -652,13 +652,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
       }
 
-      Swal.fire({
+      const printResult = await Swal.fire({
           title: 'Venta Exitosa',
-          text: res.message || "Venta registrada exitosamente.",
+          text: "¿Desea imprimir una copia de la factura?",
           icon: 'success',
-          timer: 2000,
-          showConfirmButton: false
+          showCancelButton: true,
+          confirmButtonText: '<i class="fa fa-print me-1"></i> Sí, imprimir',
+          cancelButtonText: 'No, cerrar',
+          confirmButtonColor: '#198754'
       });
+
+      if (printResult.isConfirmed) {
+          handlePrintSale(res.id);
+      }
       sessionStorage.removeItem('shoppingCart'); // Limpiar carrito de la sesión
       saleItems = [];
       renderSaleItems();
@@ -736,7 +742,20 @@ document.addEventListener("DOMContentLoaded", async () => {
                   return;
               }
 
-              Swal.fire('Éxito', res.message || "Venta a crédito registrada exitosamente.", 'success');
+              const printResult = await Swal.fire({
+                  title: 'Venta Registrada',
+                  text: "¿Desea imprimir una copia de la factura?",
+                  icon: 'success',
+                  showCancelButton: true,
+                  confirmButtonText: '<i class="fa fa-print me-1"></i> Sí, imprimir',
+                  cancelButtonText: 'No, cerrar',
+                  confirmButtonColor: '#198754'
+              });
+
+              if (printResult.isConfirmed) {
+                  handlePrintSale(res.id);
+              }
+
               sessionStorage.removeItem('shoppingCart');
               saleItems = [];
               renderSaleItems();
@@ -783,17 +802,34 @@ document.addEventListener("DOMContentLoaded", async () => {
           clientId: clientSelect.value ? Number(clientSelect.value) : null,
           items: saleItems,
           paymentAdjustment: paymentAdjustment,
+            sale_type: saleTypeSelect.value, // Informamos el tipo de venta actual
+            total_amount: newTotalAmount,   // Enviamos el nuevo total calculado
           userName: localStorage.getItem('user_name') || 'system'
       };
 
       const res = await window.api.updateSale(updateData);
-      Swal.fire(res.success ? 'Éxito' : 'Error', res.message, res.success ? 'success' : 'error');
 
       if (res.success) {
+            const printResult = await Swal.fire({
+                title: 'Cambios Guardados',
+                text: "¿Desea imprimir la factura actualizada?",
+                icon: 'success',
+                showCancelButton: true,
+                confirmButtonText: '<i class="fa fa-print me-1"></i> Sí, imprimir',
+                cancelButtonText: 'No, cerrar',
+                confirmButtonColor: '#198754'
+            });
+
+            if (printResult.isConfirmed) {
+                handlePrintSale(editingSaleId);
+            }
+
           cancelEdit();
           await loadSales(false);
           await loadProducts();
           await loadCredits();
+        } else {
+            Swal.fire('Error', res.message, 'error');
       }
   }
 
@@ -1177,7 +1213,7 @@ document.addEventListener("DOMContentLoaded", async () => {
               <button id="closePreview">Cerrar</button>
               <script>
                 function formatCOP(value) { return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value); }
-                const totalBase = ${Number(sale.total_amount || 0)};
+                let totalBase = ${Number(sale.total_amount || 0)};
                 const pago = ${Number(sale.cash_payment || 0)} + ${Number(sale.transfer_payment || 0)};
                 function updateTotals() {
                   const includeIva = document.getElementById("includeIva").checked;
@@ -1194,7 +1230,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                   }
                   const cambio = pago - total;
                   const cambioContainer = document.getElementById("cambioContainer");
-                  if (cambio > 0) {
+                  if (cambio !== 0) {
                     cambioContainer.innerHTML = '<tr><td>Cambio:</td><td>' + formatCOP(cambio) + '</td></tr>';
                   } else {
                     cambioContainer.innerHTML = "";
