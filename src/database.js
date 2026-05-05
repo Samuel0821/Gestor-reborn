@@ -353,6 +353,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
   product_id INTEGER,
   product_name TEXT,
   product_code TEXT,
+  serial_number TEXT,
   quantity INTEGER NOT NULL,
   price REAL NOT NULL,
   subtotal REAL NOT NULL,
@@ -375,6 +376,14 @@ try {
   const siColumns = db.prepare("PRAGMA table_info(sale_items)").all();
   if (!siColumns.some(c => c.name === "variant_id")) {
     db.prepare("ALTER TABLE sale_items ADD COLUMN variant_id INTEGER").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar serial_number a sale_items para control de garantías
+try {
+  const siCols = db.prepare("PRAGMA table_info(sale_items)").all();
+  if (!siCols.some(c => c.name === "serial_number")) {
+    db.prepare("ALTER TABLE sale_items ADD COLUMN serial_number TEXT").run();
   }
 } catch (e) { /* ignorar */ }
 
@@ -813,8 +822,8 @@ function createSale({
   `);
 
   const insertItem = db.prepare(`
-    INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal, conversion_factor, variant_id, skip_stock)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sale_items (sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, conversion_factor, variant_id, skip_stock)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
@@ -886,7 +895,7 @@ function createSale({
       }
 
       insertItem.run(
-        saleId, it.product_id || null, it.product_name, prodCode,
+        saleId, it.product_id || null, it.product_name, prodCode, it.serial_number || null,
         it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null, it.skip_stock ? 1 : 0
       );
 
@@ -1003,8 +1012,8 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
         // 3. Update sale items
         db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(saleId);
         const insertItemStmt = db.prepare(`
-            INSERT INTO sale_items (sale_id, product_id, product_name, product_code, quantity, price, subtotal, conversion_factor, variant_id, skip_stock)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO sale_items (sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, conversion_factor, variant_id, skip_stock)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const getProduct = db.prepare("SELECT code FROM products WHERE id = ?");
         const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
@@ -1018,7 +1027,7 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
                     conversionFactor = getVariant.get(it.variant_id)?.conversion_factor || 1;
                 }
             }
-            insertItemStmt.run(saleId, it.product_id, it.product_name, prodCode, it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null, it.skip_stock ? 1 : 0);
+            insertItemStmt.run(saleId, it.product_id, it.product_name, prodCode, it.serial_number || null, it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null, it.skip_stock ? 1 : 0);
         }
 
         // 4. Handle financial adjustments
@@ -1074,17 +1083,31 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
     }
 }
 
-function getSales(limit = -1, offset = 0, clientId = null) {
-  let query = "SELECT id, client_id, sale_date, total_amount, invoice_number FROM sales";
+function getSales(limit = -1, offset = 0, clientId = null, searchTerm = null) {
+  let query = "SELECT s.id, s.client_id, s.sale_date, s.total_amount, s.invoice_number FROM sales s";
   const params = [];
+  const conditions = [];
+
+  if (searchTerm) {
+    query += " LEFT JOIN clients c ON s.client_id = c.id";
+    conditions.push("(s.invoice_number LIKE ? OR c.name LIKE ?)");
+    params.push(`%${searchTerm}%`, `%${searchTerm}%`);
+  }
+
   if (clientId) {
-    query += " WHERE client_id = ?";
+    conditions.push("s.client_id = ?");
     params.push(clientId);
   }
-  query += " ORDER BY sale_date DESC LIMIT ? OFFSET ?";
+
+  if (conditions.length > 0) {
+    query += " WHERE " + conditions.join(" AND ");
+  }
+
+  query += " ORDER BY s.sale_date DESC LIMIT ? OFFSET ?";
   params.push(limit, offset);
+
   const sales = db.prepare(query).all(...params);
-  const itemsStmt = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?");
+  const itemsStmt = db.prepare("SELECT id, sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, variant_id, conversion_factor, skip_stock FROM sale_items WHERE sale_id = ?");
   for (const s of sales) s.items = itemsStmt.all(s.id);
   return sales;
 }
@@ -1094,7 +1117,7 @@ function getSaleById(id) {
 }
 
 function getSaleItems(saleId) {
-  return db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(saleId);
+  return db.prepare("SELECT id, sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, variant_id, conversion_factor, skip_stock FROM sale_items WHERE sale_id = ?").all(saleId);
 }
 
 function getLastInvoiceNumber() {

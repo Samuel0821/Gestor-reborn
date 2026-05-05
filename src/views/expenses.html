@@ -21,12 +21,22 @@
       <h2><i class="fa fa-money-bill-wave text-danger me-2"></i>Control de Gastos</h2>
     </div>
 
-    <div class="row">
-      <!-- Formulario de Registro -->
-      <div class="col-md-4">
+    <!-- Navegación por Pestañas -->
+    <ul class="nav nav-tabs mb-4" id="expensesTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="register-tab" data-bs-toggle="tab" data-bs-target="#register-pane" type="button" role="tab" aria-controls="register-pane" aria-selected="true"><i class="fa fa-plus-circle me-2"></i>Registrar nuevos Egresos</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history-pane" type="button" role="tab" aria-controls="history-pane" aria-selected="false"><i class="fa fa-history me-2"></i>Historial de Egresos</button>
+      </li>
+    </ul>
+
+    <div class="tab-content" id="expensesTabsContent">
+      <!-- Tab 1: Registrar nuevos Egresos -->
+      <div class="tab-pane fade show active" id="register-pane" role="tabpanel" aria-labelledby="register-tab">
         <div class="card shadow-sm">
           <div class="card-header bg-danger text-white">
-            <h5 class="mb-0">Registrar Nuevo Gasto</h5>
+            <h5 class="mb-0">Registrar Nuevo Egreso</h5>
           </div>
           <div class="card-body">
             <form id="expense-form">
@@ -61,13 +71,17 @@
         </div>
       </div>
 
-      <!-- Listado de Gastos -->
-      <div class="col-md-8">
+      <!-- Tab 2: Historial de Egresos -->
+      <div class="tab-pane fade" id="history-pane" role="tabpanel" aria-labelledby="history-tab">
         <div class="card shadow-sm">
           <div class="card-body">
             <div class="d-flex justify-content-between mb-3">
               <h5 class="card-title">Historial de Egresos</h5>
               <div class="fw-bold fs-5 text-danger" id="total-expenses">Total: $0</div>
+            </div>
+            <!-- Filtro de búsqueda -->
+            <div class="mb-3">
+              <input type="text" id="search-expense" class="form-control" placeholder="Buscar egreso por descripción, categoría o fecha...">
             </div>
             <div class="table-responsive">
               <table class="table table-hover">

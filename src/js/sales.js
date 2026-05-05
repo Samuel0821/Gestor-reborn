@@ -95,25 +95,33 @@ document.addEventListener("DOMContentLoaded", async () => {
   `;
   document.head.appendChild(dropdownStyles);
 
-  // --- FILTRO POR CLIENTE (Mover al inicio para evitar ReferenceError) ---
-  const filterContainer = document.createElement("div");
-  filterContainer.className = "mb-3 d-flex align-items-center";
-  filterContainer.innerHTML = `
-    <label class="me-2 fw-bold">Filtrar por Cliente:</label>
-    <select id="filter-client" class="form-select w-auto">
-        <option value="">-- Todos --</option>
-    </select>
+  // --- FILTRO POR CLIENTE Y BUSCADOR ---
+  const searchContainer = document.createElement("div"); // Se ajusta a col-md-6 para ser menos larga
+  searchContainer.className = "mb-3 col-md-6";
+  searchContainer.innerHTML = `
+      <div class="input-group input-group-sm">
+        <span class="input-group-text"><i class="fa fa-search"></i></span>
+        <input type="text" id="search-sale-history" class="form-control" placeholder="Buscar por nombre de cliente o número de factura..." list="client-search-list">
+        <datalist id="client-search-list"></datalist>
+      </div>
   `;
   if (salesList && salesList.parentNode) {
-      salesList.parentNode.insertBefore(filterContainer, salesList);
+      // Find the parent of salesList to insert the search bar
+      const parentDiv = salesList.parentNode;
+      parentDiv.insertBefore(searchContainer, salesList);
   }
-  const filterClientSelect = document.getElementById('filter-client');
-  filterClientSelect.addEventListener('change', () => loadSales(false));
+  const clientSearchDatalist = document.getElementById('client-search-list'); // Referencia al nuevo datalist
+
+  const searchSaleInput = document.getElementById('search-sale-history');
+  let searchTimeout;
+  searchSaleInput.addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => loadSales(false), 300);
+  });
 
   // --- Carga Inicial ---
   await loadProducts();
-  await loadClients();
-  await loadFilterClients();
+  await loadClients(); // Cargar clientes al inicio para poblar el datalist
 
   // Cargar carrito desde sessionStorage DESPUÉS de cargar productos para poder enriquecer los datos
   const savedCart = sessionStorage.getItem('shoppingCart');
@@ -177,6 +185,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       opt.textContent = `${c.name} (${c.id_card_or_nit})`;
       clientSelect.appendChild(opt);
     });
+
+    // Poblar el datalist de búsqueda de clientes
+    clientSearchDatalist.innerHTML = ""; // Limpiar opciones previas
+    clients.forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = c.name; // Mostrar el nombre del cliente en el datalist
+      clientSearchDatalist.appendChild(opt);
+    });
   }
 
   // Renderizar items
@@ -215,6 +231,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         <td>${i + 1}</td>
         <td>${it.product_code || '-'}</td>
         <td>${it.product_name}</td>
+        <td><input type="text" class="form-control form-control-sm serial-input" data-i="${i}" placeholder="Escribir serial..." value="${it.serial_number || ''}"></td>
         <td>
           ${!isService && isKgVariant 
             ? `<input type="number" min="0.1" step="0.1" value="${it.quantity}" data-i="${i}" class="form-control form-control-sm qty-input">`
@@ -276,6 +293,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // Listener para capturar el número de serial en tiempo real
+  saleItemsTbody.addEventListener('input', (e) => {
+    if (e.target.classList.contains('serial-input')) {
+      const index = Number(e.target.dataset.i);
+      if (saleItems[index]) {
+        saleItems[index].serial_number = e.target.value.trim();
+        saveCart();
+      }
+    }
+  });
 
   // -----------------------------
   // Agregar producto manual (formulario)
@@ -458,6 +485,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         product_id: prod.id,
         product_code: prod.code,
         product_name: itemName,
+        serial_number: '', // Inicializar vacío
         quantity: qty,
         price: itemPrice, // Precio actual, por defecto el normal
         sale_price: source.sale_price || 0,
@@ -871,6 +899,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       await window.api.deleteSale(Number(target.dataset.id));
       await loadSales(false); // Recargar desde cero
+    } else if (target.classList.contains("view-invoice-detail")) {
+      await handlePrintSale(Number(target.dataset.id), false);
     } else if (target.classList.contains("export-invoice")) {
       const id = Number(target.dataset.id);
       const result = await Swal.fire({
@@ -916,7 +946,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  async function handlePrintSale(id) {
+  async function handlePrintSale(id, showOptions = true) {
     const sale = await window.api.getSaleById(id);
     const items = await window.api.getSaleItems(id);
     const company = await window.api.getCompanySettings();
@@ -928,25 +958,17 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
-    const printers = await window.api.getPrinters();
-    if (!printers || printers.length === 0) {
-      Swal.fire('Error', "No se encontraron impresoras disponibles", 'error');
-      return;
+    let printers = [];
+    if (showOptions) {
+      printers = await window.api.getPrinters();
+      if (!printers || printers.length === 0) {
+        Swal.fire('Error', "No se encontraron impresoras disponibles", 'error');
+        return;
+      }
     }
 
-    const htmlContent = generateInvoiceHtml(sale, items, company, logoBase64, client, printers);
+    const htmlContent = generateInvoiceHtml(sale, items, company, logoBase64, client, showOptions ? printers : null);
     await window.api.previewInvoice({ content: htmlContent });
-  }
-
-  // Cargar clientes en el filtro
-  async function loadFilterClients() {
-      const clients = await window.api.getClients();
-      clients.forEach(c => {
-          const opt = document.createElement('option');
-          opt.value = c.id;
-          opt.textContent = c.name;
-          filterClientSelect.appendChild(opt);
-      });
   }
 
   async function loadSales(append = false) {
@@ -955,8 +977,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       salesList.innerHTML = "";
       loadMoreBtn.style.display = "none";
     }
-    const selectedClientId = filterClientSelect.value ? Number(filterClientSelect.value) : null;
-    const sales = await window.api.getSales(SALES_LIMIT, currentOffset, selectedClientId);
+    const searchTerm = document.getElementById('search-sale-history')?.value || "";
+    // If there's a search term, fetch all matching results (limit -1, offset 0)
+    // Otherwise, use pagination (SALES_LIMIT, currentOffset)
+    const sales = await window.api.getSales(searchTerm ? -1 : SALES_LIMIT, searchTerm ? 0 : currentOffset, null, searchTerm);
     
     if (!sales || sales.length === 0) {
       if (!append) salesList.innerHTML = '<div class="alert alert-secondary">No hay ventas</div>';
@@ -980,6 +1004,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                   Acciones
                 </button>
                 <ul class="dropdown-menu">
+                  <li><button class="dropdown-item view-invoice-detail" data-id="${s.id}"><i class="fa fa-eye me-2 text-info"></i> Ver Detalle</button></li>
                   <li><button class="dropdown-item export-invoice" data-id="${s.id}"><i class="fa fa-file-pdf me-2 text-primary"></i> Descargar Factura</button></li>
                   <li><button class="dropdown-item print-sale" data-id="${s.id}"><i class="fa fa-print me-2 text-success"></i> Imprimir Factura</button></li>
                   <li><button class="dropdown-item export-receipt" data-id="${s.id}"><i class="fa fa-file-invoice-dollar me-2 text-info"></i> Recibo de Caja</button></li>
@@ -1091,6 +1116,64 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Generar HTML de factura
     // -----------------------------
     function generateInvoiceHtml(sale, items, company, logoBase64, client, printers) {
+      const showPrintPanel = printers && printers.length > 0;
+      const printPanelHtml = showPrintPanel ? `
+            <div class="print-options-panel">
+              <label>Selecciona impresora:</label>
+              <select id="printerSelect">
+                ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
+              </select>
+              <label>Tamaño de papel:</label>
+              <select id="paperSizeSelect">
+                <option value="A4">A4</option>
+                <option value="80mm" selected>80mm (Ticket)</option>
+                <option value="57mm">57mm (Mini Ticket)</option>
+                <option value="Letter">Carta</option>
+                <option value="Legal">Oficio</option>
+              </select>
+              <label><input type="checkbox" id="includeIva"> Incluir IVA 19%</label>
+              <button id="printButton">Imprimir</button>
+              <button id="closePreview">Cerrar</button>
+            </div>
+      ` : '';
+
+      const scriptHtml = showPrintPanel ? `
+              <script>
+                function formatCOP(value) { return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value); }
+                let totalBase = ${Number(sale.total_amount || 0)};
+                const pago = ${Number(sale.cash_payment || 0)} + ${Number(sale.transfer_payment || 0)};
+                function updateTotals() {
+                  const includeIvaEl = document.getElementById("includeIva");
+                  const includeIva = includeIvaEl ? includeIvaEl.checked : false;
+                  let iva = 0; let total = totalBase;
+                  const extraTotalsBody = document.getElementById("extraTotals");
+                  if (includeIva) {
+                    iva = Math.round(totalBase * 0.19); total = totalBase + iva;
+                    extraTotalsBody.innerHTML = 
+                        '<tr><td>Total bruto:</td><td>' + formatCOP(totalBase) + '</td></tr>' +
+                        '<tr><td>IVA (19%):</td><td>' + formatCOP(iva) + '</td></tr>' +
+                        '<tr class="total-row"><td>Total neto:</td><td>' + formatCOP(total) + '</td></tr>';
+                  } else {
+                    extraTotalsBody.innerHTML = '<tr class="total-row"><td>TOTAL:</td><td>' + formatCOP(totalBase) + '</td></tr>';
+                  }
+                  const cambio = pago - total;
+                  const cambioContainer = document.getElementById("cambioContainer");
+                  if (cambio !== 0) {
+                    cambioContainer.innerHTML = '<tr><td>Cambio:</td><td>' + formatCOP(cambio) + '</td></tr>';
+                  } else {
+                    cambioContainer.innerHTML = "";
+                  }
+                }
+                document.addEventListener("DOMContentLoaded", () => { updateTotals(); });
+                const ivaCheck = document.getElementById("includeIva");
+                if (ivaCheck) ivaCheck.addEventListener("change", updateTotals);
+                const prntBtn = document.getElementById("printButton");
+                if (prntBtn) prntBtn.addEventListener("click", () => { updateTotals(); window.print(); });
+                const clsBtn = document.getElementById("closePreview");
+                if (clsBtn) clsBtn.addEventListener("click", () => window.close());
+              </script>
+      ` : '';
+
       return `
         <html>
           <head>
@@ -1099,7 +1182,7 @@ document.addEventListener("DOMContentLoaded", async () => {
               @page { margin: 6mm; } /* Margen de impresión */
               body { 
                 font-family: 'Arial', sans-serif; 
-                font-size: 8px; /* Tamaño de fuente base */
+                font-size: 10px; /* Tamaño de fuente base */
                 color: #0a0a0aff;
                 padding: 0;
                 margin: 0;
@@ -1120,7 +1203,7 @@ document.addEventListener("DOMContentLoaded", async () => {
               }
               .header p {
                 margin: 4px 0;
-                font-size: 9px; /* Aumentado */
+                font-size: 10px; /* Aumentado */
                 font-weight: bold; /* Añadido */
               }
               .info {
@@ -1148,7 +1231,7 @@ document.addEventListener("DOMContentLoaded", async () => {
               .items-table td {
                 padding: 0.8mm 0;
                 border-bottom: 1px dotted #ccc;
-                font-size: 10px;
+                font-size: 11px;
                 vertical-align: middle; /* Alinear al centro */
               }
               .items-table .col-align-right {
@@ -1164,7 +1247,7 @@ document.addEventListener("DOMContentLoaded", async () => {
               }
               .totals-section table, .payment-info-section table {
                   width: 95%;
-                  font-size: 10px;
+                  font-size: 11px;
               }
               .totals-section td:first-child, .payment-info-section td:first-child {
                   text-align: left;
@@ -1182,7 +1265,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 margin-top: 8mm;
                 border-top: 3px solid #000;
                 padding-top: 4mm;
-                font-size: 10px;
+                font-size: 11px;
               }
               .print-options-panel {
                 position: fixed; bottom: 30px; right: 25px; background-color: white; padding: 20px;
@@ -1195,53 +1278,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             </style>
           </head>
           <body>
-            <div class="print-options-panel">
-              <label>Selecciona impresora:</label>
-              <select id="printerSelect">
-                ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
-              </select>
-              <label>Tamaño de papel:</label>
-              <select id="paperSizeSelect">
-                <option value="A4">A4</option>
-                <option value="80mm" selected>80mm (Ticket)</option>
-                <option value="57mm">57mm (Mini Ticket)</option>
-                <option value="Letter">Carta</option>
-                <option value="Legal">Oficio</option>
-              </select>
-              <label><input type="checkbox" id="includeIva"> Incluir IVA 19%</label>
-              <button id="printButton">Imprimir</button>
-              <button id="closePreview">Cerrar</button>
-              <script>
-                function formatCOP(value) { return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value); }
-                let totalBase = ${Number(sale.total_amount || 0)};
-                const pago = ${Number(sale.cash_payment || 0)} + ${Number(sale.transfer_payment || 0)};
-                function updateTotals() {
-                  const includeIva = document.getElementById("includeIva").checked;
-                  let iva = 0; let total = totalBase;
-                  const extraTotalsBody = document.getElementById("extraTotals");
-                  if (includeIva) {
-                    iva = Math.round(totalBase * 0.19); total = totalBase + iva;
-                    extraTotalsBody.innerHTML = 
-                        '<tr><td>Total bruto:</td><td>' + formatCOP(totalBase) + '</td></tr>' +
-                        '<tr><td>IVA (19%):</td><td>' + formatCOP(iva) + '</td></tr>' +
-                        '<tr class="total-row"><td>Total neto:</td><td>' + formatCOP(total) + '</td></tr>';
-                  } else {
-                    extraTotalsBody.innerHTML = '<tr class="total-row"><td>TOTAL:</td><td>' + formatCOP(totalBase) + '</td></tr>';
-                  }
-                  const cambio = pago - total;
-                  const cambioContainer = document.getElementById("cambioContainer");
-                  if (cambio !== 0) {
-                    cambioContainer.innerHTML = '<tr><td>Cambio:</td><td>' + formatCOP(cambio) + '</td></tr>';
-                  } else {
-                    cambioContainer.innerHTML = "";
-                  }
-                }
-                document.addEventListener("DOMContentLoaded", () => { updateTotals(); });
-                document.getElementById("includeIva").addEventListener("change", updateTotals);
-                document.getElementById("printButton").addEventListener("click", () => { updateTotals(); window.print(); });
-                document.getElementById("closePreview").addEventListener("click", () => window.close());
-              </script>
-            </div>
+            ${printPanelHtml}
+            ${scriptHtml}
 
             <div class="invoice-box">
               <div class="header">
@@ -1284,7 +1322,10 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <tbody>
                   ${items.map(it => `
                     <tr>
-                      <td style="word-break: break-word;">${it.product_name}</td>
+                      <td style="word-break: break-word;">
+                        ${it.product_name}
+                        ${it.serial_number ? `<br><small style="color: #000;">Serial: ${it.serial_number}</small>` : ''}
+                      </td>
                       <td class="col-align-center">${it.quantity}</td>
                       <td class="col-align-right">${formatCOP(it.price)}</td>
                       <td class="col-align-right">${formatCOP(it.subtotal)}</td>
@@ -1527,7 +1568,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Inicialización
   
   await loadSales();
-  await loadCredits();
+  await loadCredits(); // Se mantiene la carga de créditos
 
   // Atajos de teclado
   document.addEventListener('keydown', (e) => {

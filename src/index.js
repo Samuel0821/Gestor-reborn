@@ -201,7 +201,7 @@
 
       // Ventas
       ipcMain.handle("create-sale", (event, data) => db.createSale(data));
-      ipcMain.handle("get-sales", (event, limit, offset, clientId) => db.getSales(limit, offset, clientId));
+      ipcMain.handle("get-sales", (event, limit, offset, clientId, searchTerm) => db.getSales(limit, offset, clientId, searchTerm));
       ipcMain.handle("get-sale-by-id", (event, id) => db.getSaleById(id));
       ipcMain.handle("get-sale-items", (event, id) => db.getSaleItems(id));
       ipcMain.handle("delete-sale", (event, id) => db.deleteSale(id));
@@ -1177,6 +1177,10 @@
             const productHeight = doc.heightOfString(it.product_name || "-", { width: 245 });
             doc.text(String(idx), 50, y, { width: 25 });
             doc.text(it.product_name || "-", 80, y, { width: 240 });
+            if (it.serial_number) { // Aseguramos que el serial se imprima en negro fuerte
+                doc.fontSize(8).fillColor("#000000").text(`Serial: ${it.serial_number}`, 80, doc.y);
+                doc.fontSize(10).fillColor("#000000"); // Restaurar formato
+            }
             doc.text(formatCOP(it.price), 330, y, { width: 80, align: "right" });
             doc.text(String(it.quantity), 420, y, { width: 50, align: "right" });
             doc.text(formatCOP(it.subtotal), 480, y, { width: 70, align: "right" });

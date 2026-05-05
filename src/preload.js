@@ -37,7 +37,7 @@ contextBridge.exposeInMainWorld("api", {
 
   // sales
   createSale: (data) => ipcRenderer.invoke("create-sale", data),
-  getSales: (limit, offset, clientId) => ipcRenderer.invoke("get-sales", limit, offset, clientId),
+  getSales: (limit, offset, clientId, searchTerm) => ipcRenderer.invoke("get-sales", limit, offset, clientId, searchTerm),
   getSaleById: (id) => ipcRenderer.invoke("get-sale-by-id", id),
   getSaleItems: (id) => ipcRenderer.invoke("get-sale-items", id),
   deleteSale: (id) => ipcRenderer.invoke("delete-sale", id),

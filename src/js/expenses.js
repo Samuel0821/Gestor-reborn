@@ -102,13 +102,54 @@ document.addEventListener('DOMContentLoaded', () => {
         return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
     }
 
-    async function loadExpenses() {
-        const expenses = await window.api.getExpenses(); // Requiere backend
-        tableBody.innerHTML = '';
-        let total = 0;
+    let allExpenses = [];
+    let filteredExpenses = [];
+    let currentRenderedCount = 0;
+    const ITEMS_PER_BATCH = 15;
 
-        expenses.forEach(exp => {
-            total += exp.amount;
+    async function loadExpenses() {
+        allExpenses = await window.api.getExpenses(); // Trae todos los egresos
+        applyFilterAndRender();
+    }
+
+    function applyFilterAndRender() {
+        const q = document.getElementById('search-expense')?.value.toLowerCase() || '';
+        
+        // Filtramos por descripción o categoría
+        filteredExpenses = allExpenses.filter(exp => 
+            exp.description.toLowerCase().includes(q) || 
+            exp.category.toLowerCase().includes(q) ||
+            exp.date.includes(q)
+        );
+        
+        tableBody.innerHTML = '';
+        currentRenderedCount = 0;
+        renderBatch();
+    }
+
+    function renderBatch() {
+        const batch = filteredExpenses.slice(currentRenderedCount, currentRenderedCount + ITEMS_PER_BATCH);
+        renderTableRows(batch);
+        currentRenderedCount += batch.length;
+        updateLoadMoreButton();
+        updateTotal();
+    }
+
+    function updateTotal() {
+        let total = 0;
+        // El total se calcula sobre la lista filtrada completa
+        filteredExpenses.forEach(exp => total += exp.amount);
+        totalDisplay.textContent = `Total: ${formatCOP(total)}`;
+    }
+
+    function updateLoadMoreButton() {
+        let loadMoreBtn = document.getElementById('load-more-expenses-btn');
+        if (!loadMoreBtn) return;
+        loadMoreBtn.style.display = (currentRenderedCount < filteredExpenses.length) ? 'block' : 'none';
+    }
+
+    function renderTableRows(list) {
+        list.forEach(exp => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${exp.date}</td>
@@ -132,18 +173,15 @@ document.addEventListener('DOMContentLoaded', () => {
             tableBody.appendChild(tr);
         });
 
-        totalDisplay.textContent = `Total: ${formatCOP(total)}`;
-
         // Restricción de roles
         const role = localStorage.getItem('user_role');
         if (role !== 'admin') {
-            tableBody.querySelectorAll('.delete-expense').forEach(btn => {
+            document.querySelectorAll('.delete-expense').forEach(btn => {
                 const li = btn.closest('li');
                 if (li) li.remove();
             });
         }
 
-        // Eventos botones
         document.querySelectorAll('.view-expense').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 const id = e.currentTarget.dataset.id;
@@ -189,6 +227,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Listener para el buscador
+    const searchInput = document.getElementById('search-expense');
+    if (searchInput) {
+        searchInput.addEventListener('input', applyFilterAndRender);
+    }
+
+    // Crear y configurar botón "Cargar más"
+    if (!document.getElementById('load-more-expenses-btn')) {
+        const loadMoreBtnContainer = document.createElement('div');
+        loadMoreBtnContainer.className = 'text-center my-3';
+        loadMoreBtnContainer.innerHTML = `<button id="load-more-expenses-btn" class="btn btn-outline-primary"><i class="fa fa-arrow-down me-2"></i>Cargar más egresos</button>`;
+        tableBody.closest('table').after(loadMoreBtnContainer);
+        document.getElementById('load-more-expenses-btn').addEventListener('click', renderBatch);
+    }
+
     document.getElementById('btn-export-modal').addEventListener('click', async () => {
         if(currentDetailId) {
             const res = await window.api.exportExpensePDF(currentDetailId);
@@ -226,6 +279,14 @@ document.addEventListener('DOMContentLoaded', () => {
             Swal.fire('Error', res.message || 'No se pudo guardar el gasto.', 'error');
         }
     });
+
+    // Lógica para actualizar el historial cuando se cambie a la pestaña de historial
+    const historyTab = document.querySelector('button[data-bs-target="#nav-history"], a[href="#nav-history"]');
+    if (historyTab) {
+        historyTab.addEventListener('shown.bs.tab', () => {
+            loadExpenses();
+        });
+    }
 
     loadExpenses();
 });
