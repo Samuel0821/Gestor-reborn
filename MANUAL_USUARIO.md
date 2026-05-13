@@ -1,6 +1,6 @@
 # Manual de Usuario - GestorFX
 
-**Versión del Sistema:** 1.0.6   
+**Versión del Sistema:** 1.0.8
 **Desarrollado por:** Grisalis Technologies
 
 ---
@@ -20,12 +20,14 @@ Al abrir la aplicación, encontrará la pantalla de acceso.
 
 ### 2.2. Valor Inicial del Día
 Por seguridad y control financiero, el sistema le solicitará ingresar el **Valor Inicial del Día** cada vez que inicie sesión.
+*   Seleccione el usuario que abre la caja.
 *   Ingrese la cantidad de dinero en efectivo con la que abre la caja (base).
+*   Agregue notas de apertura si es necesario.
 *   Esto es fundamental para el cuadre de caja al final del día.
 
 ---
 
-## 3. Consulta Rápida de Precios (NUEVO)
+## 3. Consulta Rápida de Precios
 El sistema incluye una herramienta de consulta global para verificar costos sin salir de su pantalla actual.
 
 *   **Cómo Acceder:** Presione las teclas `Ctrl + B` o haga clic en el botón flotante azul de búsqueda (🏷️) en la esquina inferior izquierda.
@@ -34,20 +36,20 @@ El sistema incluye una herramienta de consulta global para verificar costos sin 
 
 ---
 
-## 3. Panel de Control (Dashboard)
+## 4. Panel de Control (Dashboard)
 Es la pantalla principal que ofrece una visión global del estado de su negocio en tiempo real.
 
 *   **Tarjetas Informativas:** Visualice rápidamente el total de Clientes, Productos, Proveedores, Ventas del día, Cotizaciones, Servicios y Órdenes de Compra.
 *   **Gráfico de Rendimiento:** Un gráfico interactivo muestra la tendencia de ventas de los últimos 7 días.
-*   **Alertas:** Notificaciones automáticas sobre **Stock Bajo** y **Cuentas por Pagar** (facturas de proveedores vencidas o próximas a vencer).
-*   **Gestión Operativa (NUEVO):**
+*   **Alertas Críticas:** Notificaciones automáticas sobre **Stock Bajo**, **Órdenes Pendientes** y **Cuentas por Pagar** vencidas.
+*   **Gestión Operativa:**
     *   **Servicios Programados:** Lista de servicios pendientes de ejecución ordenados por fecha.
     *   **Borradores de Servicios:** Acceso rápido a servicios en estado "Abierto" para continuar trabajando.
 *   **Menú Lateral:** Navegación rápida a todos los módulos del sistema. Puede colapsar este menú usando el botón de hamburguesa (☰) en la parte superior izquierda.
 
 ---
 
-## 4. Módulo de Ventas (Punto de Venta)
+## 5. Módulo de Ventas (Punto de Venta)
 El corazón del sistema para facturación rápida y eficiente.
 
 ### 4.1. Realizar una Venta
@@ -62,8 +64,10 @@ El corazón del sistema para facturación rápida y eficiente.
 ### 4.2. Procesar Pago
 Al finalizar, se abrirá una ventana de pago:
 *   **Tipo de Venta:** Contado o Crédito.
+*   **Vencimiento:** Si selecciona "Crédito", el sistema le permite establecer una fecha límite de pago.
 *   **Métodos de Pago:** Ingrese cuánto recibe en **Efectivo** y/o **Transferencia**. El sistema soporta pagos mixtos.
-*   **Cambio:** El sistema calculará automáticamente el dinero a devolver al cliente.
+*   **Referencia:** Si es transferencia, ingrese el nombre del banco o número de aprobación.
+*   **Cambio:** El sistema calculará automáticamente el dinero a devolver si el efectivo supera el total.
 
 ### 4.3. Historial de Facturas
 Debajo del área de venta verá las últimas transacciones.
@@ -76,11 +80,11 @@ Debajo del área de venta verá las últimas transacciones.
 ### 4.4. Gestión de Créditos
 En la pestaña lateral o sección inferior, puede ver las ventas a crédito pendientes.
 *   **Abonar:** Registre pagos parciales a una deuda, especificando si es en **Efectivo** o **Transferencia** (con referencia).
-*   **Historial:** Vea el saldo pendiente y el total abonado por cliente.
+*   **Historial:** Vea el saldo pendiente, la fecha de vencimiento y los días restantes para el pago.
 
 ---
 
-## 5. Módulo de Productos (Inventario)
+## 6. Módulo de Productos (Inventario)
 Administre todo su catálogo de artículos.
 
 *   **Crear Producto:** Ingrese Código, Nombre, Categoría, Costo, Precio de Venta y Stock.
@@ -92,7 +96,7 @@ Administre todo su catálogo de artículos.
 
 ---
 
-## 6. Módulo de Servicios
+## 7. Módulo de Servicios
 Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 
 *   **Crear Servicio:** Defina el nombre, precio y asocie un **Cliente** específico para llevar un mejor control.
@@ -109,7 +113,7 @@ Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 
 ---
 
-## 7. Módulo de Cotizaciones
+## 8. Módulo de Cotizaciones
 Genere propuestas comerciales profesionales sin descontar inventario.
 
 *   **Crear:** Seleccione cliente y productos. Soporta variantes y selección de precios múltiples (Normal, Esp 1, Esp 2) directamente en el carrito.
@@ -119,7 +123,7 @@ Genere propuestas comerciales profesionales sin descontar inventario.
 
 ---
 
-## 8. Módulo de Órdenes de Compra
+## 9. Módulo de Órdenes de Compra
 Controle el reabastecimiento con sus proveedores.
 
 *   **Generar Orden:** Seleccione el proveedor y agregue los productos que desea pedir, con sus costos de compra.
@@ -131,7 +135,7 @@ Controle el reabastecimiento con sus proveedores.
 
 ---
 
-## 9. Clientes y Proveedores
+## 10. Clientes y Proveedores
 Bases de datos para gestionar la información de contacto de sus terceros.
 
 *   **Clientes:** Historial de compras, datos de contacto y NIT/Cédula para facturación.
@@ -139,7 +143,7 @@ Bases de datos para gestionar la información de contacto de sus terceros.
 
 ---
 
-## 10. Reportes y Estadísticas
+## 11. Reportes y Estadísticas
 Analice la salud financiera de su negocio mediante pestañas especializadas:
 
 *   **Reporte de Ventas:**
@@ -153,7 +157,15 @@ Analice la salud financiera de su negocio mediante pestañas especializadas:
 
 ---
 
-## 11. Configuración (Ajustes)
+## 12. Gestión de Caja (Arqueo)
+El sistema incluye un control estricto de dinero en efectivo.
+*   **Arqueo de Caja:** Al cerrar el turno, el sistema le pedirá contar físicamente el dinero por denominación (billetes de $50.000, $20.000, etc.).
+*   **Conciliación:** El sistema comparará lo que usted contó contra lo que el sistema "espera" tener (Apertura + Ventas Efectivo - Egresos).
+*   **Diferencias:** Si existe un faltante o sobrante, quedará registrado en el Reporte de Cierre para revisión administrativa.
+
+---
+
+## 13. Configuración (Ajustes)
 Personalice el sistema a su medida mediante una interfaz de pestañas:
 
 *   **Datos de Empresa:** Configure Nombre, NIT, Dirección, Teléfono y cargue su **Logo**. Estos datos aparecerán en todas las facturas y reportes PDF.
@@ -162,7 +174,7 @@ Personalice el sistema a su medida mediante una interfaz de pestañas:
 
 ---
 
-## 12. Soporte Técnico
+## 14. Soporte Técnico
 GestorFX cuenta con un módulo de ayuda integrado.
 
 *   Si encuentra un error o tiene una duda, vaya al menú **Soporte Técnico**.

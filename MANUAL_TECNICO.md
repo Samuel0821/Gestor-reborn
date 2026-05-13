@@ -1,6 +1,6 @@
 # Manual Técnico - GestorFX
 
-**Versión del Sistema:** 1.0.6
+**Versión del Sistema:** 1.0.8
 **Desarrollado por:** Grisalis Technologies
 
 ---
@@ -59,30 +59,60 @@ La aplicación sigue el patrón de arquitectura de Electron con separación de r
 *   **Preload Script (`src/preload.js`):** Puente de seguridad. Expone funciones específicas del backend al frontend mediante `window.api`, manteniendo el aislamiento de contexto (`contextIsolation: true`).
 *   **Renderer Process (`src/views/*.html`, `src/js/*.js`):** Interfaz gráfica. Interactúa con el usuario y solicita datos al Main Process.
 
-### Estructura de Directorios
-```
-Gestor-reborn/
+GESTOR-REBORN/
 ├── database.sqlite       # Archivo de base de datos (en desarrollo)
 ├── package.json          # Dependencias y scripts
-├── forge.config.js       # Configuración del instalador
+├── package-lock.json     # Historial de versiones de dependencias
+├── forge.config.js       # Configuración del instalador (Electron Forge)
+├── .gitignore            # Archivos excluidos de Git
+├── DOCUMENTACION.md      # Documentación general del proyecto
+├── MANUAL_TECNICO.md     # Guía para desarrolladores
+├── MANUAL_USUARIO.md     # Guía para el usuario final
+├── npm-install.log       # Registro de instalación de módulos
+├── node_modules/         # Módulos y librerías de Node.js
 ├── src/
 │   ├── index.js          # Proceso Principal (Backend)
 │   ├── database.js       # Lógica de base de datos y esquemas
-│   ├── preload.js        # Puente seguro (API)
+│   ├── preload.js        # Puente seguro (ContextBridge API)
 │   ├── cashRegister.js   # Lógica de control de caja
-│   ├── styles.css        # Estilos globales
-│   ├── js/               # Lógica del Frontend
-│   │   ├── login.js
+│   ├── styles.css        # Estilos globales de la aplicación
+│   ├── js/               # Lógica del Frontend (Módulos JS)
+│   │   ├── cash_register.js
+│   │   ├── clients.js
 │   │   ├── dashboard.js
-│   │   ├── sales.js
+│   │   ├── expenses.js
+│   │   ├── layout.js
+│   │   ├── login.js
+│   │   ├── price_lookup.js
 │   │   ├── products.js
-│   │   ├── ... (otros módulos)
-│   └── views/            # Vistas HTML
-│       ├── login.html
-│       ├── index.html
-│       ├── sales.html
-│       ├── ... (otras vistas)
-└── logo/                 # Recursos gráficos
+│   │   ├── purchase_orders.js
+│   │   ├── quotes.js
+│   │   ├── report.js
+│   │   ├── sales.js
+│   │   ├── services.js
+│   │   ├── settings.js
+│   │   ├── suppliers.js
+│   │   └── support.js
+│   ├── views/            # Vistas HTML (Interfaces)
+│   │   ├── cash_register.html
+│   │   ├── clients.html
+│   │   ├── expenses.html
+│   │   ├── index.html
+│   │   ├── login.html
+│   │   ├── products.html
+│   │   ├── purchase_orders.html
+│   │   ├── quotes.html
+│   │   ├── reports.html
+│   │   ├── sales.html
+│   │   ├── services.html
+│   │   ├── settings.html
+│   │   ├── suppliers.html
+│   │   └── support.html
+│   └── logo/             # Recursos gráficos (Dentro de src)
+│       ├── gestorfx_logo.png
+│       └── gestorfx_logof.ico
+
+---
 ```
 
 ## 5. Esquema de Base de Datos

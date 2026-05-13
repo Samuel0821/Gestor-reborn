@@ -1,7 +1,7 @@
 # GestorFX - Sistema ERP Profesional
 
 ## Descripción General
-GestorFX es una solución de software de escritorio robusta y moderna para la gestión integral de negocios (ERP). Desarrollada con **Electron** y **Node.js**, utiliza una arquitectura asíncrona para garantizar un rendimiento fluido y una experiencia de usuario ágil. Todos los procesos de base de datos y generación de archivos se ejecutan en segundo plano sin bloquear la interfaz.
+GestorFX es una solución de software de escritorio robusta y moderna para la gestión integral de negocios (ERP). Desarrollada con **Electron** y **Node.js**, utiliza una arquitectura asíncrona para garantizar un rendimiento fluido y una experiencia de usuario ágil. El sistema está optimizado para el comercio minorista y de servicios, con un fuerte enfoque en la precisión del inventario y la trazabilidad financiera.
 
 ## Características Principales
 
@@ -12,95 +12,98 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
 
 ### 📦 Módulos del Sistema
 1.  **Dashboard Interactivo:**
-    - Gráficos de ventas en tiempo real (Chart.js).
-    - Indicadores clave de rendimiento (KPIs).
-    - **Gestión Operativa:** Widgets para visualizar Servicios Programados pendientes y Borradores de servicios abiertos.
-    - Alertas automáticas de stock mínimo.
+    - **Estadísticas Avanzadas:** Análisis de utilidad bruta (Ventas - Costos), top 5 productos más vendidos y desglose de métodos de pago.
+    - **Centro de Alertas:** Notificaciones de stock mínimo, órdenes de compra pendientes, deudores de crédito y cuentas por pagar vencidas.
+    - **Gestión Operativa:** Widgets en tiempo real para servicios programados y borradores de trabajo.
+    - **Actividad Reciente:** Historial rápido de las últimas transacciones y modificaciones.
 2.  **Punto de Venta (POS):**
     - Facturación rápida con soporte para lector de código de barras.
     - Manejo de variantes de productos (Unidades de medida) con precios y costos específicos.
     - **Precios Múltiples:** Selección de 3 listas de precios (Normal, Especial 1, Especial 2).
     - Pagos mixtos (Efectivo + Transferencia).
     - Ventas a crédito y gestión de abonos.
-    - **Recibos de Caja:** Generación de comprobantes de ingreso numerados y exportables a PDF.
-    - **Edición de Facturas:** Permite modificar ventas existentes recalculando inventario y saldos automáticamente.
+    - **Recibos de Caja Oficiales:** Generación de comprobantes de ingreso con valor en letras y detalles de saldo.
+    - **Edición Avanzada:** Modificación de facturas existentes con ajuste automático de stock y conciliación financiera (pagos adicionales o egresos por devolución).
+    - **Anulación Protegida:** Permite anular ventas restaurando el stock y dejando rastro en auditoría.
 3.  **Inventario Avanzado:**
-    - Gestión de productos, categorías y proveedores.
-    - **Cálculo de Precios:** Lógica bidireccional automática (Margen % <-> Precio Venta). Soporte para decimales en stock y precios.
-    - **Variantes de Producto:** Soporte para múltiples presentaciones (ej. Kilo, Bulto) con factor de conversión y costo de compra individual.
-    - Control de stock y alertas de reabastecimiento.
+    - **Variantes Pro:** Cada presentación (Bulto, Caja, Unidad) tiene su propio costo de compra y 3 niveles de precios de venta.
+    - **Gestión de Costos:** Cálculo de utilidad basado en el costo específico de la variante vendida para reportes financieros precisos.
+    - **Trazabilidad:** Control de números de serial para garantías.
     - Exportación de inventario a Excel y PDF.
 4.  **Servicios:**
-    - Creación de paquetes de servicios (Mano de obra + Insumos).
-    - **Ciclo de Vida:** Estados (Abierto, Cotizado, Finalizado, Anulado) y Ejecución (Pendiente, Realizado).
-    - **Programación:** Asignación de fecha programada y control de realización operativa.
-    - **Abonos:** Registro de pagos parciales (anticipos) que impactan caja y se descuentan al facturar.
-    - **Soporte de Variantes:** Los materiales asociados pueden ser variantes específicas, calculando el costo y precio correctamente.
-    - Vinculación de clientes a las órdenes de servicio.
-    - Descuento automático de materiales del inventario al guardar un servicio (Gestión inteligente para evitar doble descuento al facturar).
+    - **Gestión de Anticipos:** Los abonos a servicios impactan la caja del día y se reflejan como pagos previos al facturar.
+    - **Ciclo Operativo:** Control de fechas programadas y registro de "Realizado" con marca de tiempo.
+    - **Integración POS:** Conversión directa de servicios a Venta o Cotización con un solo clic, evitando la doble deducción de stock.
 5.  **Compras y Proveedores:**
-    - Generación de Órdenes de Compra.
-    - Soporte para **IVA Opcional** y **Fecha de Vencimiento** en compras.
-    - Edición de órdenes de compra pendientes.
-    - Recepción de mercancía con actualización automática de stock.
-    - Gestión de pagos a proveedores con aplicación de **Retenciones en la Fuente**.
-    - Base de datos de proveedores.
+    - **Contabilidad de Compras:** Manejo de IVA (19%) opcional, descuentos comerciales y fechas de vencimiento.
+    - **Retenciones DIAN:** Aplicación de retenciones en la fuente (Compras, Servicios, Honorarios) al registrar pagos a proveedores.
+    - **Cuentas por Pagar:** Seguimiento de saldos pendientes con historial de pagos y generación de Comprobantes de Egreso.
 6.  **Cotizaciones:**
-    - Generación de cotizaciones profesionales en PDF.
-    - Persistencia de datos (guardado automático al cambiar de pantalla).
-    - Edición de cotizaciones existentes respetando variantes seleccionadas.
-    - Conversión de cotización a venta con validación de stock (conversión automática de unidades) y gestión de pagos.
+    - **Validación Pre-Venta:** Al aprobar una cotización, el sistema valida el stock real actual antes de permitir la conversión a factura.
+    - **Borradores:** Persistencia automática del carrito para evitar pérdida de datos.
 7.  **Finanzas y Caja:**
-    - Apertura y cierre de caja (Arqueo ciego).
-    - Registro de movimientos de efectivo.
-    - Reportes de utilidad real (Ventas - Costos).
-    - **Gestión de Gastos:** Registro, visualización de detalles y generación de Comprobantes de Egreso en PDF.
-    - **Reporte de Egresos:** Control detallado de gastos con exportación a PDF.
-    - **Reporte de Retenciones:** Informe para la DIAN con el detalle de retenciones aplicadas en compras.
-    - **Auditoría:** Registro de modificaciones sensibles (ej. edición de ventas).
+    - **Cierre de Caja Detallado:** Arqueo por denominaciones de billetes/monedas con cálculo de diferencias.
+    - **Reportes Contables:** Utilidad Neta Real (Ingresos - Costos - Gastos), Reporte de Retenciones (DIAN) y Reporte de Egresos Detallado.
+    - **Auditoría de Sistema:** Registro log de todas las modificaciones críticas realizadas por los usuarios.
 8.  **Soporte Técnico:**
-    - Módulo integrado para envío de reportes de error directamente al desarrollador.
+    - Envío de tickets de soporte directamente desde la aplicación.
 
-## Estructura del Proyecto
-El proyecto sigue una estructura modular clara:
+## GESTOR-REBORN/ ESTRUCTURA DEL PROYECTO
 
-```
-database.sqlite
-package.json
-src/
-  database.js
-  index.js
-  preload.js
-  js/
-    clients.js
-    dashboard.js
-    expenses.js
-    login.js
-    products.js
-      price_lookup.js
-    purchase_orders.js
-    quotes.js
-    report.js
-    sales.js
-    services.js
-    settings.js
-    suppliers.js
-    support.js
-  views/
-    clients.html
-    expenses.html
-    index.html
-    login.html
-    products.html
-    purchase_orders.html
-    quotes.html
-    reports.html
-    sales.html
-    services.html
-    settings.html
-    suppliers.html
-    support.html
-```
+├── .gitignore                # Archivos y carpetas omitidos por Git
+├── database.sqlite           # Base de datos local (SQLite)
+├── DOCUMENTACION.md          # Documentación técnica general
+├── forge.config.js           # Configuración de empaquetado (Electron Forge)
+├── MANUAL_TECNICO.md         # Manual para desarrolladores
+├── MANUAL_USUARIO.md         # Manual para el cliente/usuario
+├── node_modules/             # Dependencias del proyecto
+├── npm-install.log           # Registro de instalación de dependencias
+├── package.json              # Metadatos y scripts del proyecto
+├── package-lock.json         # Versiones exactas de dependencias
+└── src/                      # Código fuente de la aplicación
+    ├── cashRegister.js       # Lógica principal de operaciones de caja
+    ├── database.js           # Configuración y conexión a la DB
+    ├── index.js              # Punto de entrada (Proceso Principal)
+    ├── preload.js            # Script de pre-carga (Seguridad/API)
+    ├── styles.css            # Estilos CSS globales
+    ├── js/                   # Lógica modular del Frontend
+    │   ├── cash_register.js
+    │   ├── clients.js
+    │   ├── dashboard.js
+    │   ├── expenses.js
+    │   ├── layout.js
+    │   ├── login.js
+    │   ├── price_lookup.js
+    │   ├── products.js
+    │   ├── purchase_orders.js
+    │   ├── quotes.js
+    │   ├── report.js
+    │   ├── sales.js
+    │   ├── services.js
+    │   ├── settings.js
+    │   ├── suppliers.js
+    │   └── support.js
+    ├── logo/                 # Recursos gráficos y multimedia
+    │   ├── gestorfx_logo.png
+    │   └── gestorfx_logof.ico
+    └── views/                # Interfaces de usuario (HTML)
+        ├── cash_register.html
+        ├── clients.html
+        ├── expenses.html
+        ├── index.html
+        ├── login.html
+        ├── products.html
+        ├── purchase_orders.html
+        ├── quotes.html
+        ├── reports.html
+        ├── sales.html
+        ├── services.html
+        ├── settings.html
+        ├── suppliers.html
+        └── support.html
+
+---
+
 
 ## Instalación y ejecución
 1. Instala Node.js (https://nodejs.org/)
