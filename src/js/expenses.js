@@ -60,6 +60,57 @@ document.addEventListener('DOMContentLoaded', () => {
       body.dark-mode .dropdown-divider { border-top-color: #444c56; }
     `;
     document.head.appendChild(dropdownStyles);
+
+    // --- ESTILOS PARA EL FORMULARIO DE EGRESOS ---
+    const expenseFormStyles = document.createElement('style');
+    expenseFormStyles.innerHTML = `
+      #expense-form {
+        padding: 20px;
+        border-radius: 10px;
+        background-color: #f8f9fa;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+      }
+      #expense-form .form-label {
+        font-weight: 600;
+        color: #343a40;
+        margin-bottom: 5px;
+      }
+      #expense-form .form-control,
+      #expense-form .form-select {
+        border-radius: 8px;
+        border: 1px solid #ced4da;
+        padding: 10px 15px;
+        transition: all 0.3s ease;
+      }
+      #expense-form .form-control:focus,
+      #expense-form .form-select:focus {
+        border-color: #80bdff;
+        box-shadow: 0 0 0 0.25rem rgba(0, 123, 255, 0.25);
+      }
+      #expense-form .btn-primary {
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-weight: 600;
+      }
+      /* Ajustes para el Modo Oscuro */
+      body.dark-mode #expense-form {
+        background-color: #2d333b;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      }
+      body.dark-mode #expense-form .form-label {
+        color: #c9d1d9;
+      }
+      body.dark-mode #expense-form .form-control,
+      body.dark-mode #expense-form .form-select {
+        background-color: #373e47;
+        border-color: #444c56;
+        color: #c9d1d9;
+      }
+      body.dark-mode #expense-form .form-control::placeholder {
+        color: #8b949e;
+      }
+    `;
+    document.head.appendChild(expenseFormStyles);
     // ---------------------------------------------------------------------------------------
 
     // Lógica de Gastos
@@ -84,7 +135,27 @@ document.addEventListener('DOMContentLoaded', () => {
               <p><strong>Categoría:</strong> <span id="detail-category"></span></p>
               <p><strong>Descripción:</strong> <span id="detail-desc"></span></p>
               <p><strong>Monto:</strong> <span id="detail-amount" class="text-danger fw-bold"></span></p>
+              <p><strong>Método:</strong> <span id="detail-method"></span></p>
+              <p><strong>Referencia:</strong> <span id="detail-reference"></span></p>
               <p><strong>Registrado:</strong> <span id="detail-created"></span></p>
+              <div id="detail-refund-items" class="mt-3" style="display: none;">
+                <h6>Detalle de Devolución</h6>
+                <p><strong>Factura Original:</strong> <span id="refund-invoice-number"></span></p>
+                <p><strong>Cliente:</strong> <span id="refund-client-name"></span></p>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead>
+                            <tr>
+                                <th>Producto</th>
+                                <th class="text-end">Cantidad</th>
+                                <th class="text-end">Valor Unit.</th>
+                                <th class="text-end">Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody id="refund-items-tbody"></tbody>
+                    </table>
+                </div>
+              </div>
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
@@ -155,6 +226,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${exp.date}</td>
                 <td>${exp.description}</td>
                 <td><span class="badge bg-secondary">${exp.category}</span></td>
+                <td>${exp.method === 'transfer' ? '<span class="badge bg-info">Transferencia</span>' : '<span class="badge bg-success">Efectivo</span>'}</td>
                 <td class="text-end text-danger fw-bold">-${formatCOP(exp.amount)}</td>
                 <td>
                     <div class="dropdown">
@@ -192,7 +264,39 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.getElementById('detail-category').textContent = exp.category;
                     document.getElementById('detail-desc').textContent = exp.description;
                     document.getElementById('detail-amount').textContent = formatCOP(exp.amount);
+                    document.getElementById('detail-method').textContent = (exp.method === 'transfer') ? 'Transferencia' : 'Efectivo';
+                    document.getElementById('detail-reference').textContent = exp.reference || '-';
                     document.getElementById('detail-created').textContent = exp.created_at || '-';
+
+                    // Lógica para detalles de devolución
+                    const refundDetailContainer = document.getElementById('detail-refund-items');
+                    const refundItemsTbody = document.getElementById('refund-items-tbody');
+                    refundDetailContainer.style.display = 'none'; // Ocultar por defecto
+                    refundItemsTbody.innerHTML = ''; // Limpiar ítems previos
+
+                    if (exp.category === 'Devolución' && exp.details) {
+                        try {
+                            const details = JSON.parse(exp.details);
+                            document.getElementById('refund-invoice-number').textContent = details.invoice_number || '-';
+                            document.getElementById('refund-client-name').textContent = details.client_name || 'Consumidor Final';
+                            
+                            if (details.items && details.items.length > 0) {
+                                details.items.forEach(item => {
+                                    refundItemsTbody.innerHTML += `
+                                        <tr>
+                                            <td>${item.product_name}</td>
+                                            <td class="text-end">${item.quantity}</td>
+                                            <td class="text-end">${formatCOP(item.price)}</td>
+                                            <td class="text-end">${formatCOP(item.subtotal)}</td>
+                                        </tr>
+                                    `;
+                                });
+                                refundDetailContainer.style.display = 'block'; // Mostrar la sección de devolución
+                            }
+                        } catch (parseError) {
+                            console.error("Error al parsear detalles de egreso:", parseError);
+                        }
+                    }
                     detailModal.show();
                 }
             });
@@ -256,13 +360,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const amount = Number(document.getElementById('expense-amount').value);
         const category = document.getElementById('expense-category').value;
         const date = document.getElementById('expense-date').value;
+        const methodEl = document.getElementById('expense-method');
+        const method = methodEl ? methodEl.value : 'cash';
+        const reference = document.getElementById('expense-reference') ? document.getElementById('expense-reference').value.trim() : null;
 
         if (!description || amount <= 0 || !date) {
             Swal.fire('Atención', 'Por favor complete todos los campos correctamente.', 'warning');
             return;
         }
 
-        const expense = { description, amount, category, date };
+        const expense = { description, amount, category, date, method: method, reference: reference };
 
         const res = await window.api.saveExpense(expense);
         if(res.success) {
@@ -289,4 +396,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     loadExpenses();
+
+    // Mostrar/ocultar referencia cuando se seleccione transferencia
+    const methodSelect = document.getElementById('expense-method');
+    if (methodSelect) {
+        methodSelect.addEventListener('change', (e) => {
+            const container = document.getElementById('expense-ref-container');
+            if (!container) return;
+            container.style.display = e.target.value === 'transfer' ? 'block' : 'none';
+        });
+    }
 });

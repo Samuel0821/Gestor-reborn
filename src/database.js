@@ -132,7 +132,7 @@ try {
       amount REAL NOT NULL,
       method TEXT NOT NULL, -- 'cash', 'transfer'
       reference TEXT,
-      date DATETIME DEFAULT CURRENT_TIMESTAMP,
+      date DATETIME DEFAULT (DATETIME('now', 'localtime')),
       FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
     )
   `).run();
@@ -211,7 +211,15 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
   order_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   total_amount REAL NOT NULL DEFAULT 0,
   po_number TEXT UNIQUE,
-  status TEXT NOT NULL DEFAULT 'pending', -- pending, completed
+  status TEXT NOT NULL DEFAULT 'pending', 
+  notes TEXT,
+  supplier_invoice_number TEXT,
+  payment_status TEXT DEFAULT 'pending',
+  paid_amount REAL DEFAULT 0,
+  outstanding_balance REAL DEFAULT 0,
+  include_iva INTEGER DEFAULT 0,
+  due_date DATE,
+  discount_amount REAL DEFAULT 0,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
 )`).run();
 
@@ -250,6 +258,9 @@ CREATE TABLE IF NOT EXISTS sales (
   cash_payment REAL NOT NULL DEFAULT 0,
   transfer_payment REAL NOT NULL DEFAULT 0,
   receipt_number TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'active', 
+  due_date DATE,
+  notes TEXT,
   FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
 )`).run();
 
@@ -281,7 +292,7 @@ try {
       method TEXT,
       reference TEXT,
       notes TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT (DATETIME('now', 'localtime')),
       FOREIGN KEY(purchase_order_id) REFERENCES purchase_orders(id)
     )
   `).run();
@@ -325,6 +336,57 @@ try {
     db.prepare("ALTER TABLE purchase_orders ADD COLUMN due_date DATE").run();
   }
 } catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar descuento a órdenes de compra
+try {
+  const poCols = db.prepare("PRAGMA table_info(purchase_orders)").all();
+  if (!poCols.some(c => c.name === "discount_amount")) {
+    db.prepare("ALTER TABLE purchase_orders ADD COLUMN discount_amount REAL DEFAULT 0").run();
+  }
+} catch (e) { console.error("Error migración discount_amount:", e); }
+
+// GASTOS (EXPENSES) - Se crea aquí para asegurar que exista antes de la migración de la columna 'details'
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT,
+    amount REAL,
+    category TEXT,
+    date TEXT,
+    details TEXT,
+    created_at DATETIME DEFAULT (DATETIME('now', 'localtime'))
+  )
+`).run();
+
+// MIGRACIÓN: Agregar created_at a expenses si no existe y poblar con localtime
+try {
+  const expCols = db.prepare("PRAGMA table_info(expenses)").all();
+  if (!expCols.some(c => c.name === "created_at")) {
+    db.prepare("ALTER TABLE expenses ADD COLUMN created_at DATETIME").run();
+    // Para registros existentes, usar la columna 'date' si solo tiene fecha, o CURRENT_TIMESTAMP si no hay nada
+    db.prepare("UPDATE expenses SET created_at = DATETIME(date || ' 00:00:00', 'localtime') WHERE created_at IS NULL AND date IS NOT NULL").run();
+    db.prepare("UPDATE expenses SET created_at = DATETIME('now', 'localtime') WHERE created_at IS NULL").run();
+  }
+} catch (e) { console.error("Error migración created_at en expenses:", e); }
+
+// MIGRACIÓN: Agregar detalles (JSON) a gastos para devoluciones
+try {
+  const expCols = db.prepare("PRAGMA table_info(expenses)").all();
+  if (!expCols.some(c => c.name === "details")) {
+    db.prepare("ALTER TABLE expenses ADD COLUMN details TEXT").run();
+  }
+} catch (e) { console.error("Error migración details en expenses:", e); }
+
+// MIGRACIÓN: Agregar método y referencia a expenses (efectivo / transferencia)
+try {
+  const expCols2 = db.prepare("PRAGMA table_info(expenses)").all();
+  if (!expCols2.some(c => c.name === "method")) {
+    db.prepare("ALTER TABLE expenses ADD COLUMN method TEXT DEFAULT 'cash'").run();
+  }
+  if (!expCols2.some(c => c.name === "reference")) {
+    db.prepare("ALTER TABLE expenses ADD COLUMN reference TEXT").run();
+  }
+} catch (e) { console.error("Error migración method/reference en expenses:", e); }
 
 // MIGRACIÓN: Agregar special_price_2 y special_price_3 a products
 try {
@@ -379,6 +441,22 @@ try {
   }
 } catch (e) { /* ignorar */ }
 
+// MIGRACIÓN: Agregar status a sales (active, annulled)
+try {
+  const sCols = db.prepare("PRAGMA table_info(sales)").all();
+  if (!sCols.some(c => c.name === "status")) {
+    db.prepare("ALTER TABLE sales ADD COLUMN status TEXT DEFAULT 'active'").run();
+  }
+} catch (e) { /* ignorar */ }
+
+// MIGRACIÓN: Agregar due_date a sales para créditos
+try {
+  const sCols = db.prepare("PRAGMA table_info(sales)").all();
+  if (!sCols.some(c => c.name === "due_date")) {
+    db.prepare("ALTER TABLE sales ADD COLUMN due_date DATE").run();
+  }
+} catch (e) { /* ignorar */ }
+
 // MIGRACIÓN: Agregar serial_number a sale_items para control de garantías
 try {
   const siCols = db.prepare("PRAGMA table_info(sale_items)").all();
@@ -398,15 +476,65 @@ try {
 // CAJA REGISTRADORA
 // Sesiones de caja (apertura/cierre)
 db.prepare(`
-  CREATE TABLE IF NOT EXISTS cash_register_sessions (
+  CREATE TABLE IF NOT EXISTS cash_register_sessions ( 
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    opened_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    closed_at TEXT,
+    opened_at TEXT NOT NULL DEFAULT (DATETIME('now', 'localtime')),
+    closed_at TEXT, 
     opening_balance REAL NOT NULL,
     closing_balance REAL,
     expected_balance REAL,
-    difference REAL,
-    status TEXT NOT NULL DEFAULT 'open'
+    difference REAL, 
+    status TEXT NOT NULL DEFAULT 'open',
+    user_id INTEGER,
+    user_name TEXT,
+    opening_notes TEXT,
+    closing_notes TEXT,
+    closed_by_user_id INTEGER,
+    closed_by_user_name TEXT,
+    opening_ip TEXT,
+    closing_ip TEXT
+  )
+`).run();
+
+// MIGRACIÓN: Agregar columnas de usuario y notas a cash_register_sessions
+try {
+  const sessionCols = db.prepare("PRAGMA table_info(cash_register_sessions)").all();
+  if (!sessionCols.some(c => c.name === "user_id")) {
+    db.prepare("ALTER TABLE cash_register_sessions ADD COLUMN user_id INTEGER").run();
+  }
+  if (!sessionCols.some(c => c.name === "user_name")) {
+    db.prepare("ALTER TABLE cash_register_sessions ADD COLUMN user_name TEXT").run();
+  }
+  if (!sessionCols.some(c => c.name === "opening_notes")) {
+    db.prepare("ALTER TABLE cash_register_sessions ADD COLUMN opening_notes TEXT").run();
+  }
+  if (!sessionCols.some(c => c.name === "closing_notes")) {
+    db.prepare("ALTER TABLE cash_register_sessions ADD COLUMN closing_notes TEXT").run();
+  }
+  if (!sessionCols.some(c => c.name === "closed_by_user_id")) {
+    db.prepare("ALTER TABLE cash_register_sessions ADD COLUMN closed_by_user_id INTEGER").run();
+  }
+  if (!sessionCols.some(c => c.name === "closed_by_user_name")) {
+    db.prepare("ALTER TABLE cash_register_sessions ADD COLUMN closed_by_user_name TEXT").run();
+  }
+  if (!sessionCols.some(c => c.name === "opening_ip")) {
+    db.prepare("ALTER TABLE cash_register_sessions ADD COLUMN opening_ip TEXT").run();
+  }
+  if (!sessionCols.some(c => c.name === "closing_ip")) {
+    db.prepare("ALTER TABLE cash_register_sessions ADD COLUMN closing_ip TEXT").run();
+  }
+} catch (e) { console.error("Error migración cash_register_sessions:", e); }
+
+// Nueva tabla para detalles de arqueo de caja
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS cash_reconciliation_details (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    denomination INTEGER NOT NULL, -- 100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50
+    count INTEGER NOT NULL DEFAULT 0,
+    amount REAL NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES cash_register_sessions(id) ON DELETE CASCADE
   )
 `).run();
 
@@ -415,14 +543,30 @@ db.prepare(`
   CREATE TABLE IF NOT EXISTS cash_movements (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER NOT NULL,
-    type TEXT NOT NULL, -- 'sale', 'in', 'out'
+    type TEXT NOT NULL, -- 'in', 'out'
+    sub_type TEXT, -- 'sale_cash', 'credit_payment', 'service_payment', 'manual_in', 'expense', 'purchase_payment', 'manual_out', 'refund'
     description TEXT,
     amount REAL NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TEXT NOT NULL DEFAULT (DATETIME('now', 'localtime')),
+    related_id INTEGER, -- ID de la venta, gasto, pago, etc.
     FOREIGN KEY (session_id) REFERENCES cash_register_sessions(id)
   )
 `).run();
 
+// MIGRACIÓN: Agregar sub_type y related_id a cash_movements para reportes detallados
+try {
+  const movCols = db.prepare("PRAGMA table_info(cash_movements)").all();
+  if (!movCols.some(c => c.name === "sub_type")) {
+    db.prepare("ALTER TABLE cash_movements ADD COLUMN sub_type TEXT").run();
+    // Normalizar datos antiguos: tipo 'sale' pasa a ser 'in' con sub_tipo 'sale_cash'
+    db.prepare("UPDATE cash_movements SET sub_type = 'sale_cash', type = 'in' WHERE type = 'sale'").run();
+    db.prepare("UPDATE cash_movements SET sub_type = 'manual_in' WHERE type = 'in' AND sub_type IS NULL").run();
+    db.prepare("UPDATE cash_movements SET sub_type = 'manual_out' WHERE type = 'out' AND sub_type IS NULL").run();
+  }
+  if (!movCols.some(c => c.name === "related_id")) {
+    db.prepare("ALTER TABLE cash_movements ADD COLUMN related_id INTEGER").run();
+  }
+} catch (e) { console.error("Error migración cash_movements:", e); }
 // Pagos por venta (para manejar efectivo/transferencia/mixto)
 db.prepare(`
   CREATE TABLE IF NOT EXISTS sale_payments (
@@ -433,7 +577,7 @@ db.prepare(`
     received REAL, -- solo aplica si es efectivo
     change REAL,   -- solo aplica si es efectivo
     reference TEXT, -- banco o referencia
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (DATETIME('now', 'localtime')),
     FOREIGN KEY (sale_id) REFERENCES sales(id)
   )
 `).run();
@@ -443,7 +587,7 @@ try {
   const spColumns = db.prepare("PRAGMA table_info(sale_payments)").all();
   if (!spColumns.some(c => c.name === "created_at")) {
     // SQLite restringe el uso de DEFAULT CURRENT_TIMESTAMP en ALTER TABLE.
-    // Solución: Agregar columna sin default y actualizar registros existentes.
+    // Solución: Agregar columna sin default, luego actualizar registros existentes a localtime.
     db.prepare("ALTER TABLE sale_payments ADD COLUMN created_at DATETIME").run();
     db.prepare("UPDATE sale_payments SET created_at = (SELECT sale_date FROM sales WHERE sales.id = sale_payments.sale_id) WHERE created_at IS NULL").run();
   }
@@ -493,16 +637,11 @@ CREATE TABLE IF NOT EXISTS services (
   name TEXT NOT NULL,
   description TEXT,
   price REAL NOT NULL DEFAULT 0,
-  status TEXT DEFAULT 'Abierto'
+  status TEXT DEFAULT 'Abierto',
+  scheduled_date DATE,
+  performed_at DATETIME,
+  client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL
 )`).run();
-
-// MIGRACIÓN: Agregar client_id a services
-try {
-  const sCols = db.prepare("PRAGMA table_info(services)").all();
-  if (!sCols.some(c => c.name === "client_id")) {
-    db.prepare("ALTER TABLE services ADD COLUMN client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL").run();
-  }
-} catch (e) { /* ignorar */ }
 
 db.prepare(`
 CREATE TABLE IF NOT EXISTS service_products (
@@ -511,6 +650,7 @@ CREATE TABLE IF NOT EXISTS service_products (
   product_id INTEGER NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 1,
   variant_id INTEGER,
+  price REAL DEFAULT 0,
   FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 )`).run();
@@ -524,19 +664,6 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL DEFAULT 'user', -- 'admin' or 'user'
   name TEXT
 )`).run();
-
-// GASTOS (EXPENSES)
-db.prepare(`
-  CREATE TABLE IF NOT EXISTS expenses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    description TEXT,
-    amount REAL,
-    category TEXT,
-    date TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`).run();
-
 // AUDITORÍA (LOGS DE MODIFICACIONES)
 db.prepare(`
   CREATE TABLE IF NOT EXISTS audit_logs (
@@ -807,13 +934,23 @@ function createSale({
   cash_payment = 0, 
   transfer_payment = 0,
   transfer_reference = null,
-  service_id = null
+  service_id = null,
+  due_date = null,
+  status = 'active' // Por defecto, una nueva venta está activa
 }) {
   const insertSale = db.prepare(`
     INSERT INTO sales (
-      client_id, total_amount, sale_date, sale_type, paid_amount, outstanding_balance,
-      cash_payment, transfer_payment
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      client_id, 
+      total_amount, 
+      sale_date, 
+      sale_type, 
+      paid_amount, 
+      outstanding_balance,
+      cash_payment, 
+      transfer_payment, 
+      due_date, 
+      status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertPayment = db.prepare(`
@@ -831,8 +968,7 @@ function createSale({
   const getVariant = db.prepare("SELECT * FROM product_variants WHERE id = ?");
 
   const trx = db.transaction((client_id, items, cash_payment, transfer_payment, transfer_reference, service_id) => {
-    const now = new Date();
-    const formattedDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
+    const formattedDate = new Date().toLocaleString('sv-SE'); // Genera YYYY-MM-DD HH:mm:ss local para compatibilidad
 
     let total = 0;
     for (const it of items) {
@@ -863,6 +999,10 @@ function createSale({
       total += price * it.quantity;
     }
 
+    // Calcular el cambio y el valor neto en efectivo antes de registrar la venta
+    const change = Math.max(0, (cash_payment + transfer_payment) - total);
+    const netCashValue = Math.max(0, cash_payment - change);
+
     const finalPaid = (sale_type === 'credit') ? paid_amount : total;
     const finalOutstanding = (sale_type === 'credit') ? outstanding_balance : 0;
 
@@ -873,8 +1013,10 @@ function createSale({
       sale_type,
       finalPaid, // Establecer el total pagado al costo total de la venta
       finalOutstanding,
-      cash_payment,
-      transfer_payment
+      netCashValue, // Registrar el valor neto en la tabla sales
+      transfer_payment,
+      due_date,
+      status
     );
     const saleId = saleRes.lastInsertRowid;
 
@@ -906,11 +1048,22 @@ function createSale({
 
     // registrar pagos
     if (cash_payment > 0) {
-      const change = Math.max((cash_payment + transfer_payment) - total, 0);
-      insertPayment.run(saleId, "cash", cash_payment, cash_payment, change, null, formattedDate);
+      insertPayment.run(saleId, "cash", cash_payment, cash_payment, change, null, formattedDate); // Registrar el total recibido y el cambio
+      
+      const cashRegister = require("./cashRegister");
+      const activeSession = cashRegister.getActiveSession();
+      if (activeSession) {
+        cashRegister.addCashMovement(activeSession.id, "in", "sale_cash", netCashValue, `Venta #${saleId}`, saleId); // Registrar el valor neto en el movimiento de caja
+      }
     }
     if (transfer_payment > 0) {
       insertPayment.run(saleId, "transfer", transfer_payment, null, null, transfer_reference, formattedDate);
+      
+      const cashRegister = require("./cashRegister");
+      const activeSession = cashRegister.getActiveSession();
+      if (activeSession) {
+        cashRegister.addCashMovement(activeSession.id, "in", "sale_transfer", transfer_payment, `Venta (Trf) #${saleId}`, saleId);
+      }
     }
     // consecutivo factura
     const last = getLastInvoiceNumber();
@@ -923,15 +1076,13 @@ function createSale({
     }
     db.prepare("UPDATE sales SET invoice_number = ? WHERE id = ?").run(next, saleId);
 
-    // --- MIGRACIÓN DE ABONOS DE SERVICIO ---
+    // Si la venta proviene de un servicio, solo marcar el servicio como finalizado.
+    // Evitar migrar los registros de `service_payments` a `sale_payments` porque:
+    // - Los abonos ya están registrados en `service_payments` y en movimientos de caja cuando se realizaron.
+    // - Migrarlos causa que esos abonos aparezcan también en la pestaña de "Abonos Créditos" al consultar `sale_payments`.
+    // Por tanto, NO duplicamos los abonos aquí; se conserva el historial en `service_payments`.
     if (service_id) {
-        const servicePayments = db.prepare("SELECT * FROM service_payments WHERE service_id = ?").all(service_id);
-        for (const sp of servicePayments) {
-            // Insertar como pago histórico asociado a esta venta (NO afecta caja actual, solo historial de venta)
-            insertPayment.run(saleId, sp.method, sp.amount, sp.amount, 0, sp.reference, sp.date);
-        }
-        // Actualizar estado del servicio a Finalizado
-        db.prepare("UPDATE services SET status = 'Finalizado' WHERE id = ?").run(service_id);
+      db.prepare("UPDATE services SET status = 'Finalizado' WHERE id = ?").run(service_id);
     }
     // ---------------------------------------
 
@@ -966,7 +1117,7 @@ function createSaleFromQuote(data) {
   }
 }
 
-function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
+function updateSale({ saleId, clientId, items, paymentAdjustment, userName, due_date }) {
     const trx = db.transaction(() => {
         // 1. Get original sale and items
         const originalSale = db.prepare("SELECT * FROM sales WHERE id = ?").get(saleId);
@@ -976,6 +1127,7 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
 
         // 2. Calculate and apply stock adjustments
         const stockAdjustments = new Map();
+        const returns = []; // Para el punto 4: Detalle de devoluciones
 
         // Add back original stock
         for (const item of originalItems) {
@@ -995,6 +1147,23 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
                     : 1;
                 const quantityToDecrement = item.quantity * conversionFactor;
                 stockAdjustments.set(item.product_id, (stockAdjustments.get(item.product_id) || 0) - quantityToDecrement);
+            }
+        }
+
+        // Punto 4: Identificar productos devueltos (cantidad reducida)
+        for (const oldIt of originalItems) {
+            const newIt = items.find(n => n.product_id === oldIt.product_id && n.variant_id === oldIt.variant_id);
+            const oldQty = oldIt.quantity;
+            const newQty = newIt ? newIt.quantity : 0;
+            
+            if (newQty < oldQty) {
+                returns.push({
+                    product_name: oldIt.product_name,
+                    product_code: oldIt.product_code,
+                    quantity: oldQty - newQty,
+                    price: oldIt.price,
+                    subtotal: (oldQty - newQty) * oldIt.price
+                });
             }
         }
 
@@ -1061,7 +1230,24 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
                     now
                 );
             } else { // Refund
-                db.prepare(`INSERT INTO expenses (description, amount, category, date) VALUES (?, ?, ?, ?)`).run(`Devolución Venta #${originalSale.invoice_number || saleId}`, Math.abs(paymentAdjustment.amount), 'Devolución', now.slice(0, 10));
+                const client = originalSale.client_id ? db.prepare("SELECT name FROM clients WHERE id = ?").get(originalSale.client_id) : null;
+                const clientInfo = client ? client.name : "Consumidor Final";
+                
+                const expenseDetails = {
+                    invoice_number: originalSale.invoice_number || saleId,
+                    client_name: clientInfo,
+                    items: returns
+                };
+
+                db.prepare(`
+                    INSERT INTO expenses (description, amount, category, date, details) 
+                    VALUES (?, ?, 'Devolución', ?, ?)
+                `).run(
+                    `Devolución Venta #${expenseDetails.invoice_number}`, 
+                    Math.abs(paymentAdjustment.amount), 
+                    now.slice(0, 10),
+                    JSON.stringify(expenseDetails)
+                );
             }
         }
         
@@ -1069,7 +1255,7 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
         const newSaleType = newOutstandingBalance > 0 ? 'credit' : 'paid';
 
         // 5. Update the main sale record
-        db.prepare(`UPDATE sales SET client_id = ?, total_amount = ?, paid_amount = ?, outstanding_balance = ?, sale_type = ?, cash_payment = ?, transfer_payment = ? WHERE id = ?`).run(clientId, newTotalAmount, newPaidAmount, newOutstandingBalance, newSaleType, currentCashReceived, currentTransferReceived, saleId);
+        db.prepare(`UPDATE sales SET client_id = ?, total_amount = ?, paid_amount = ?, outstanding_balance = ?, sale_type = ?, cash_payment = ?, transfer_payment = ?, due_date = ? WHERE id = ?`).run(clientId, newTotalAmount, newPaidAmount, newOutstandingBalance, newSaleType, currentCashReceived, currentTransferReceived, due_date, saleId);
 
         logAction(userName, 'Editar Venta', `Factura #${originalSale.invoice_number || saleId} modificada. Total: ${originalSale.total_amount} -> ${newTotalAmount}`);
     });
@@ -1083,8 +1269,8 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName }) {
     }
 }
 
-function getSales(limit = -1, offset = 0, clientId = null, searchTerm = null) {
-  let query = "SELECT s.id, s.client_id, s.sale_date, s.total_amount, s.invoice_number FROM sales s";
+function getSales(limit = -1, offset = 0, clientId = null, searchTerm = null, statusFilter = 'active') {
+  let query = "SELECT s.id, s.client_id, s.sale_date, s.total_amount, s.invoice_number, s.status FROM sales s";
   const params = [];
   const conditions = [];
 
@@ -1097,6 +1283,11 @@ function getSales(limit = -1, offset = 0, clientId = null, searchTerm = null) {
   if (clientId) {
     conditions.push("s.client_id = ?");
     params.push(clientId);
+  }
+
+  if (statusFilter && statusFilter !== 'all') {
+    conditions.push("s.status = ?");
+    params.push(statusFilter);
   }
 
   if (conditions.length > 0) {
@@ -1118,6 +1309,121 @@ function getSaleById(id) {
 
 function getSaleItems(saleId) {
   return db.prepare("SELECT id, sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, variant_id, conversion_factor, skip_stock FROM sale_items WHERE sale_id = ?").all(saleId);
+}
+
+function getSalePaymentById(id) {
+  return db.prepare("SELECT * FROM sale_payments WHERE id = ?").get(id);
+}
+
+function getSalePayments(saleId) {
+  return db.prepare("SELECT * FROM sale_payments WHERE sale_id = ? ORDER BY created_at DESC").all(saleId);
+}
+
+// Helper para obtener detalles de un abono de cliente para el recibo PDF
+function getSalePaymentDetailsForPdf(paymentId) {
+  const payment = db.prepare("SELECT * FROM sale_payments WHERE id = ?").get(paymentId);
+  if (!payment) return null;
+
+  const sale = db.prepare("SELECT s.*, c.name as client_name FROM sales s LEFT JOIN clients c ON s.client_id = c.id WHERE s.id = ?").get(payment.sale_id);
+  if (!sale) return null;
+
+  // Calculamos el saldo antes de este abono sumando los abonos posteriores y el saldo actual
+  const paymentsAfterThisOne = db.prepare(`
+    SELECT SUM(amount) as total 
+    FROM sale_payments 
+    WHERE sale_id = ? AND id < ?
+  `).get(payment.sale_id, paymentId);
+
+  const paidBeforeThis = paymentsAfterThisOne.total || 0;
+  const balanceBefore = sale.total_amount - paidBeforeThis;
+  const balanceAfter = balanceBefore - payment.amount;
+
+  return {
+    payment,
+    sale,
+    client_name: sale.client_name,
+    balanceBefore,
+    balanceAfter
+  };
+}
+
+// Helper para obtener detalles de un abono de servicio para el recibo PDF
+function getServicePaymentDetailsForPdf(paymentId) {
+  const payment = db.prepare("SELECT * FROM service_payments WHERE id = ?").get(paymentId);
+  if (!payment) return null;
+
+  const service = db.prepare(`
+    SELECT s.*, c.name as client_name,
+      (SELECT COALESCE(SUM(sp.quantity * CASE WHEN sp.price > 0 THEN sp.price ELSE COALESCE(pv.sale_price, p.sale_price) END), 0)
+       FROM service_products sp 
+       JOIN products p ON sp.product_id = p.id 
+       LEFT JOIN product_variants pv ON sp.variant_id = pv.id
+       WHERE sp.service_id = s.id
+      ) as materials_cost
+    FROM services s 
+    LEFT JOIN clients c ON s.client_id = c.id
+    WHERE s.id = ?
+  `).get(payment.service_id);
+  if (!service) return null;
+
+  const totalCost = (service.price || 0) + (service.materials_cost || 0);
+
+  const paymentsBeforeThisOne = db.prepare(`
+    SELECT SUM(amount) as total 
+    FROM service_payments 
+    WHERE service_id = ? AND id < ?
+  `).get(payment.service_id, paymentId);
+
+  const paidBeforeThis = paymentsBeforeThisOne.total || 0;
+  const balanceBefore = totalCost - paidBeforeThis;
+  const balanceAfter = balanceBefore - payment.amount;
+
+  return {
+    payment,
+    service,
+    client_name: service.client_name,
+    balanceBefore,
+    balanceAfter,
+    totalCost
+  };
+}
+
+// Helper para obtener detalles de un pago de compra para PDF
+function getPurchasePaymentDetailsForPdf(paymentId) {
+  const payment = db.prepare("SELECT * FROM purchase_payments WHERE id = ?").get(paymentId);
+  if (!payment) return null;
+
+  const order = db.prepare("SELECT po.*, s.name as supplier_name FROM purchase_orders po JOIN suppliers s ON po.supplier_id = s.id WHERE po.id = ?").get(payment.purchase_order_id);
+  if (!order) return null;
+
+  // Sumar todos los pagos (incluyendo retenciones) hasta este pago para calcular el saldo histórico
+  const allPaymentsUpToThisOne = db.prepare(`
+    SELECT SUM(amount + retention_amount) as total_paid
+    FROM purchase_payments
+    WHERE purchase_order_id = ? AND id <= ?
+  `).get(payment.purchase_order_id, paymentId);
+
+  const paidAmountUpToThis = allPaymentsUpToThisOne.total_paid || 0;
+  const realTotal = order.total_amount - (order.discount_amount || 0);
+  const outstandingBalanceAfterThisPayment = Math.max(0, realTotal - paidAmountUpToThis);
+  const balanceBeforePayment = outstandingBalanceAfterThisPayment + (payment.amount + (payment.retention_amount || 0));
+
+  return {
+    payment,
+    order,
+    supplier_name: order.supplier_name,
+    real_total: realTotal,
+    balance_before_payment: balanceBeforePayment,
+    outstanding_balance_after_payment: outstandingBalanceAfterThisPayment
+  };
+}
+
+function getPurchasePaymentById(id) {
+  return db.prepare("SELECT * FROM purchase_payments WHERE id = ?").get(id);
+}
+
+function getServicePaymentById(id) {
+  return db.prepare("SELECT * FROM service_payments WHERE id = ?").get(id);
 }
 
 function getLastInvoiceNumber() {
@@ -1167,24 +1473,8 @@ function assignReceiptNumber(saleId) {
 
 function deleteSale(id) {
   try {
-    db.transaction(() => {
-      const items = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(id);
-      for (const it of items) {
-        if (it.product_id && !it.skip_stock) { // ⚠️ Solo restaurar si no era skip_stock
-          const factor = it.conversion_factor || 1;
-          db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(it.quantity * factor, it.product_id);
-        }
-      }
-      // Eliminar pagos asociados a la venta
-      db.prepare("DELETE FROM sale_payments WHERE sale_id = ?").run(id);
-      
-      // Eliminar movimiento de caja asociado
-      db.prepare("DELETE FROM cash_movements WHERE type = 'sale' AND description = ?").run(`Venta #${id}`);
-
-      // Eliminar la venta (esto deberÃ­a disparar el borrado en cascada de sale_items)
-      db.prepare("DELETE FROM sales WHERE id = ?").run(id);
-    })();
-    return { success: true, message: "Venta eliminada completamente y stock restaurado" };
+    db.prepare("DELETE FROM sales WHERE id = ?").run(id); // ON DELETE CASCADE se encarga de items y pagos
+    return { success: true, message: "Venta eliminada permanentemente (el inventario no fue afectado)." };
   } catch (err) {
     return { success: false, message: String(err) };
   }
@@ -1219,25 +1509,71 @@ function deleteSaleItem(id) {
   }
 }
 
+function annulSale(id) {
+  try {
+    const trx = db.transaction(() => {
+      const sale = db.prepare("SELECT * FROM sales WHERE id = ?").get(id);
+      if (!sale) throw new Error("Venta no encontrada.");
+      if (sale.status === 'annulled') throw new Error("La venta ya está anulada.");
+
+      const items = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(id);
+      const updateStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
+      const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
+
+      for (const it of items) {
+        if (it.product_id && !it.skip_stock) {
+          let factor = 1;
+          if (it.variant_id) {
+            const v = getVariant.get(it.variant_id);
+            if (v) factor = v.conversion_factor;
+          }
+          updateStock.run(it.quantity * factor, it.product_id);
+        }
+      }
+
+      // Marcar la venta como anulada y ajustar valores financieros
+      db.prepare(`
+        UPDATE sales 
+        SET status = 'annulled', 
+            total_amount = 0, 
+            paid_amount = 0, 
+            outstanding_balance = 0,
+            cash_payment = 0,
+            transfer_payment = 0,
+            notes = COALESCE(notes, '') || ' (Anulada el ' || datetime('now') || ')'
+        WHERE id = ?
+      `).run(id);
+    });
+    trx();
+    return { success: true, message: "Venta anulada y stock restaurado." };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
     // GESTIÓN DE CRÉDITOS
     // Obtiene todos los créditos pendientes, opcionalmente filtrados por cliente.
-    function getCredits(searchTerm) {
+    function getCredits(searchTerm, onlyPending = true) {
         let query = `
             SELECT
-                s.id, s.invoice_number, s.sale_date, s.total_amount, s.paid_amount, s.outstanding_balance,
+                s.id, s.invoice_number, s.sale_date, s.total_amount, s.paid_amount, s.outstanding_balance, s.due_date,
                 c.name as client_name
             FROM sales s
             LEFT JOIN clients c ON s.client_id = c.id
-            WHERE s.sale_type = 'credit' AND s.outstanding_balance > 0
+            WHERE (s.sale_type = 'credit' OR (s.sale_type = 'paid' AND EXISTS (SELECT 1 FROM sale_payments WHERE sale_id = s.id)))
         `;
         const params = [];
+
+        if (onlyPending) {
+            query += " AND s.outstanding_balance > 0";
+        }
 
         if (searchTerm) {
             query += ` AND c.name LIKE ?`;
             params.push(`%${searchTerm}%`);
         }
 
-        return db.prepare(query).all(params);
+        return db.prepare(query).all(...params);
     }
 
      // Registra un abono a un crédito.
@@ -1262,9 +1598,15 @@ function deleteSaleItem(id) {
             }
 
             // Registrar el pago en sale_payments para que aparezca en el reporte del día
-            const now = new Date();
-            const formattedDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
-            db.prepare("INSERT INTO sale_payments (sale_id, method, amount, reference, created_at) VALUES (?, ?, ?, ?, ?)").run(saleId, method, amount, reference, formattedDate);
+            db.prepare("INSERT INTO sale_payments (sale_id, method, amount, reference, created_at) VALUES (?, ?, ?, ?, DATETIME('now', 'localtime'))").run(saleId, method, amount, reference); // Ya usa localtime
+
+            const cashRegister = require("./cashRegister");
+            const activeSession = cashRegister.getActiveSession();
+            if (activeSession) {
+                const subType = method === 'cash' ? 'credit_payment_cash' : 'credit_payment_transfer';
+                const desc = method === 'cash' ? `Abono Crédito #${saleId}` : `Abono Crédito (Trf) #${saleId}`;
+                cashRegister.addCashMovement(activeSession.id, "in", subType, amount, desc, saleId);
+            }
 
             db.prepare("UPDATE sales SET paid_amount = ?, outstanding_balance = ?, sale_type = ? WHERE id = ?")
                 .run(newPaidAmount, newOutstandingBalance, newSaleType, saleId);
@@ -1285,10 +1627,15 @@ function deleteSaleItem(id) {
 
             // Registrar el pago restante en sale_payments
             const amount = sale.outstanding_balance;
-            const now = new Date();
-            const formattedDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
-            db.prepare("INSERT INTO sale_payments (sale_id, method, amount, reference, created_at) VALUES (?, ?, ?, ?, ?)").run(saleId, method, amount, reference, formattedDate);
+            db.prepare("INSERT INTO sale_payments (sale_id, method, amount, reference, created_at) VALUES (?, ?, ?, ?, DATETIME('now', 'localtime'))").run(saleId, method, amount, reference); // Ya usa localtime
 
+            const cashRegister = require("./cashRegister");
+            const activeSession = cashRegister.getActiveSession();
+            if (activeSession) {
+                const subType = method === 'cash' ? 'credit_payment_cash' : 'credit_payment_transfer';
+                const desc = method === 'cash' ? `Pago total Crédito #${saleId}` : `Pago total Crédito (Trf) #${saleId}`;
+                cashRegister.addCashMovement(activeSession.id, "in", subType, amount, desc, saleId);
+            }
             db.prepare("UPDATE sales SET paid_amount = total_amount, outstanding_balance = 0, sale_type = 'paid' WHERE id = ?")
                 .run(saleId);
 
@@ -1516,10 +1863,22 @@ function getExpenseById(id) {
 
 function saveExpense(expense) {
   const stmt = db.prepare(`
-    INSERT INTO expenses (description, amount, category, date)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO expenses (description, amount, category, date, method, reference, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, DATETIME('now', 'localtime'))
   `);
-  const info = stmt.run(expense.description, expense.amount, expense.category, expense.date);
+  const info = stmt.run(expense.description, expense.amount, expense.category, expense.date, expense.method || 'cash', expense.reference || null);
+
+  // Registrar movimiento de caja (egreso) clasificado por método
+  const cashRegister = require("./cashRegister");
+  const activeSession = cashRegister.getActiveSession();
+  if (activeSession) {
+    const m = (expense.method || 'cash').toString();
+    if (m === 'transfer' || m === 'bank' || m === 'transferencia') {
+      cashRegister.addCashMovement(activeSession.id, "out", "expense_transfer", expense.amount, expense.description, info.lastInsertRowid);
+    } else {
+      cashRegister.addCashMovement(activeSession.id, "out", "expense_cash", expense.amount, expense.description, info.lastInsertRowid);
+    }
+  }
   return { success: true, id: info.lastInsertRowid };
 }
 
@@ -1574,7 +1933,7 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
     const salesStmt = db.prepare(`
       SELECT GROUP_CONCAT(id) as sale_ids
       FROM sales
-      WHERE sale_date >= ? AND sale_date <= ?
+      WHERE sale_date >= ? AND sale_date <= ? AND status != 'annulled'
       GROUP BY ${groupByClause}
       ORDER BY ${groupByClause} DESC
     `);
@@ -1597,9 +1956,10 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
 
     // Consulta para obtener el total de ingresos REALES en el periodo (incluyendo abonos a créditos antiguos)
     const incomeStmt = db.prepare(`
-      SELECT method, SUM(amount - COALESCE(change, 0)) as total
-      FROM sale_payments
-      WHERE created_at >= ? AND created_at <= ?
+      SELECT sp.method, SUM(sp.amount - COALESCE(sp.change, 0)) as total
+      FROM sale_payments sp
+      JOIN sales s ON sp.sale_id = s.id
+      WHERE sp.created_at >= ? AND sp.created_at <= ? AND s.status != 'annulled'
       GROUP BY method
     `);
 
@@ -1749,7 +2109,7 @@ function getPurchaseOrders() {
     SELECT po.*, s.name as supplier_name 
     FROM purchase_orders po
     JOIN suppliers s ON po.supplier_id = s.id
-    ORDER BY po.order_date DESC
+    ORDER BY po.id DESC
   `).all();
   const itemsStmt = db.prepare("SELECT * FROM purchase_order_items WHERE purchase_order_id = ?");
   for (const o of orders) {
@@ -1853,10 +2213,24 @@ function updatePurchaseOrder({ id, supplier_id, order_date, items = [], notes = 
 
 // --- GESTIÓN DE PAGOS A PROVEEDORES ---
 
-function updatePurchaseInvoiceNumber(id, invoiceNumber) {
+function updatePurchaseInvoiceNumber(id, invoiceNumber, discountAmount = 0) {
   try {
-    const stmt = db.prepare("UPDATE purchase_orders SET supplier_invoice_number = ? WHERE id = ?");
-    stmt.run(invoiceNumber, id);
+    const order = db.prepare("SELECT total_amount, paid_amount FROM purchase_orders WHERE id = ?").get(id);
+    if (!order) return { success: false, message: "Orden no encontrada" };
+
+    // El descuento reduce el total real a pagar. 
+    // Recalculamos el saldo pendiente: (Total Original - Descuento) - Lo ya pagado
+    const realTotal = order.total_amount - discountAmount;
+    const newBalance = Math.max(0, realTotal - order.paid_amount);
+
+    const stmt = db.prepare(`
+      UPDATE purchase_orders 
+      SET supplier_invoice_number = ?, 
+          discount_amount = ?, 
+          outstanding_balance = ? 
+      WHERE id = ?
+    `);
+    stmt.run(invoiceNumber, discountAmount, newBalance, id);
     return { success: true };
   } catch (err) {
     return { success: false, message: err.message };
@@ -1865,7 +2239,12 @@ function updatePurchaseInvoiceNumber(id, invoiceNumber) {
 
 function getPurchasePayments(orderId) {
   try {
-    return db.prepare("SELECT * FROM purchase_payments WHERE purchase_order_id = ? ORDER BY date DESC").all(orderId);
+    return db.prepare(`
+      SELECT pp.*, po.supplier_invoice_number 
+      FROM purchase_payments pp 
+      LEFT JOIN purchase_orders po ON pp.purchase_order_id = po.id 
+      WHERE pp.purchase_order_id = ? 
+      ORDER BY pp.date DESC, pp.id DESC`).all(orderId);
   } catch (err) {
     console.error(err);
     return [];
@@ -1882,12 +2261,23 @@ function addPurchasePayment({ orderId, amount, method, reference, date, notes, r
     const transaction = db.transaction(() => {
       // A. Insertar el pago
       db.prepare(`
-        INSERT INTO purchase_payments (purchase_order_id, date, amount, method, reference, notes, retention_amount, retention_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO purchase_payments (purchase_order_id, date, amount, method, reference, notes, retention_amount, retention_type, created_at) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', 'localtime'))
       `).run(orderId, date, amount, method, reference, notes, retentionAmount, retentionType);
 
       // B. Actualizar la Orden de Compra
-      const totalDebtReduction = amount + retentionAmount; // La deuda baja por lo pagado + lo retenido
+      // Registrar movimiento de caja: efectivo o transferencia
+      const cashRegister = require("./cashRegister");
+      const activeSession = cashRegister.getActiveSession();
+      if (activeSession) {
+        if (method === 'cash') {
+          cashRegister.addCashMovement(activeSession.id, "out", "purchase_payment", amount, `Pago Proveedor OC #${order.po_number || orderId}`, orderId);
+        } else if (method === 'transfer' || method === 'bank' || method === 'transferencia') {
+          // registrar como salida por transferencia
+          cashRegister.addCashMovement(activeSession.id, "out", "purchase_payment_transfer", amount, `Pago Proveedor OC #${order.po_number || orderId}`, orderId);
+        }
+      }
+      const totalDebtReduction = amount + (retentionAmount || 0); // La deuda baja por lo pagado + lo retenido
       const newPaid = (order.paid_amount || 0) + totalDebtReduction;
       
       // Si el saldo era 0 y el estado pendiente (migración de datos viejos), asumimos saldo inicial = total
@@ -1907,12 +2297,29 @@ function addPurchasePayment({ orderId, amount, method, reference, date, notes, r
       `).run(newPaid, Math.max(0, newBalance), newStatus, orderId);
 
       // C. Crear el Egreso Automáticamente
-      const expenseDesc = `Pago Factura Prov. ${order.supplier_invoice_number || 'S/N'} - OC #${order.po_number || order.id} - ${order.supplier_name}`;
+      const expenseDesc = `Pago a Proveedor: ${order.supplier_name} - Factura #${order.supplier_invoice_number || 'S/N'} - OC #${order.po_number || order.id}`;
       
+      const realTotal = order.total_amount - (order.discount_amount || 0);
+      const expenseDetails = {
+        po_id: order.id,
+        po_number: order.po_number,
+        supplier_invoice_number: order.supplier_invoice_number,
+        supplier_name: order.supplier_name,
+        total_po_amount: realTotal,
+        balance_before_payment: currentBalance,
+        payment_amount: amount,
+        outstanding_balance_after_payment: Math.max(0, newBalance), // Saldo después de este pago
+        payment_notes: notes,
+        payment_method: method,
+        payment_reference: reference,
+        retention_amount: retentionAmount,
+        retention_type: retentionType
+      };
+
       db.prepare(`
-        INSERT INTO expenses (description, amount, category, date, created_at)
-        VALUES (?, ?, 'Pago Proveedores', ?, datetime('now'))
-      `).run(expenseDesc, amount, date);
+        INSERT INTO expenses (description, amount, category, date, details, created_at, method, reference)
+        VALUES (?, ?, 'Pago Proveedores', ?, ?, DATETIME('now', 'localtime'), ?, ?)
+      `).run(expenseDesc, amount, date, JSON.stringify(expenseDetails), method, reference);
     });
 
     transaction();
@@ -1970,7 +2377,8 @@ function getServices(limit = 10, offset = 0, status = null, executionStatus = nu
        JOIN products p ON sp.product_id = p.id 
        LEFT JOIN product_variants pv ON sp.variant_id = pv.id
        WHERE sp.service_id = s.id
-      ) as materials_cost
+      ) as materials_cost,
+      (SELECT COALESCE(SUM(amount), 0) FROM service_payments WHERE service_id = s.id) as paid_amount
     FROM services s 
     LEFT JOIN clients c ON s.client_id = c.id
   `;
@@ -2000,6 +2408,14 @@ function getServices(limit = 10, offset = 0, status = null, executionStatus = nu
 
 function getServiceById(id) {
   const service = db.prepare("SELECT * FROM services WHERE id = ?").get(id);
+  // Recalcular materials_cost y paid_amount para el detalle
+  const materialsCostRow = db.prepare(`
+    SELECT COALESCE(SUM(sp.quantity * CASE WHEN sp.price > 0 THEN sp.price ELSE COALESCE(pv.sale_price, p.sale_price) END), 0) as materials_cost
+    FROM service_products sp 
+    JOIN products p ON sp.product_id = p.id 
+    LEFT JOIN product_variants pv ON sp.variant_id = pv.id
+    WHERE sp.service_id = ?
+  `).get(id);
   if (service) {
     const products = db.prepare(`
       SELECT sp.product_id, sp.quantity, sp.variant_id, sp.price,
@@ -2013,6 +2429,8 @@ function getServiceById(id) {
       LEFT JOIN product_variants pv ON sp.variant_id = pv.id
       WHERE sp.service_id = ?
     `).all(id);
+    service.materials_cost = materialsCostRow.materials_cost;
+    service.paid_amount = db.prepare("SELECT COALESCE(SUM(amount), 0) as total FROM service_payments WHERE service_id = ?").get(id).total || 0;
     service.products = products;
   }
   return service;
@@ -2219,21 +2637,21 @@ function addServicePayment(serviceId, amount, method, reference) {
 
   const trx = db.transaction(() => {
     // 1. Registrar pago en servicio
-    db.prepare(`
-      INSERT INTO service_payments (service_id, amount, method, reference)
-      VALUES (?, ?, ?, ?)
-    `).run(serviceId, amount, method, reference);
+    const insertStmt = db.prepare(`
+      INSERT INTO service_payments (service_id, amount, method, reference, date)
+      VALUES (?, ?, ?, ?, DATETIME('now', 'localtime'))
+    `);
+    const res = insertStmt.run(serviceId, amount, method, reference);
 
-    // 2. Registrar movimiento de caja si es efectivo (Impacto real en caja HOY)
-    if (method === 'cash') {
-       const session = db.prepare("SELECT id FROM cash_register_sessions WHERE status = 'open' ORDER BY opened_at DESC LIMIT 1").get();
-       if (session) {
-         db.prepare(`
-           INSERT INTO cash_movements (session_id, type, description, amount)
-           VALUES (?, 'in', ?, ?)
-         `).run(session.id, `Abono Servicio #${serviceId} - ${service.name}`, amount);
-       }
+    // 2. Registrar movimiento de caja (Impacto real en caja HOY)
+    const cashRegister = require("./cashRegister");
+    const session = cashRegister.getActiveSession();
+    if (session) {
+      const subType = (method === 'cash') ? 'service_payment_cash' : 'service_payment_transfer';
+      cashRegister.addCashMovement(session.id, "in", subType, amount, `Abono Servicio #${serviceId} - ${service.name}`, serviceId);
     }
+
+    // debug logging removed
   });
   
   try {
@@ -2306,8 +2724,9 @@ module.exports = {
   // productos
   getProducts, getProductById, addProduct, updateProduct, deleteProduct, updateSale,
   // ventas
-  createSale, createSaleFromQuote, getSales, getSaleById, getSaleItems, deleteSale, deleteSaleItem, assignReceiptNumber,
-  getLastInvoiceNumber, setInvoiceNumber,
+  createSale, createSaleFromQuote, getSales, getSaleById, getSaleItems, getSalePaymentById, deleteSale, deleteSaleItem, assignReceiptNumber,
+  getSalePayments, getLastInvoiceNumber, setInvoiceNumber, 
+  annulSale, // Nueva función para anular ventas
   updateSaleNotes, // creditos
   getCredits, addCreditPayment, markCreditAsPaid,
   // cotizaciones
@@ -2322,15 +2741,15 @@ module.exports = {
   // gastos
   getExpenses, getExpenseById, saveExpense, deleteExpense,
   // reportes
-  getSalesReport
+  getSalesReport,
   // Ordenes de compra,
-  ,createPurchaseOrder, getPurchaseOrders, getPurchaseOrderById, receivePurchaseOrder, deletePurchaseOrder, updatePurchaseOrder, 
-  // Pagos compras
+  createPurchaseOrder, getPurchaseOrders, getPurchaseOrderById, receivePurchaseOrder, deletePurchaseOrder, updatePurchaseOrder, getPurchasePaymentById, getPurchasePaymentDetailsForPdf, getSalePaymentDetailsForPdf, getServicePaymentDetailsForPdf,
+  // Pagos compras,
   updatePurchaseInvoiceNumber, addPurchasePayment, getPurchasePayments,
   getRetentionsReport,
   getDuePurchaseOrders,
   // Servicios
-  getServices, getServiceById, createService, updateService, deleteService, updateServiceStatus, cancelService, addServicePayment, getServicePayments, markServicePerformed, getPendingScheduledServices, getOpenServicesList,
+  getServices, getServiceById, createService, updateService, deleteService, updateServiceStatus, cancelService, addServicePayment, getServicePayments, getServicePaymentById, markServicePerformed, getPendingScheduledServices, getOpenServicesList,
   // Usuarios
   login, getUsers, createUser, deleteUser, updateUser,
   getSalesLastDays,

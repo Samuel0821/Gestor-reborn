@@ -415,14 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             let rows = logs.map(log => {
-                // SQLite guarda en UTC por defecto. Ajustamos para mostrar hora local correcta.
-                let localDate = log.timestamp;
-                try {
-                    // Agregamos 'Z' para indicar que es UTC y que JS lo convierta a la zona horaria local
-                    localDate = new Date(log.timestamp.replace(' ', 'T') + 'Z').toLocaleString();
-                } catch (e) {
-                    localDate = new Date(log.timestamp).toLocaleString();
-                }
+                const localDate = new Date(log.timestamp).toLocaleString();
                 return `
                 <tr>
                     <td>${localDate}</td>

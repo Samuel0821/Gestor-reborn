@@ -836,7 +836,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // --- MODAL DE ABONOS ---
-  function showServicePaymentModal(serviceId) {
+  async function showServicePaymentModal(serviceId) {
+      // Obtener detalles del servicio directamente del backend para asegurar que esté actualizado
+      const service = await window.api.getServiceById(serviceId);
+      if (!service) {
+          Swal.fire('Error', 'Servicio no encontrado.', 'error');
+          return;
+      }
+      const totalServiceCost = (service.price || 0) + (service.materials_cost || 0);
+      const totalPaid = service.paid_amount || 0; // Asumiendo que service.paid_amount ya está disponible o se calcula
+      const outstandingBalance = totalServiceCost - totalPaid;
+
       const modalHtml = `
       <div class="modal fade" id="servicePaymentModal" tabindex="-1">
         <div class="modal-dialog">
@@ -846,9 +856,14 @@ document.addEventListener('DOMContentLoaded', async () => {
               <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
+              <div class="bg-light p-3 rounded mb-3 border">
+                <p class="mb-1"><strong>Valor Total del Servicio:</strong> ${formatCOP(totalServiceCost)}</p>
+                <p class="mb-1"><strong>Total Abonado:</strong> ${formatCOP(totalPaid)}</p>
+                <p class="mb-0 fw-bold text-danger"><strong>Saldo Pendiente Actual:</strong> ${formatCOP(outstandingBalance)}</p>
+              </div>
               <div class="mb-3">
                 <label class="form-label">Monto del Abono</label>
-                <input type="number" id="sp-amount" class="form-control" min="0">
+                <input type="number" id="sp-amount" class="form-control" min="0" placeholder="Ingrese el valor a abonar">
               </div>
               <div class="mb-3">
                 <label class="form-label">Método de Pago</label>
@@ -861,6 +876,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <label class="form-label">Referencia / Banco</label>
                 <input type="text" id="sp-reference" class="form-control">
               </div>
+              <div id="sp-new-balance-info" class="mt-2 fw-bold text-primary"></div>
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -876,6 +892,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       const modal = new bootstrap.Modal(document.getElementById('servicePaymentModal'));
       modal.show();
 
+      const amountInput = document.getElementById('sp-amount');
+      const newBalanceInfo = document.getElementById('sp-new-balance-info');
+
+      // Calcular saldo proyectado en tiempo real
+      amountInput.addEventListener('input', () => {
+          const abono = parseFloat(amountInput.value) || 0;
+          const newBalance = outstandingBalance - abono;
+          if (abono > 0) {
+              newBalanceInfo.textContent = `Saldo después del abono: ${formatCOP(Math.max(0, newBalance))}`;
+              if (newBalance < 0) {
+                  newBalanceInfo.textContent += ` (Excedente: ${formatCOP(Math.abs(newBalance))})`;
+              }
+          } else {
+              newBalanceInfo.textContent = "";
+          }
+      });
+
       document.getElementById('sp-method').addEventListener('change', (e) => {
           document.getElementById('sp-ref-container').style.display = e.target.value === 'transfer' ? 'block' : 'none';
       });
@@ -884,11 +917,27 @@ document.addEventListener('DOMContentLoaded', async () => {
           const amount = parseFloat(document.getElementById('sp-amount').value);
           const method = document.getElementById('sp-method').value;
           const reference = document.getElementById('sp-reference').value;
-          if (!amount || amount <= 0) return Swal.fire('Error', 'Monto inválido', 'error');
+
+          if (!amount || amount <= 0) {
+              return Swal.fire('Error', 'Monto inválido', 'error');
+          }
+          if (amount > outstandingBalance) {
+              return Swal.fire('Error', `El monto del abono no puede superar el saldo pendiente (${formatCOP(outstandingBalance)}).`, 'error');
+          }
           const res = await window.api.addServicePayment({ serviceId, amount, method, reference });
           if (res.success) { Swal.fire('Éxito', res.message, 'success'); modal.hide(); } else { Swal.fire('Error', res.message, 'error'); }
       });
   }
+
+   window.downloadServiceReceipt = async (id) => {
+    const res = await window.api.exportPaymentReceiptPDF(id, 'service');
+    if (res.success) {
+      const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
+      Toast.fire({ icon: 'success', title: 'Recibo generado correctamente' });
+    } else if (res.message) {
+      Swal.fire('Error', res.message, 'error');
+    }
+  };
 
   // --- MODAL HISTORIAL DE PAGOS ---
   async function showPaymentHistoryModal(serviceId) {
@@ -898,20 +947,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       let rows = '';
       if (payments.length === 0) {
-          rows = '<tr><td colspan="4" class="text-center text-muted">No hay pagos registrados</td></tr>';
+          rows = '<tr><td colspan="5" class="text-center text-muted">No hay pagos registrados</td></tr>';
       } else {
           rows = payments.map(p => {
-            // Ajuste de zona horaria: SQLite guarda en UTC. Convertimos a formato ISO con Z para que JS lo interprete como UTC y lo muestre en hora local.
-            let dateStr = p.date;
-            if (dateStr && !dateStr.includes('Z') && !dateStr.includes('T')) {
-                dateStr = dateStr.replace(' ', 'T') + 'Z';
-            }
+            const dateStr = p.date;
             return `
             <tr>
                 <td>${new Date(dateStr).toLocaleString()}</td>
                 <td>${p.method === 'cash' ? 'Efectivo' : 'Transferencia'}</td>
                 <td>${p.reference || '-'}</td>
                 <td class="text-end fw-bold">${formatCOP(p.amount)}</td>
+                <td class="text-center"><button class="btn btn-sm btn-outline-danger border-0 p-0" onclick="downloadServiceReceipt(${p.id})"><i class="fas fa-file-pdf"></i></button></td>
             </tr>`;
           }).join('');
       }
@@ -926,9 +972,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
             <div class="modal-body">
               <table class="table table-sm table-striped">
-                <thead><tr><th>Fecha</th><th>Método</th><th>Ref</th><th class="text-end">Monto</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Método</th><th>Ref</th><th class="text-end">Monto</th><th>PDF</th></tr></thead>
                 <tbody>${rows}</tbody>
-                <tfoot><tr><th colspan="3" class="text-end">Total Abonado:</th><th class="text-end">${formatCOP(totalPaid)}</th></tr></tfoot>
+                <tfoot><tr><th colspan="3" class="text-end">Total Abonado:</th><th class="text-end">${formatCOP(totalPaid)}</th><th></th></tr></tfoot>
               </table>
             </div>
           </div>

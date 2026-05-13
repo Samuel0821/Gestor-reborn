@@ -667,6 +667,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     const changeInfo = document.getElementById("changeInfoQuote");
 
     function updatePaymentFields() {
+      // Agregar/Quitar campo de vencimiento para crédito
+      const container = document.getElementById('credit-due-date-container-quote');
+      if (saleTypeSelect.value === 'credit') {
+          if (!container) {
+              const html = `
+                <div id="credit-due-date-container-quote" class="mt-2 bg-light p-2 rounded border shadow-sm">
+                    <label class="form-label small fw-bold">Fecha de Vencimiento</label>
+                    <input type="date" id="sale-due-date-quote" class="form-control form-control-sm" 
+                           value="${new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0]}">
+                </div>
+              `;
+              saleTypeSelect.parentNode.insertAdjacentHTML('beforeend', html);
+          }
+      } else if (container) container.remove();
+
       const selectedType = saleTypeSelect.value;
       cashReceivedContainer.style.display = (selectedType === 'cash' || selectedType === 'transfer') ? 'block' : 'none';
       transferAmountContainer.style.display = (selectedType === 'transfer') ? 'block' : 'none';
@@ -728,6 +743,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const outstandingBalance = saleType === "credit" ? totalAmount : Math.max(0, totalAmount - totalPaid);
       const paidAmount = saleType === "credit" ? 0 : totalPaid;
+      const dueDate = document.getElementById('sale-due-date-quote')?.value || null;
 
       const saleData = {
         quote_id: quoteId, // Enlazar a la cotización original
@@ -739,7 +755,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         sale_type: saleType,
         cash_payment: cash,
         transfer_payment: transfer,
-        transfer_reference: transferRef
+        transfer_reference: transferRef,
+        due_date: dueDate
       };
 
       // Se asume que window.api.createSaleFromQuote está implementado en el proceso principal

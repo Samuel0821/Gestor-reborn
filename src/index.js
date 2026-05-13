@@ -17,7 +17,7 @@
   function createWindow() {
     mainWindow = new BrowserWindow({
 
-      width: 1200,
+      width: 1300, // Aumentar un poco el ancho para el nuevo módulo
       height: 800,
       icon: path.join(__dirname, "logo", "gestorfx_logof.ico"), // <-- El ícono va aquí
       webPreferences: {
@@ -28,7 +28,7 @@
     });
 
     // Eliminar la barra de menú por defecto (Archivo, Vista, etc.)
-    mainWindow.setMenu(null);
+    //mainWindow.setMenu(null);
 
     // Siempre iniciar en login.html
     mainWindow.loadFile(path.join(__dirname, "views", "login.html"));
@@ -77,11 +77,19 @@
     }).format(Math.round(num));
   }
 
-
-  function renderPdfHeader(doc, company = {}, title = "", docNumber = "", date = "") {
+  function renderPdfHeader(doc, company = {}, title = "", docNumber = "", dateTimeStr = "") {
     const xLeft = 50;
     const xRight = 300; 
     let y = 50;
+
+    let datePart = '';
+    let timePart = '';
+    if (dateTimeStr) {
+      const parts = dateTimeStr.split(' ');
+      datePart = parts[0];
+      timePart = parts.length > 1 ? parts[1] : '';
+    }
+
 
     if (company.logo_path && fs.existsSync(company.logo_path)) {
       try {
@@ -100,8 +108,11 @@
     if (docNumber) {
       doc.fontSize(12).text(docNumber, xRight, yHeaderRight + 20, { align: "right", width: 250 });
     }
-    if (date) {
-      doc.font("Helvetica").fontSize(9).text(`Fecha: ${date}`, xRight, yHeaderRight + 40, { align: "right", width: 250 });
+    if (datePart) {
+      doc.font("Helvetica").fontSize(9).text(`Fecha: ${datePart}`, xRight, yHeaderRight + 40, { align: "right", width: 250 });
+      if (timePart) {
+        doc.text(`Hora: ${timePart}`, xRight, yHeaderRight + 52, { align: "right", width: 250 });
+      }
     }
 
     doc.strokeColor("#aaaaaa").lineWidth(1).moveTo(50, 110).lineTo(550, 110).stroke();
@@ -171,6 +182,35 @@
   const loginAttempts = new Map();
 
   function registerIpcHandlers() {
+      // Autenticación
+      ipcMain.handle("login", async (event, creds) => {
+        const { username, password } = creds;
+        const now = Date.now();
+        
+        // Rate Limiting: Protección contra fuerza bruta
+        const attempt = loginAttempts.get(username) || { count: 0, lockUntil: 0 };
+
+        if (attempt.lockUntil > now) {
+          const seconds = Math.ceil((attempt.lockUntil - now) / 1000);
+          return { success: false, message: `Demasiados intentos. Espere ${seconds}s.` };
+        }
+
+        const res = db.login(username, password);
+
+        if (res.success) {
+          loginAttempts.delete(username); // Resetear intentos al entrar
+        } else {
+          attempt.count++;
+          if (attempt.count >= 3) {
+            attempt.lockUntil = now + 30000; // Bloqueo de 30s tras 3 fallos
+            attempt.count = 0;
+            loginAttempts.set(username, attempt);
+            return { success: false, message: "Demasiados intentos. Bloqueado por 30s." };
+          }
+          loginAttempts.set(username, attempt);
+        }
+        return res;
+      });
       // Clientes
       ipcMain.handle("get-clients", () => db.getClients());
       ipcMain.handle("get-client-by-id", (event, id) => db.getClientById(id));
@@ -201,9 +241,10 @@
 
       // Ventas
       ipcMain.handle("create-sale", (event, data) => db.createSale(data));
-      ipcMain.handle("get-sales", (event, limit, offset, clientId, searchTerm) => db.getSales(limit, offset, clientId, searchTerm));
+      ipcMain.handle("get-sales", (event, limit, offset, clientId, searchTerm, statusFilter) => db.getSales(limit, offset, clientId, searchTerm, statusFilter));
       ipcMain.handle("get-sale-by-id", (event, id) => db.getSaleById(id));
       ipcMain.handle("get-sale-items", (event, id) => db.getSaleItems(id));
+      ipcMain.handle("annul-sale", (event, id) => db.annulSale(id)); // Registrar manejador para anular
       ipcMain.handle("delete-sale", (event, id) => db.deleteSale(id));
       ipcMain.handle("update-sale", (event, data) => db.updateSale(data));
 
@@ -212,38 +253,223 @@
       ipcMain.handle("set-invoice-number", (event, { id, invoiceNumber }) => db.setInvoiceNumber(id, invoiceNumber));
 
       // Caja registradora
-      ipcMain.handle("open-cash-register", (event, openingBalance) => {
-        return cashRegister.openCashRegister(openingBalance);
-
-        });
-
-      ipcMain.handle("get-active-cash-session", () => {
-        return cashRegister.getActiveSession();
-        });
-
-      ipcMain.handle("add-cash-movement", (event, { sessionId, type, amount, description }) => {
-
-        return cashRegister.addCashMovement(sessionId, type, amount, description);
-        });
-
-      ipcMain.handle("close-cash-register", (event, realClosingBalance) => {
-          return cashRegister.closeCashRegister(realClosingBalance);
-        });
-
-
-      ipcMain.handle("get-cash-register-sessions", () => {
-        return cashRegister.getCashRegisterSessions();
-        });
-
-      ipcMain.handle("get-cash-movements", (event, sessionId) => {
-          return cashRegister.getCashMovements(sessionId);
-        });
+      ipcMain.handle("open-cash-register", (event, { openingBalance, userId, userName, openingNotes }) => cashRegister.openCashRegister(openingBalance, userId, userName, openingNotes));
+      ipcMain.handle("get-active-cash-session", () => cashRegister.getActiveSession());
+      ipcMain.handle("add-cash-movement-manual", (event, { sessionId, type, sub_type, amount, description }) => cashRegister.addCashMovement(sessionId, type, sub_type, amount, description));
+      ipcMain.handle("close-cash-register", (event, { realClosingBalance, closedByUserId, closedByUserName, closingNotes }) => cashRegister.closeCashRegister(realClosingBalance, closedByUserId, closedByUserName, closingNotes));
+      ipcMain.handle("get-cash-register-sessions", () => cashRegister.getCashRegisterSessions());
+      ipcMain.handle("get-cash-movements", (event, sessionId) => cashRegister.getCashMovements(sessionId));
+      ipcMain.handle("get-cash-movements-detailed", (event, sessionId) => cashRegister.getCashMovementsDetailed(sessionId));
+      ipcMain.handle("get-sales-for-session", (event, sessionId) => cashRegister.getSalesForSession(sessionId));
+      ipcMain.handle("get-expenses-for-session", (event, sessionId) => cashRegister.getExpensesForSession(sessionId));
+      ipcMain.handle("get-purchase-payments-for-session", (event, sessionId) => cashRegister.getPurchasePaymentsForSession(sessionId));
+      ipcMain.handle("get-service-payments-for-session", (event, sessionId) => cashRegister.getServicePaymentsForSession(sessionId));
+      ipcMain.handle("get-credit-payments-for-session", (event, sessionId) => cashRegister.getCreditPaymentsForSession(sessionId));
+      ipcMain.handle("save-reconciliation-details", (event, { sessionId, denominations }) => cashRegister.saveReconciliationDetails(sessionId, denominations));
+      ipcMain.handle("get-reconciliation-details", (event, sessionId) => cashRegister.getReconciliationDetails(sessionId));
+      ipcMain.handle("export-cash-register-report-pdf", async (event, sessionId) => exportCashRegisterReportPDF(sessionId));
       
       // Gestión de Créditos
 
-      ipcMain.handle("get-credits", async (event, searchTerm) => db.getCredits(searchTerm));
+      ipcMain.handle("get-credits", async (event, searchTerm, onlyPending) => db.getCredits(searchTerm, onlyPending));
       ipcMain.handle("add-credit-payment", async (event, saleId, amount, method, reference) => db.addCreditPayment(saleId, amount, method, reference));
       ipcMain.handle("mark-credit-as-paid", async (event, saleId, method, reference) => db.markCreditAsPaid(saleId, method, reference));
+      ipcMain.handle("get-sale-payments", (event, saleId) => db.getSalePayments(saleId));
+      
+      ipcMain.handle("export-payment-receipt-pdf", async (event, { paymentId, type }) => {
+        try {
+          const company = db.getCompanySettings() || {};
+          let payment, parentData, client, headerTitle, conceptLabel, conceptText, additionalDetails = {};
+
+          if (type === 'credit') {
+            const creditDetails = db.getSalePaymentDetailsForPdf(paymentId);
+            if (!creditDetails) return { success: false, message: "Detalles del abono no encontrados" };
+
+            payment = creditDetails.payment;
+            parentData = creditDetails.sale;
+            client = { name: creditDetails.client_name };
+            
+            additionalDetails = {
+                balanceBefore: creditDetails.balanceBefore,
+                balanceAfter: creditDetails.balanceAfter
+            };
+
+            headerTitle = "RECIBO DE CAJA (ABONO)";
+            conceptLabel = "Recibimos de:";
+            conceptText = `Abono a Factura No. ${parentData.invoice_number || parentData.id}`;
+          } else if (type === 'service') {
+            const serviceDetails = db.getServicePaymentDetailsForPdf(paymentId);
+            if (!serviceDetails) return { success: false, message: "Detalles del abono no encontrados" };
+
+            payment = serviceDetails.payment;
+            parentData = serviceDetails.service;
+            client = { name: serviceDetails.client_name };
+            
+            additionalDetails = {
+                balanceBefore: serviceDetails.balanceBefore,
+                balanceAfter: serviceDetails.balanceAfter,
+                totalCost: serviceDetails.totalCost
+            };
+
+            headerTitle = "RECIBO DE CAJA (ABONO)";
+            conceptLabel = "Recibimos de:";
+            conceptText = `Abono a Servicio: ${parentData.name} (ID: ${parentData.id})`;
+          } else if (type === 'purchase') {
+            const paymentDetails = db.getPurchasePaymentDetailsForPdf(paymentId);
+            if (!paymentDetails) return { success: false, message: "Detalles de pago de compra no encontrados." };
+            
+            payment = paymentDetails.payment;
+            parentData = paymentDetails.order; // Esto es la purchase_order
+            client = { name: paymentDetails.supplier_name }; // El "cliente" es el proveedor
+
+            additionalDetails = {
+              total_po_amount: paymentDetails.real_total,
+              balance_before_payment: paymentDetails.balance_before_payment,
+              outstanding_balance_after_payment: paymentDetails.outstanding_balance_after_payment,
+              payment_notes: payment.notes,
+              retention_amount: payment.retention_amount,
+              retention_type: payment.retention_type
+            };
+            headerTitle = "COMPROBANTE DE EGRESO";
+            conceptLabel = "Proveedor:";
+            conceptText = `Pago a Factura Prov. No. ${parentData.supplier_invoice_number || 'S/N'} - OC #${parentData.po_number || parentData.id}`;
+          }
+
+          const { filePath, canceled } = await dialog.showSaveDialog({
+            title: type === 'purchase' ? "Guardar Comprobante de Egreso" : "Guardar Recibo de Caja",
+            defaultPath: `${type === 'purchase' ? 'Egreso' : 'Recibo'}-${type}-${paymentId}.pdf`,
+            filters: [{ name: "PDF", extensions: ["pdf"] }],
+          });
+          if (canceled || !filePath) return { success: false };
+
+          const doc = new PDFDocument({ margin: 50, size: "A4" });
+          const stream = fs.createWriteStream(filePath);
+          doc.pipe(stream);
+
+          renderPdfHeader(doc, company, headerTitle, `No. ${paymentId}`, payment.created_at);
+
+          let currentY = doc.y + 10;
+          doc.fontSize(10).font("Helvetica-Bold").text(conceptLabel, 50, currentY);
+          doc.font("Helvetica").text(client ? client.name : "Consumidor Final", 150, currentY);
+          currentY += 18;
+          
+          doc.font("Helvetica-Bold").text("Concepto:", 50, currentY);
+          doc.font("Helvetica").text(conceptText, 150, currentY);
+          currentY += 18;
+
+          doc.font("Helvetica-Bold").text("Medio de Pago:", 50, currentY);
+          doc.font("Helvetica").text(`${payment.method} ${payment.reference ? `(Ref: ${payment.reference})` : ''}`, 150, currentY);
+          currentY += 30;
+
+          doc.rect(50, currentY, 500, 25).fillColor("#f0f0f0").fill();
+          const amountLabel = type === 'purchase' ? "VALOR PAGADO:" : "VALOR RECIBIDO:";
+          doc.fillColor("black").font("Helvetica-Bold").text(amountLabel, 60, currentY + 8);
+          doc.fontSize(12).text(formatCOP(payment.amount), 400, currentY + 7, { align: "right", width: 140 });
+          
+          doc.y = currentY + 35; // Avanzar el cursor después de la caja
+
+          // Detalles financieros para recibos de crédito o servicio
+          if (type === 'credit' || type === 'service') {
+            doc.moveDown(1);
+            doc.fontSize(10).font("Helvetica");
+            let summaryY = doc.y;
+            
+            const labelTotal = type === 'credit' ? 'Total de la Factura:' : 'Costo Total Servicio:';
+            const totalAmount = type === 'credit' ? parentData.total_amount : additionalDetails.totalCost;
+
+            doc.font("Helvetica-Bold").text(labelTotal, 50, summaryY);
+            doc.font("Helvetica").text(formatCOP(totalAmount), 180, summaryY);
+            
+            doc.text(`Saldo anterior:`, 340, summaryY);
+            doc.text(formatCOP(additionalDetails.balanceBefore), 450, summaryY, { align: "right", width: 90 });
+            summaryY += 15;
+            
+            doc.font("Helvetica-Bold").text(`Abono:`, 340, summaryY);
+            doc.text(formatCOP(payment.amount), 450, summaryY, { align: "right", width: 90 });
+            summaryY += 13;
+            
+            doc.strokeColor("#000").lineWidth(0.5).moveTo(340, summaryY).lineTo(540, summaryY).stroke();
+            summaryY += 5;
+            
+            doc.font("Helvetica-Bold").text(`Saldo pendiente:`, 340, summaryY);
+            doc.text(formatCOP(additionalDetails.balanceAfter), 450, summaryY, { align: "right", width: 90 });
+            
+            // Mostrar fecha de vencimiento y días restantes si es un crédito
+            if (type === 'credit' && parentData.due_date && additionalDetails.balanceAfter > 0) {
+                summaryY += 20;
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const due = new Date(parentData.due_date);
+                due.setHours(0, 0, 0, 0);
+                const diffTime = due - today;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                let daysText = diffDays < 0 ? `(Vencido hace ${Math.abs(diffDays)} días)` : 
+                               diffDays === 0 ? `(Vence hoy)` : `(Faltan ${diffDays} días para vencer)`;
+                
+                doc.fontSize(9).font("Helvetica-Bold").text(`Vencimiento factura: ${parentData.due_date} ${daysText}`, 50, summaryY);
+            }
+
+            doc.y = summaryY + 20; 
+          }
+
+          // Detalles adicionales para pagos de compra
+          if (type === 'purchase') {
+            doc.fontSize(10).font("Helvetica-Bold").text("Detalles del Pago a Proveedor:", 50, doc.y + 15);
+            doc.font("Helvetica").fontSize(9);
+            let currentDetailY = doc.y + 15;
+
+            // Columna izquierda de detalles
+            doc.text(`Proveedor: ${client.name}`, 50, currentDetailY);
+            doc.text(`Orden de Compra #: ${parentData.po_number || parentData.id}`, 50, currentDetailY + 12);
+            doc.text(`Factura Proveedor #: ${parentData.supplier_invoice_number || 'N/A'}`, 50, currentDetailY + 24);
+            doc.font("Helvetica-Bold").text(`Total Factura: ${formatCOP(additionalDetails.total_po_amount)}`, 50, currentDetailY + 36);
+            
+            // Columna derecha de detalles financieros
+            doc.font("Helvetica").text(`Saldo Anterior: ${formatCOP(additionalDetails.balance_before_payment)}`, 300, currentDetailY);
+            doc.text(`Retención: ${additionalDetails.retention_amount > 0 ? formatCOP(additionalDetails.retention_amount) : '$0'}`, 300, currentDetailY + 12);
+            doc.font("Helvetica-Bold").text(`Monto Pagado: ${formatCOP(payment.amount)}`, 300, currentDetailY + 24);
+            doc.text(`Saldo Pendiente: ${formatCOP(additionalDetails.outstanding_balance_after_payment)}`, 300, currentDetailY + 36);
+
+            doc.y = currentDetailY + 50; // Ajustar la posición Y para el siguiente contenido
+
+            if (additionalDetails.payment_notes) {
+              doc.moveDown(0.5); // Pequeño espacio
+              doc.font("Helvetica-Bold").text("Notas del Pago:", 50, doc.y); // Etiqueta
+              doc.font("Helvetica").text(additionalDetails.payment_notes, 50, doc.y + 12, { width: 500 }); // Contenido
+            }
+            doc.moveDown(2); // Espacio adicional después de los detalles
+          }
+
+          // Valor en letras siempre al final del monto principal
+          doc.fontSize(9).font("Helvetica-Oblique").text(`Valor en Letras: ${numeroALetras(payment.amount)}`, 50, doc.y + 10);
+          doc.y += 25; 
+
+
+          // Espacio para firmas
+          doc.moveDown(3);
+          const signatureY = doc.y;
+          doc.strokeColor("#000").lineWidth(1);
+          
+          doc.moveTo(50, signatureY).lineTo(200, signatureY).stroke();
+          doc.fontSize(8).font("Helvetica").text("Firma Cliente / Recibido", 50, signatureY + 5, { width: 150, align: "center" });
+          
+          doc.moveTo(350, signatureY).lineTo(500, signatureY).stroke();
+          doc.text("Sello y Firma Autorizada", 350, signatureY + 5, { width: 150, align: "center" });
+
+          // Nota al pie
+          if (type === 'service' || type === 'credit') {
+            doc.moveDown(4);
+            doc.fontSize(7).font("Helvetica-Oblique").fillColor("#666");
+            doc.text(`Este documento es un comprobante de abono y no constituye una factura de venta definitiva. Generado por ${company.company_name || 'GestorFX'}.`, 50, doc.page.height - 60, { align: "center", width: 500 });
+          }
+
+          doc.end();
+          return { success: true, filePath };
+        } catch (err) {
+          return { success: false, message: err.message };
+        }
+      });
 
       // Ordenes de Compra
       ipcMain.handle("create-purchase-order", (event, data) => db.createPurchaseOrder(data));
@@ -257,7 +483,7 @@
       ipcMain.handle("receive-purchase-order", (event, id) => db.receivePurchaseOrder(id));
       
       // --- GESTIÓN DE PAGOS A PROVEEDORES ---
-      ipcMain.handle("update-purchase-invoice-number", (event, { id, invoiceNumber }) => db.updatePurchaseInvoiceNumber(id, invoiceNumber));
+      ipcMain.handle("update-purchase-invoice-number", (event, { id, invoiceNumber, discountAmount }) => db.updatePurchaseInvoiceNumber(id, invoiceNumber, discountAmount)); // No cambia
       ipcMain.handle("add-purchase-payment", (event, data) => db.addPurchasePayment(data));
       ipcMain.handle("get-purchase-payments", (event, orderId) => db.getPurchasePayments(orderId));
       ipcMain.handle("get-retentions-report", (event, filters) => db.getRetentionsReport(filters));
@@ -289,35 +515,6 @@
       ipcMain.handle("get-open-services-list", () => db.getOpenServicesList());
 
       // Usuarios
-      ipcMain.handle("login", async (event, creds) => {
-        const { username, password } = creds;
-        const now = Date.now();
-        
-        // Rate Limiting: Protección contra fuerza bruta
-        const attempt = loginAttempts.get(username) || { count: 0, lockUntil: 0 };
-
-        if (attempt.lockUntil > now) {
-          const seconds = Math.ceil((attempt.lockUntil - now) / 1000);
-          return { success: false, message: `Demasiados intentos. Espere ${seconds}s.` };
-        }
-
-        const res = db.login(username, password);
-
-        if (res.success) {
-          loginAttempts.delete(username); // Resetear intentos al entrar
-        } else {
-          attempt.count++;
-          if (attempt.count >= 3) {
-            attempt.lockUntil = now + 30000; // Bloqueo de 30s tras 3 fallos
-            attempt.count = 0;
-            loginAttempts.set(username, attempt);
-            return { success: false, message: "Demasiados intentos. Bloqueado por 30s." };
-          }
-          loginAttempts.set(username, attempt);
-        }
-        return res;
-      });
-
       ipcMain.handle("get-users", () => db.getUsers());
       ipcMain.handle("create-user", (event, data) => db.createUser(data));
       ipcMain.handle("update-user", (event, data) => db.updateUser(data));
@@ -363,7 +560,7 @@
             const stream = fs.createWriteStream(filePath);
             doc.pipe(stream);
             
-            renderPdfHeader(doc, company, "COMPROBANTE DE EGRESO", `No. ${String(id).padStart(4, '0')}`, expense.date);
+            renderPdfHeader(doc, company, "COMPROBANTE DE EGRESO", `No. ${String(id).padStart(4, '0')}`, expense.created_at);
             
             doc.fontSize(10).font("Helvetica");
             const labelX = 50;
@@ -380,6 +577,68 @@
             drawField("Descripción:", expense.description || "-");
             drawField("Monto:", formatCOP(expense.amount), "red");
             if (expense.created_at) drawField("Fecha Registro:", expense.created_at);
+
+            // Punto 4: Si es Pago Proveedores, mostrar detalles
+            if (expense.category === 'Pago Proveedores' && expense.details) {
+                try {
+                    const details = JSON.parse(expense.details);
+                    y += 10; // Espacio antes del título de los detalles
+                    doc.font("Helvetica-Bold").text("Detalles del Pago a Proveedor:", 50, y); // Imprime el título en la posición 'y'
+                    // Avanza 'y' manualmente después del título (aprox. 15 unidades para el tamaño de fuente)
+                    y += 15; 
+
+                    let currentDetailY = y; // 'y' ahora es la posición correcta para la primera línea de detalles
+
+                    // Columna izquierda de detalles
+                    doc.font("Helvetica").fontSize(9);
+                    doc.text(`Proveedor: ${details.supplier_name}`, 50, currentDetailY);
+                    doc.text(`Orden de Compra #: ${details.po_number || details.po_id}`, 50, currentDetailY + 12);
+                    doc.text(`Factura Proveedor #: ${details.supplier_invoice_number || 'N/A'}`, 50, currentDetailY + 24);
+                    doc.font("Helvetica-Bold").text(`Total Factura: ${formatCOP(details.total_po_amount)}`, 50, currentDetailY + 36);
+                    
+                    // Columna derecha de detalles financieros
+                    doc.font("Helvetica").text(`Saldo Anterior: ${formatCOP(details.balance_before_payment || (details.total_po_amount))}`, 300, currentDetailY);
+                    doc.text(`Retención: ${details.retention_amount > 0 ? formatCOP(details.retention_amount) : '$0'}`, 300, currentDetailY + 12);
+                    doc.font("Helvetica-Bold").text(`Monto Pagado: ${formatCOP(details.payment_amount)}`, 300, currentDetailY + 24);
+                    doc.text(`Saldo Pendiente: ${formatCOP(details.outstanding_balance_after_payment)}`, 300, currentDetailY + 36);
+                    
+                    y = currentDetailY + 50; // Ajustar la posición Y para el siguiente contenido
+
+                    if (details.payment_notes) { // Si hay notas, las mostramos
+                      doc.font("Helvetica-Bold").text("Notas del Pago:", 50, y); // Etiqueta
+                      doc.font("Helvetica").text(details.payment_notes, 50, y + 12, { width: 500 }); // Contenido
+                      y += 25; // Espacio después de las notas
+                    }
+                    doc.moveDown(2); // Espacio adicional después de los detalles
+                } catch (e) { console.error("Error parseando detalles de egreso de pago a proveedor:", e); }
+            }
+
+            // Punto 4: Si es devolución, mostrar detalles de productos
+            if (expense.category === 'Devolución' && expense.details) {
+                try {
+                    const details = JSON.parse(expense.details);
+                    y += 10;
+                    doc.font("Helvetica-Bold").text(`Detalle de Devolución (Factura: ${details.invoice_number})`, labelX, y);
+                    doc.font("Helvetica-Bold").text(`Cliente: ${details.client_name}`, labelX, y + 15);
+                    y += 35;
+                    
+                    y = drawTableHeaders(doc, y, [
+                        { text: "Producto", x: 50, width: 250 },
+                        { text: "Cant.", x: 300, width: 50, align: "right" },
+                        { text: "V. Unit", x: 360, width: 90, align: "right" },
+                        { text: "Subtotal", x: 460, width: 90, align: "right" }
+                    ]);
+                    
+                    doc.font("Helvetica").fontSize(9);
+                    details.items.forEach(it => {
+                        doc.text(it.product_name, 50, y);
+                        doc.text(it.quantity.toString(), 300, y, { align: "right", width: 50 });
+                        doc.text(formatCOP(it.price), 360, y, { align: "right", width: 90 });
+                        doc.text(formatCOP(it.subtotal), 460, y, { align: "right", width: 90 });
+                        y += 15;
+                    });
+                } catch (e) { console.error("Error parseando detalles de egreso:", e); }
+            }
 
             y += 10;
             drawLine(doc, y);
@@ -1214,6 +1473,7 @@
 
           const cash = sale.cash_payment || 0;
           const transfer = sale.transfer_payment || 0;
+          const abonosPrevios = (sale.paid_amount || 0) - (cash + transfer);
           const isCredit = sale.sale_type === "credit";
           
           doc.fontSize(11).font("Helvetica");
@@ -1221,25 +1481,41 @@
 
           if (isCredit) {
               doc.text(`Crédito: ${formatCOP(sale.total_amount)}`, 400, currentY + 6, { align: "right", width: 150 });
+              if (sale.due_date) {
+                  doc.font("Helvetica-Bold").text(`Vencimiento: ${sale.due_date}`, 400, currentY + 22, { align: "right", width: 150 });
+                  currentY += 16;
+              }
           } else {
+              if (abonosPrevios > 0) {
+                  doc.text(`Abonos previos: ${formatCOP(abonosPrevios)}`, 400, currentY + 6, { align: "right", width: 150 });
+                  currentY += 16;
+              }
               if (cash > 0 && transfer > 0) {
                   doc.text(`Pago en efectivo: ${formatCOP(cash)}`, 400, currentY + 6, { align: "right", width: 150 });
                   doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}: ${formatCOP(transfer)}`, 400, currentY + 22, { align: "right", width: 150 });
-                  currentY += 16; // Ajuste para la siguiente línea si es mixto
+                  currentY += 16;
               } else if (cash > 0) {
                   doc.text(`Pago en efectivo: ${formatCOP(cash)}`, 400, currentY + 6, { align: "right", width: 150 });
               } else if (transfer > 0) {
                   doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}: ${formatCOP(transfer)}`, 400, currentY + 6, { align: "right", width: 150 });
+              } else if (abonosPrevios > 0) {
+                  doc.font("Helvetica-Bold").text("SERVICIO PAGADO POR ANTICIPADO", 400, currentY + 6, { align: "right", width: 150, fontSize: 8 });
               }
           }
 
-          const totalPaid = cash + transfer;
-          const change = totalPaid - total; // Esto ahora usará el cash_payment actualizado correctamente
+          const change = (sale.paid_amount || 0) - total; 
           
           if (change !== 0 && !isCredit) {
-            let offset = 22;
-            if (cash > 0 && transfer > 0) offset = 38;
-            doc.text(`Cambio entregado: ${formatCOP(change)}`, 400, doc.y + offset, { align: "right", width: 150 });
+            doc.text(`Cambio entregado: ${formatCOP(change)}`, 400, currentY + 22, { align: "right", width: 150 });
+          }
+
+          // Marca de agua "ANULADA" si la venta está anulada
+          if (sale.status === 'annulled') {
+            doc.save(); // Guardar estado actual del documento
+            doc.rotate(-45, { origin: [doc.page.width / 2, doc.page.height / 2] });
+            doc.font("Helvetica-Bold").fontSize(80).fillColor('red').opacity(0.3).text('ANULADA', 0, doc.page.height / 2 - 40, { align: 'center' });
+            doc.restore(); // Restaurar estado del documento
+            doc.fillColor("black").opacity(1); // Restaurar color y opacidad para el resto del contenido
           }
 
           doc.end();
@@ -1723,17 +1999,26 @@
         y += productHeight + 5;
       }
 
+      const discount = order.discount_amount || 0;
+      const finalTotal = order.total_amount - discount;
+
       if (order.include_iva) {
-        const total = order.total_amount;
-        const subtotal = total / 1.19;
-        const iva = total - subtotal;
+        const subtotal = order.total_amount / 1.19;
+        const iva = order.total_amount - subtotal;
 
         doc.font("Helvetica").fontSize(10);
         doc.text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 10, { align: "right", width: 160 });
         doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 25, { align: "right", width: 160 });
-        doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 40, { align: "right", width: 160 });
+        
+        if (discount > 0) {
+            doc.text(`Descuento: -${formatCOP(discount)}`, 400, y + 40, { align: "right", width: 160 });
+        }
+        doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(finalTotal)}`, 400, y + (discount > 0 ? 55 : 40), { align: "right", width: 160 });
       } else {
-        doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(order.total_amount)}`, 400, y + 20, { align: "right", width: 160 });
+        if (discount > 0) {
+            doc.font("Helvetica").fontSize(10).text(`Descuento: -${formatCOP(discount)}`, 400, y + 10, { align: "right", width: 160 });
+        }
+        doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(finalTotal)}`, 400, y + (discount > 0 ? 25 : 20), { align: "right", width: 160 });
       }
 
       doc.end();
@@ -1748,3 +2033,253 @@
       return { success: false, message: "Error al exportar la Orden de Compra: " + (err.message || String(err)) };
     }
   }
+
+  async function exportCashRegisterReportPDF(sessionId) {
+    try {
+      const session = cashRegister.getCashRegisterSessions().find(s => s.id === sessionId);
+      if (!session) return { success: false, message: "Sesión de caja no encontrada." };
+
+      const company = db.getCompanySettings() || {};
+      const movementsDetailed = cashRegister.getCashMovementsDetailed(sessionId);
+      const reconciliationDetails = cashRegister.getReconciliationDetails(sessionId);
+
+      const { filePath, canceled } = await dialog.showSaveDialog({
+        title: "Guardar Reporte de Cierre de Caja",
+        defaultPath: `Cierre_Caja_${session.id}_${session.closed_at_iso || new Date().toISOString().slice(0, 10)}.pdf`,
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (canceled || !filePath) return { success: false, message: "Exportación cancelada." };
+
+      const doc = new PDFDocument({ margin: 36, size: "A4" });
+      const stream = fs.createWriteStream(filePath);
+      doc.pipe(stream);
+
+      renderPdfHeader(doc, company, "REPORTE DE CIERRE DE CAJA", `Sesión #${session.id}`, session.closed_at_iso || new Date().toLocaleString());
+
+      let y = doc.y + 8;
+      let pageCount = 1;
+      const bottomLimit = doc.page.height - doc.page.margins.bottom - 40;
+      function ensureSpace(h) {
+        if (y + h > bottomLimit) {
+          if (pageCount >= 3) return false; // no more pages allowed
+          doc.addPage();
+          pageCount++;
+          y = doc.page.margins.top;
+        }
+        return true;
+      }
+
+      // SECCIÓN 1 — INFORMACIÓN GENERAL
+      doc.fontSize(10).font("Helvetica-Bold").text("1. Información General", 50, y);
+      doc.fontSize(8).font("Helvetica");
+      y += 10;
+      doc.text(`Cajero: ${session.user_name || 'N/A'}`, 50, y);
+      doc.text(`Fecha Apertura: ${new Date(session.opened_at_iso).toLocaleString()}`, 300, y);
+      y += 12;
+      doc.text(`Fecha Cierre: ${session.closed_at_iso ? new Date(session.closed_at_iso).toLocaleString() : 'Caja Abierta'}`, 50, y);
+      doc.text(`Estado: ${session.status === 'open' ? 'Abierta' : 'Cerrada'}`, 300, y);
+      y += 12;
+
+      // SECCIÓN 2 — SALDO INICIAL
+      if (!ensureSpace(60)) { doc.text('... (Detalles truncados)'); return { success: true, filePath }; }
+      doc.fontSize(10).font("Helvetica-Bold").text("2. Saldo Inicial", 50, y);
+      doc.fontSize(8).font("Helvetica");
+      y += 10;
+      doc.text(`Base Inicial: ${formatCOP(session.opening_balance)}`, 50, y);
+      y += 12;
+      doc.text(`Observaciones: ${session.opening_notes || 'N/A'}`, 50, y);
+      y += 12;
+
+      // Construir las mismas agregaciones que usa la UI para evitar discrepancias
+      const sums = {
+        in_cash: 0, in_transfer: 0,
+        out_cash: 0, out_transfer: 0,
+        sales_cash: 0, sales_transfer: 0,
+        credit_cash: 0, credit_transfer: 0,
+        service_cash: 0, service_transfer: 0,
+        manual_in: 0, manual_out: 0,
+        expense_cash: 0, expense_transfer: 0,
+        purchase_cash: 0, purchase_transfer: 0,
+        refund_cash: 0, refund_transfer: 0
+      };
+
+      movementsDetailed.forEach(m => {
+        const amount = m.total_amount || 0;
+        const st = (m.sub_type || '').toString();
+        const isTransfer = /transfer/i.test(st) || st === 'transfer';
+        const isCash = /cash/i.test(st) || (!/transfer/i.test(st) && /cash/i.test(st));
+
+        if (m.type === 'in') {
+          if (/sale/i.test(st)) {
+            if (isTransfer) { sums.in_transfer += amount; sums.sales_transfer += amount; }
+            else { sums.in_cash += amount; sums.sales_cash += amount; }
+          } else if (/credit/i.test(st)) {
+            if (isTransfer) { sums.in_transfer += amount; sums.credit_transfer += amount; }
+            else { sums.in_cash += amount; sums.credit_cash += amount; }
+          } else if (/service/i.test(st)) {
+            if (isTransfer) { sums.in_transfer += amount; sums.service_transfer += amount; }
+            else { sums.in_cash += amount; sums.service_cash += amount; }
+          } else if (/manual_in|manual/i.test(st)) {
+            sums.in_cash += amount; sums.manual_in += amount;
+          } else {
+            if (isTransfer) sums.in_transfer += amount; else sums.in_cash += amount;
+          }
+        } else if (m.type === 'out') {
+          if (/expense/i.test(st)) {
+            if (isTransfer) { sums.out_transfer += amount; sums.expense_transfer += amount; }
+            else { sums.out_cash += amount; sums.expense_cash += amount; }
+          } else if (/purchase/i.test(st)) {
+            if (isTransfer) { sums.out_transfer += amount; sums.purchase_transfer += amount; }
+            else { sums.out_cash += amount; sums.purchase_cash += amount; }
+          } else if (/manual_out|manual/i.test(st)) {
+            sums.out_cash += amount; sums.manual_out += amount;
+          } else if (/refund/i.test(st)) {
+            if (isTransfer) { sums.out_transfer += amount; sums.refund_transfer += amount; }
+            else { sums.out_cash += amount; sums.refund_cash += amount; }
+          } else {
+            if (isTransfer) sums.out_transfer += amount; else sums.out_cash += amount;
+          }
+        }
+      });
+
+      // SECCIÓN 3 — RESUMEN DE INGRESOS (Con conteos por método y detalle en apartado)
+      if (!ensureSpace(120)) { doc.text('... (Detalles truncados)'); return { success: true, filePath }; }
+      doc.fontSize(10).font("Helvetica-Bold").text("3. Resumen de Ingresos", 50, y);
+      doc.fontSize(8).font("Helvetica");
+      y += 10;
+
+      doc.font("Helvetica").text(`INGRESOS (EFECTIVO):`, 50, y); y += 10;
+      doc.text(`- Venta (Efectivo): ${formatCOP(sums.sales_cash)}`, 60, y); y += 10;
+      doc.text(`- Abono Crédito (Efectivo): ${formatCOP(sums.credit_cash)}`, 60, y); y += 10;
+      doc.text(`- Abono Servicio (Efectivo): ${formatCOP(sums.service_cash)}`, 60, y); y += 10;
+      doc.text(`- Otros Ingresos / Manual: ${formatCOP(sums.manual_in)}`, 60, y); y += 12;
+
+      doc.font("Helvetica").text(`INGRESOS (BANCO / TRANSFERENCIA):`, 300, y - 34);
+      doc.text(`- Venta: ${formatCOP(sums.sales_transfer)}`, 310, y - 24);
+      doc.text(`- Abono Crédito: ${formatCOP(sums.credit_transfer)}`, 310, y - 14);
+      doc.text(`- Abono Servicio: ${formatCOP(sums.service_transfer)}`, 310, y - 4);
+      y += 24;
+      doc.font("Helvetica-Bold").text(`Total Efectivo: ${formatCOP(sums.in_cash)}`, 50, y);
+      doc.text(`Total Banco: ${formatCOP(sums.in_transfer)}`, 300, y);
+      y += 14;
+
+      // SECCIÓN 4 — RESUMEN DE EGRESOS
+      doc.fontSize(12).font("Helvetica-Bold").text("4. Resumen de Egresos", 50, y);
+      doc.fontSize(10).font("Helvetica");
+      y += 12;
+      doc.text(`EGRESOS (EFECTIVO):`, 50, y); y += 10;
+      doc.text(`- Gastos (Efectivo): ${formatCOP(sums.expense_cash + sums.purchase_cash + sums.refund_cash + sums.manual_out)}`, 60, y); y += 12;
+      doc.text(`EGRESOS (BANCO / TRANSFERENCIA):`, 300, y - 12);
+      doc.text(`- Gastos (Transferencia): ${formatCOP(sums.expense_transfer + sums.purchase_transfer + sums.refund_transfer)}`, 310, y - 2);
+      y += 24;
+
+      // SECCIÓN 5 — ARQUEO DE CAJA
+      doc.fontSize(12).font("Helvetica-Bold").text("5. Arqueo de Caja", 50, y);
+      doc.fontSize(10).font("Helvetica");
+      y += 15;
+      const computedExpected = (session.opening_balance || 0) + (sums.in_cash || 0) - (sums.out_cash || 0);
+      const countedCash = (reconciliationDetails && reconciliationDetails.length > 0) ? reconciliationDetails.reduce((s, d) => s + (d.amount || 0), 0) : (session.closing_balance || 0);
+      doc.text(`Efectivo Esperado: ${formatCOP(computedExpected)}`, 50, y);
+      y += 12;
+      doc.text(`Efectivo Contado: ${formatCOP(countedCash)}`, 50, y);
+      y += 12;
+      doc.text(`Diferencia: ${formatCOP(countedCash - computedExpected)}`, 50, y);
+      y += 12;
+      if (reconciliationDetails && reconciliationDetails.length > 0) {
+        doc.font("Helvetica-Bold").text("Detalle de Conteo:", 60, y);
+        y += 10;
+        reconciliationDetails.forEach(d => {
+          doc.font("Helvetica").text(`- ${formatCOP(d.denomination)} x ${d.count} = ${formatCOP(d.amount)}`, 70, y);
+          y += 10;
+        });
+        y += 8;
+      }
+
+      // Resumen detallado por tipo con totales y conteos (compacto para caber en 3 páginas)
+      const groupCounts = (typeRegex) => {
+        return movementsDetailed
+          .filter(m => m.type === 'in' && typeRegex.test((m.sub_type||'').toString()))
+          .reduce((acc, m) => ({ amount: acc.amount + (m.total_amount||0), count: acc.count + (m.count||0) }), { amount:0, count:0 });
+      };
+
+      const salesIn = movementsDetailed.filter(m => m.type === 'in' && /sale/i.test((m.sub_type||'').toString()));
+      const creditsIn = movementsDetailed.filter(m => m.type === 'in' && /credit/i.test((m.sub_type||'').toString()));
+      const servicesIn = movementsDetailed.filter(m => m.type === 'in' && /service/i.test((m.sub_type||'').toString()));
+
+      doc.fontSize(10).font("Helvetica-Bold").text("Detalle Resumido de Movimientos", 50, y);
+      y += 12;
+
+      const sumAndCount = (arr) => arr.reduce((acc,m) => ({ amount: acc.amount + (m.total_amount||0), count: acc.count + (m.count||0) }), { amount:0, count:0 });
+
+      const sSales = sumAndCount(salesIn);
+      const sCredits = sumAndCount(creditsIn);
+      const sServices = sumAndCount(servicesIn);
+
+      doc.fontSize(9).font("Helvetica").text(`- Ventas (Efectivo+Banco): ${formatCOP(sSales.amount)} (${sSales.count} trans.)`, 60, y); y += 10;
+      doc.text(`- Abonos Créditos (Efectivo+Banco): ${formatCOP(sCredits.amount)} (${sCredits.count} trans.)`, 60, y); y += 10;
+      doc.text(`- Abonos Servicios (Efectivo+Banco): ${formatCOP(sServices.amount)} (${sServices.count} trans.)`, 60, y); y += 10;
+
+      // Mostrar conteos de egresos
+      const expenseOut = movementsDetailed.filter(m => m.type === 'out');
+      const sExpenses = sumAndCount(expenseOut);
+      doc.text(`- Egresos Totales: ${formatCOP(sExpenses.amount)} (${sExpenses.count} trans.)`, 60, y); y += 12;
+
+      doc.fontSize(8).font("Helvetica-Oblique").text("Si necesita el listado completo de transacciones, utilice la sección de auditoría en la aplicación.", 50, y, { width: 500 });
+      y += 14;
+
+      // SECCIÓN 6 — RESUMEN DE SALDOS
+      doc.fontSize(12).font("Helvetica-Bold").text("6. Resumen de Saldos", 50, y);
+      doc.fontSize(10).font("Helvetica");
+      y += 15;
+      doc.text(`(+) Base Inicial Efectivo: ${formatCOP(session.opening_balance)}`, 50, y);
+      y += 12;
+      doc.text(`(+) Total Ingresos Efectivo: ${formatCOP(sums.in_cash)}`, 50, y);
+      y += 12;
+      doc.text(`(-) Total Egresos Efectivo: ${formatCOP(sums.out_cash)}`, 50, y);
+      y += 12;
+      doc.font("Helvetica-Bold").text(`= SALDO EFECTIVO EN CAJA: ${formatCOP(session.expected_balance)}`, 50, y);
+      
+      y += 14;
+      doc.font("Helvetica-Bold").text(`RESUMEN BANCO (TRANSFERENCIAS):`, 50, y);
+      y += 12;
+      doc.font("Helvetica").text(`Ingresos Banco: ${formatCOP(sums.in_transfer)}`, 50, y);
+      doc.text(`Egresos Banco: ${formatCOP(sums.out_transfer)}`, 200, y);
+      doc.text(`Saldo Neto Banco: ${formatCOP(sums.in_transfer - sums.out_transfer)}`, 350, y);
+
+      y += 20;
+
+      // SECCIÓN 7 — OBSERVACIONES
+      doc.fontSize(12).font("Helvetica-Bold").text("7. Observaciones del Cierre", 50, y);
+      doc.fontSize(10).font("Helvetica");
+      y += 15;
+      doc.text(session.closing_notes || 'N/A', 50, y, { width: 500 });
+      y += 25;
+
+      // SECCIÓN 8 — AUDITORÍA
+      doc.fontSize(12).font("Helvetica-Bold").text("8. Auditoría", 50, y);
+      doc.fontSize(10).font("Helvetica");
+      y += 15;
+      doc.text(`Usuario Apertura: ${session.user_name || 'N/A'}`, 50, y);
+      doc.text(`Usuario Cierre: ${session.closed_by_user_name || 'N/A'}`, 300, y);
+      y += 25;
+
+      // Firmas
+      doc.moveDown(1);
+      const signatureY = doc.y;
+      doc.strokeColor("#000").lineWidth(1);
+      
+      doc.moveTo(50, signatureY).lineTo(200, signatureY).stroke();
+      doc.fontSize(8).font("Helvetica").text("Firma Cajero", 50, signatureY + 5, { width: 150, align: "center" });
+      
+      doc.moveTo(350, signatureY).lineTo(500, signatureY).stroke();
+      doc.text("Firma Administrador", 350, signatureY + 5, { width: 150, align: "center" });
+
+      doc.end();
+      await new Promise((res, rej) => { stream.on("finish", res); stream.on("error", rej); });
+      return { success: true, filePath };
+    } catch (err) {
+      console.error("Error exporting cash register report PDF:", err);
+      return { success: false, message: "Error al exportar reporte de cierre de caja: " + (err.message || String(err)) };
+    }
+  }
+ 

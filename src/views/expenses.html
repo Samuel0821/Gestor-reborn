@@ -49,6 +49,17 @@
                 <input type="number" id="expense-amount" class="form-control" placeholder="0.00" min="1" required>
               </div>
               <div class="mb-3">
+                <label class="form-label">Método de Pago</label>
+                <select id="expense-method" class="form-select">
+                  <option value="cash">Efectivo</option>
+                  <option value="transfer">Transferencia</option>
+                </select>
+              </div>
+              <div class="mb-3" id="expense-ref-container" style="display:none;">
+                <label class="form-label">Referencia / Banco (opcional)</label>
+                <input type="text" id="expense-reference" class="form-control" placeholder="Número de referencia / banco">
+              </div>
+              <div class="mb-3">
                 <label class="form-label">Categoría</label>
                 <select id="expense-category" class="form-select">
                   <option value="Servicios">Servicios Públicos</option>
@@ -90,6 +101,7 @@
                     <th>Fecha</th>
                     <th>Descripción</th>
                     <th>Categoría</th>
+                    <th>Método</th>
                     <th class="text-end">Monto</th>
                     <th>Acción</th>
                   </tr>

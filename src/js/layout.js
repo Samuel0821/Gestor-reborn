@@ -48,6 +48,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <a href="quotes.html" class="sidebar-link ${currentPage === 'quotes.html' ? 'active' : ''}"><i class="fa fa-file-invoice-dollar"></i> <span class="link-text">Cotizaciones</span></a>
         <a href="purchase_orders.html" class="sidebar-link ${currentPage === 'purchase_orders.html' ? 'active' : ''}"><i class="fa fa-clipboard-list"></i> <span class="link-text">Órdenes Compra</span></a>
         <a href="services.html" class="sidebar-link ${currentPage === 'services.html' ? 'active' : ''}"><i class="fa fa-concierge-bell"></i> <span class="link-text">Servicios</span></a>
+        <a href="cash_register.html" class="sidebar-link ${currentPage === 'cash_register.html' ? 'active' : ''}"><i class="fa fa-cash-register"></i> <span class="link-text">Cierre de Caja</span></a>
         <a href="reports.html" class="sidebar-link ${currentPage === 'reports.html' ? 'active' : ''}"><i class="fa fa-chart-line"></i> <span class="link-text">Reportes</span></a>
         <a href="expenses.html" class="sidebar-link ${currentPage === 'expenses.html' ? 'active' : ''}"><i class="fa fa-money-bill-wave"></i> <span class="link-text">Gastos</span></a>
         <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
@@ -139,6 +140,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const plScript = document.createElement('script');
         plScript.id = 'price-lookup-script';
         plScript.src = '../js/price_lookup.js';
+        plScript.defer = true;
         document.body.appendChild(plScript);
     }
 });

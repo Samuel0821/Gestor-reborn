@@ -96,13 +96,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.head.appendChild(dropdownStyles);
 
   // --- FILTRO POR CLIENTE Y BUSCADOR ---
-  const searchContainer = document.createElement("div"); // Se ajusta a col-md-6 para ser menos larga
-  searchContainer.className = "mb-3 col-md-6";
+  const searchContainer = document.createElement("div");
+  searchContainer.className = "mb-3 col-md-12 d-flex gap-3 align-items-center flex-wrap";
   searchContainer.innerHTML = `
-      <div class="input-group input-group-sm">
+      <div class="input-group input-group-sm flex-grow-1" style="min-width: 250px;">
         <span class="input-group-text"><i class="fa fa-search"></i></span>
         <input type="text" id="search-sale-history" class="form-control" placeholder="Buscar por nombre de cliente o número de factura..." list="client-search-list">
         <datalist id="client-search-list"></datalist>
+      </div>
+      <div id="sales-filter-container" class="d-flex align-items-center gap-2">
+          <label class="form-label mb-0 small fw-bold">Mostrar:</label>
+          <select id="sales-filter-status" class="form-select form-select-sm w-auto">
+              <option value="active">Activas</option>
+              <option value="annulled">Anuladas</option>
+              <option value="all">Todas</option>
+          </select>
       </div>
   `;
   if (salesList && salesList.parentNode) {
@@ -111,6 +119,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       parentDiv.insertBefore(searchContainer, salesList);
   }
   const clientSearchDatalist = document.getElementById('client-search-list'); // Referencia al nuevo datalist
+
+  // Listener para el filtro de estado
+  document.getElementById("sales-filter-status")?.addEventListener('change', () => loadSales(false));
 
   const searchSaleInput = document.getElementById('search-sale-history');
   let searchTimeout;
@@ -156,6 +167,24 @@ document.addEventListener("DOMContentLoaded", async () => {
     if(cancelBtn) cancelBtn.remove();
     productInput.focus();
   }
+
+  // --- LÓGICA DE PLAZO DE CRÉDITO ---
+  saleTypeSelect.addEventListener('change', () => {
+      const container = document.getElementById('credit-due-date-container');
+      if (saleTypeSelect.value === 'credit') {
+          if (!container) {
+              const html = `
+                <div id="credit-due-date-container" class="mt-2 bg-light p-2 rounded border shadow-sm">
+                    <label class="form-label small fw-bold">Plazo de Vencimiento (Fecha)</label>
+                    <input type="date" id="sale-due-date" class="form-control form-control-sm" 
+                           value="${new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0]}">
+                    <small class="text-muted d-block" style="font-size: 0.7rem;">Días calendario para el pago total.</small>
+                </div>
+              `;
+              saleTypeSelect.parentNode.insertAdjacentHTML('beforeend', html);
+          }
+      } else if (container) container.remove();
+  });
 
   renderSaleItems();
 
@@ -673,13 +702,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
       }
 
-      if (cash > 0) {
-        const activeSession = await window.api.getActiveCashSession();
-        if (activeSession) {
-          await window.api.addCashMovement(activeSession.id, "sale", cash, `Venta #${res.id}`);
-        }
-      }
-
       const printResult = await Swal.fire({
           title: 'Venta Exitosa',
           text: "¿Desea imprimir una copia de la factura?",
@@ -721,6 +743,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const clientId = clientSelect.value ? Number(clientSelect.value) : null;
       const saleType = saleTypeSelect.value;
       const totalAmount = saleItems.reduce((sum, item) => sum + item.subtotal, 0);
+      const dueDate = document.getElementById('sale-due-date')?.value || null;
 
       // Verificar si hay abonos previos (si viene de un servicio)
       let serviceId = null;
@@ -744,7 +767,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
           const result = await Swal.fire({
               title: 'Confirmar Crédito',
-              text: `¿Confirmar venta a crédito? Total: ${formatCOP(totalAmount)}. Abonado: ${formatCOP(previousPaymentsTotal)}. Saldo pendiente: ${formatCOP(remainingToPay)}`,
+              html: `¿Confirmar venta a crédito?<br><br>
+                     Total: <strong>${formatCOP(totalAmount)}</strong><br>
+                     Saldo pendiente: <strong>${formatCOP(remainingToPay)}</strong><br>
+                     Vencimiento: <strong>${dueDate || 'No definida'}</strong>`,
               icon: 'question',
               showCancelButton: true,
               confirmButtonText: 'Sí, confirmar',
@@ -762,7 +788,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                   cash_payment: 0,
                   transfer_payment: 0,
                   transfer_reference: null,
-                  service_id: serviceId
+                  service_id: serviceId,
+                  due_date: dueDate
               };
               const res = await window.api.createSale(saleData);
               if (!res.success) {
@@ -802,6 +829,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const originalSale = await window.api.getSaleById(editingSaleId);
       const newTotalAmount = saleItems.reduce((sum, item) => sum + item.subtotal, 0);
       const difference = newTotalAmount - originalSale.total_amount;
+      const dueDate = document.getElementById('sale-due-date')?.value || null;
 
       let paymentAdjustment = null;
 
@@ -832,7 +860,8 @@ document.addEventListener("DOMContentLoaded", async () => {
           paymentAdjustment: paymentAdjustment,
             sale_type: saleTypeSelect.value, // Informamos el tipo de venta actual
             total_amount: newTotalAmount,   // Enviamos el nuevo total calculado
-          userName: localStorage.getItem('user_name') || 'system'
+          userName: localStorage.getItem('user_name') || 'system',
+          due_date: dueDate
       };
 
       const res = await window.api.updateSale(updateData);
@@ -888,8 +917,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     if (target.classList.contains("delete-sale")) {
       const result = await Swal.fire({
-          title: '¿Eliminar venta?',
-          text: "Esta acción no se puede deshacer y devolverá los productos al inventario.",
+          title: '¿Eliminar venta permanentemente?',
+          text: "Esta acción borrará el registro de la base de datos y NO devolverá stock. Use esto solo para limpieza de datos antiguos.",
           icon: 'warning',
           showCancelButton: true,
           confirmButtonColor: '#d33',
@@ -899,6 +928,28 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       await window.api.deleteSale(Number(target.dataset.id));
       await loadSales(false); // Recargar desde cero
+      Swal.fire('Eliminada', 'La factura ha sido borrada del registro.', 'success');
+
+    } else if (target.classList.contains("annul-sale")) {
+      const result = await Swal.fire({
+          title: '¿Anular factura?',
+          text: "Esta acción marcará la factura como 'ANULADA', devolverá los productos al inventario y establecerá los montos en $0. Permanecerá en el historial para auditoría.",
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#ffc107',
+          confirmButtonText: 'Sí, anular',
+          cancelButtonText: 'Cancelar'
+      });
+      if (!result.isConfirmed) return;
+
+      const res = await window.api.annulSale(Number(target.dataset.id));
+      if (res.success) {
+        await loadSales(false); 
+        Swal.fire('Anulada', res.message, 'success');
+      } else {
+        Swal.fire('Error', res.message, 'error');
+      }
+
     } else if (target.classList.contains("view-invoice-detail")) {
       await handlePrintSale(Number(target.dataset.id), false);
     } else if (target.classList.contains("export-invoice")) {
@@ -978,9 +1029,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       loadMoreBtn.style.display = "none";
     }
     const searchTerm = document.getElementById('search-sale-history')?.value || "";
+    const statusFilter = document.getElementById("sales-filter-status")?.value || 'active';
     // If there's a search term, fetch all matching results (limit -1, offset 0)
     // Otherwise, use pagination (SALES_LIMIT, currentOffset)
-    const sales = await window.api.getSales(searchTerm ? -1 : SALES_LIMIT, searchTerm ? 0 : currentOffset, null, searchTerm);
+    const sales = await window.api.getSales(searchTerm ? -1 : SALES_LIMIT, searchTerm ? 0 : currentOffset, null, searchTerm, statusFilter);
     
     if (!sales || sales.length === 0) {
       if (!append) salesList.innerHTML = '<div class="alert alert-secondary">No hay ventas</div>';
@@ -992,11 +1044,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     const html = sales.map((s) => {
+      const isAnnulled = s.status === 'annulled';
+      const cardClass = isAnnulled ? 'card mb-2 p-2 bg-light text-muted border-danger' : 'card mb-2 p-2';
+      const statusBadge = isAnnulled ? '<span class="badge bg-danger ms-2">ANULADA</span>' : '';
       const itemsHtml = (s.items || []).map(it => `<li>${it.product_name} x ${it.quantity} = ${formatCOP(it.subtotal)}</li>`).join("");
       return `
-        <div class="card mb-2 p-2">
+        <div class="${cardClass}">
           <div>
-            <strong>${s.invoice_number || `FACT-${String(s.id).padStart(3,"0")}`}</strong>
+            <strong>${s.invoice_number || `FACT-${String(s.id).padStart(3,"0")}`}</strong> ${statusBadge}
             — ${s.sale_date} — ${formatCOP(s.total_amount)}
             <div class="float-end">
               <div class="dropdown">
@@ -1009,8 +1064,9 @@ document.addEventListener("DOMContentLoaded", async () => {
                   <li><button class="dropdown-item print-sale" data-id="${s.id}"><i class="fa fa-print me-2 text-success"></i> Imprimir Factura</button></li>
                   <li><button class="dropdown-item export-receipt" data-id="${s.id}"><i class="fa fa-file-invoice-dollar me-2 text-info"></i> Recibo de Caja</button></li>
                   <li><hr class="dropdown-divider"></li>
-                  <li><button class="dropdown-item edit-sale" data-id="${s.id}"><i class="fa fa-edit me-2 text-warning"></i> Editar</button></li>
-                  <li><button class="dropdown-item delete-sale" data-id="${s.id}"><i class="fa fa-trash me-2 text-danger"></i> Eliminar Factura</button></li>
+                  <li><button class="dropdown-item edit-sale" data-id="${s.id}" ${isAnnulled ? 'disabled' : ''}><i class="fa fa-edit me-2 text-warning"></i> Editar</button></li>
+                  <li><button class="dropdown-item annul-sale" data-id="${s.id}" ${isAnnulled ? 'disabled' : ''}><i class="fa fa-ban me-2 text-warning"></i> Anular Factura</button></li>
+                  <li><button class="dropdown-item delete-sale" data-id="${s.id}"><i class="fa fa-trash me-2 text-danger"></i> Eliminar (Sin devolver stock)</button></li>
                 </ul>
               </div>
             </div>
@@ -1031,6 +1087,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (role !== 'admin') {
       salesList.querySelectorAll('.delete-sale').forEach(btn => btn.closest('li').remove());
       salesList.querySelectorAll('.edit-sale').forEach(btn => btn.closest('li').remove());
+      salesList.querySelectorAll('.annul-sale').forEach(btn => btn.closest('li').remove());
     }
 
     currentOffset += sales.length;
@@ -1068,6 +1125,11 @@ document.addEventListener("DOMContentLoaded", async () => {
         editingSaleId = saleId;
         clientSelect.value = sale.client_id || "";
         saleTypeSelect.value = sale.sale_type;
+        saleTypeSelect.dispatchEvent(new Event('change'));
+        if (sale.due_date) {
+            const dueDateInput = document.getElementById('sale-due-date');
+            if (dueDateInput) dueDateInput.value = sale.due_date;
+        }
         
         const detailedItems = [];
         for (const item of items) {
@@ -1117,6 +1179,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     // -----------------------------
     function generateInvoiceHtml(sale, items, company, logoBase64, client, printers) {
       const showPrintPanel = printers && printers.length > 0;
+      const isAnnulled = sale.status === 'annulled';
+
       const printPanelHtml = showPrintPanel ? `
             <div class="print-options-panel">
               <label>Selecciona impresora:</label>
@@ -1141,7 +1205,8 @@ document.addEventListener("DOMContentLoaded", async () => {
               <script>
                 function formatCOP(value) { return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value); }
                 let totalBase = ${Number(sale.total_amount || 0)};
-                const pago = ${Number(sale.cash_payment || 0)} + ${Number(sale.transfer_payment || 0)};
+                const currentPago = ${Number(sale.cash_payment || 0)} + ${Number(sale.transfer_payment || 0)};
+                const totalAbonado = ${Number(sale.paid_amount || 0)};
                 function updateTotals() {
                   const includeIvaEl = document.getElementById("includeIva");
                   const includeIva = includeIvaEl ? includeIvaEl.checked : false;
@@ -1156,7 +1221,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                   } else {
                     extraTotalsBody.innerHTML = '<tr class="total-row"><td>TOTAL:</td><td>' + formatCOP(totalBase) + '</td></tr>';
                   }
-                  const cambio = pago - total;
+                  const cambio = totalAbonado - total;
                   const cambioContainer = document.getElementById("cambioContainer");
                   if (cambio !== 0) {
                     cambioContainer.innerHTML = '<tr><td>Cambio:</td><td>' + formatCOP(cambio) + '</td></tr>';
@@ -1180,17 +1245,18 @@ document.addEventListener("DOMContentLoaded", async () => {
             <meta charset="UTF-8">
             <style>
               @page { margin: 6mm; } /* Margen de impresión */
+              html, body { margin: 0; padding: 0; }
               body { 
                 font-family: 'Arial', sans-serif; 
                 font-size: 10px; /* Tamaño de fuente base */
                 color: #0a0a0aff;
-                padding: 0;
-                margin: 0;
               }
               .invoice-box {
                 width: 95%;
                 box-sizing: border-box;
                 margin: 0 auto; /* Centrar el contenido */
+                position: relative; /* Ancla para la marca de agua absoluta */
+                overflow: hidden; /* Evita que la rotación genere páginas extra */
               }
               .header, .footer {
                 text-align: center;
@@ -1272,8 +1338,26 @@ document.addEventListener("DOMContentLoaded", async () => {
                 border: 4px solid #ccc; border-radius: 15px; box-shadow: 0 8px 12px rgba(0,0,0,0.1);
                 display: flex; flex-direction: column; gap: 15px; z-index: 9999;
               }
+              .watermark {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) rotate(-30deg);
+                font-size: 60pt;
+                color: rgba(255, 0, 0, 0.15);
+                font-weight: bold;
+                z-index: 9998;
+                pointer-events: none;
+                white-space: nowrap;
+                border: 12px solid rgba(255, 0, 0, 0.15);
+                padding: 15px 40px;
+                border-radius: 20px;
+                text-transform: uppercase;
+                font-family: 'Arial Black', sans-serif;
+              }
               @media print {
                 .print-options-panel { display: none; }
+                .watermark { -webkit-print-color-adjust: exact; }
               }
             </style>
           </head>
@@ -1282,6 +1366,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             ${scriptHtml}
 
             <div class="invoice-box">
+              ${isAnnulled ? '<div class="watermark">ANULADA</div>' : ''}
               <div class="header">
                 ${logoBase64 ? `<img src="${logoBase64}" style="max-height:120px; margin-bottom: 10px; filter: brightness(0.8) contrast(1.5);"><br>` : ""}
                 <h2><strong>${company.company_name || ""}</strong></h2>
@@ -1353,13 +1438,20 @@ document.addEventListener("DOMContentLoaded", async () => {
                             <td><strong>Forma de pago:</strong></td>
                             <td>Venta a crédito</td>
                         </tr>
+                        ${sale.due_date ? `<tr><td><strong>Vencimiento:</strong></td><td>${sale.due_date}</td></tr>` : ""}
                     ` : `
                         <tr>
                             <td><strong>Forma de pago:</strong></td>
-                            <td>${sale.cash_payment > 0 && sale.transfer_payment > 0 ? "Mixto" : sale.cash_payment > 0 ? "Efectivo" : "Transferencia"}</td>
+                            <td>${
+                                sale.cash_payment > 0 && sale.transfer_payment > 0 ? "Mixto" : 
+                                sale.cash_payment > 0 ? "Efectivo" : 
+                                sale.transfer_payment > 0 ? "Transferencia" : 
+                                ((sale.paid_amount || 0) > 0 ? "Abono / Anticipado" : "Otros")
+                            }</td>
                         </tr>
                         ${sale.cash_payment > 0 ? `<tr><td>Efectivo:</td><td>${formatCOP(sale.cash_payment)}</td></tr>` : ""}
                         ${sale.transfer_payment > 0 ? `<tr><td>Transferencia:</td><td>${formatCOP(sale.transfer_payment)}</td></tr>` : ""}
+                        ${((sale.paid_amount || 0) - ((sale.cash_payment || 0) + (sale.transfer_payment || 0))) > 0 ? `<tr><td>Abonos previos:</td><td>${formatCOP(sale.paid_amount - (sale.cash_payment + sale.transfer_payment))}</td></tr>` : ""}
                     `}
                     </tbody>
                 </table>
@@ -1377,9 +1469,25 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Cargar créditos
 
-  async function loadCredits(searchTerm = "") {
-    const credits = await window.api.getCredits(searchTerm);
+  async function loadCredits(searchTerm = "", showPaid = false) {
+    const credits = await window.api.getCredits(searchTerm, !showPaid);
     creditsList.innerHTML = "";
+
+    // Inyectar controles de filtro si no existen
+    if (!document.getElementById('credit-filter-container')) {
+        const filterHtml = `
+            <div id="credit-filter-container" class="mb-3 d-flex align-items-center gap-2">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="show-paid-credits" ${showPaid ? 'checked' : ''}>
+                    <label class="form-check-label" for="show-paid-credits">Ver créditos pagados</label>
+                </div>
+            </div>
+        `;
+        creditsList.parentNode.insertBefore(document.createRange().createContextualFragment(filterHtml), creditsList);
+        document.getElementById('show-paid-credits').addEventListener('change', (e) => {
+            loadCredits(creditSearchInput.value, e.target.checked);
+        });
+    }
 
     if (!credits || credits.length === 0) {
       creditsList.innerHTML = `<div class="alert alert-secondary">No hay créditos pendientes.</div>`;
@@ -1387,14 +1495,30 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     credits.forEach(c => {
+      const isPaid = c.outstanding_balance <= 0;
+
+      let daysInfo = "";
+      if (c.due_date && !isPaid) {
+          const start = new Date(c.sale_date.split(' ')[0]);
+          const end = new Date(c.due_date);
+          const diffTime = end - start;
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          daysInfo = `<div class="small text-muted mb-1">
+                        Vence: <span class="fw-bold">${c.due_date}</span> 
+                        (${diffDays > 0 ? diffDays : 0} días plazo)
+                      </div>`;
+      }
+
       const creditCard = document.createElement("div");
       creditCard.classList.add("card", "mb-2", "p-2", "credit-card");
+      if (isPaid) creditCard.style.borderLeft = "5px solid #198754";
       creditCard.innerHTML = `
         <div>
           <strong>Factura #${c.invoice_number || c.id}</strong> — Cliente: ${c.client_name}
+          ${daysInfo}
         </div>
         <div>
-          Total: ${formatCOP(c.total_amount)} | Abonos: ${formatCOP(c.paid_amount)} | Saldo: <span class="fw-bold text-danger">${formatCOP(c.outstanding_balance)}</span>
+          Total: ${formatCOP(c.total_amount)} | Abonos: ${formatCOP(c.paid_amount)} | Saldo: <span class="fw-bold ${isPaid ? 'text-success' : 'text-danger'}">${formatCOP(c.outstanding_balance)}</span>
         </div>
         <div class="mt-2">
           <button class="btn btn-sm btn-info view-credit-details" data-id="${c.id}">Ver Detalle</button>
@@ -1478,6 +1602,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Modal de detalles de crédito
 
+  window.downloadReceipt = async (id, type) => {
+    const res = await window.api.exportPaymentReceiptPDF(id, type);
+    if (res.success) {
+      const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
+      Toast.fire({ icon: 'success', title: 'Recibo generado correctamente' });
+    } else if (res.message) {
+      Swal.fire('Error', res.message, 'error');
+    }
+  };
+
   async function showCreditDetails(saleId) {
     const sale = await window.api.getSaleById(saleId);
     if (!sale) {
@@ -1490,6 +1624,34 @@ document.addEventListener("DOMContentLoaded", async () => {
       client = await window.api.getClientById(sale.client_id);
     }
     const clientName = client ? client.name : "Sin cliente";
+
+    let daysRemainingInfo = "";
+    if (sale.due_date && sale.outstanding_balance > 0) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const due = new Date(sale.due_date);
+        due.setHours(0, 0, 0, 0);
+        const diffTime = due - today;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        if (diffDays < 0) {
+            daysRemainingInfo = `<span class="badge bg-danger">Vencido hace ${Math.abs(diffDays)} días</span>`;
+        } else if (diffDays === 0) {
+            daysRemainingInfo = `<span class="badge bg-warning text-dark">Vence hoy</span>`;
+        } else {
+            daysRemainingInfo = `<span class="badge bg-info">Vence en ${diffDays} días</span>`;
+        }
+    }
+
+    const payments = await window.api.getSalePayments(saleId);
+    const historyRows = payments.map(p => `
+      <tr>
+        <td><small>${p.created_at}</small></td>
+        <td>${p.method === 'cash' ? 'Efe.' : 'Trf.'}</td>
+        <td class="text-end fw-bold">${formatCOP(p.amount)}</td>
+        <td class="text-center"><button class="btn btn-sm btn-outline-danger border-0 p-0" onclick="downloadReceipt(${p.id}, 'credit')"><i class="fas fa-file-pdf"></i></button></td>
+      </tr>
+    `).join('');
 
     const modalHtml = `
       <div class="modal fade" id="creditDetailsModal" tabindex="-1">
@@ -1504,6 +1666,15 @@ document.addEventListener("DOMContentLoaded", async () => {
               <p><strong>Total de la Venta:</strong> ${formatCOP(sale.total_amount)}</p>
               <p><strong>Total Abonado:</strong> <span id="modal-paid-amount">${formatCOP(sale.paid_amount)}</span></p>
               <p><strong>Saldo Pendiente:</strong> <span id="modal-outstanding-balance" class="fw-bold text-danger">${formatCOP(sale.outstanding_balance)}</span></p>
+              ${sale.due_date ? `<p><strong>Vencimiento:</strong> ${sale.due_date} ${daysRemainingInfo}</p>` : ''}
+
+              <h6 class="mt-4 border-bottom pb-2">Historial de Abonos</h6>
+              <div class="table-responsive" style="max-height: 150px;">
+                <table class="table table-sm table-hover">
+                  <thead class="table-light"><tr><th>Fecha</th><th>Medio</th><th class="text-end">Monto</th><th>PDF</th></tr></thead>
+                  <tbody>${historyRows || '<tr><td colspan="4" class="text-center text-muted">No hay abonos</td></tr>'}</tbody>
+                </table>
+              </div>
 
               <h6 class="mt-4">Registrar Abono</h6>
               <div class="mb-2">
@@ -1519,7 +1690,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <input type="number" class="form-control" id="abono-amount" placeholder="Monto del abono">
                 <button class="btn btn-primary" type="button" id="add-abono-btn">Abonar</button>
               </div>
-              <button class="btn btn-success w-100 mt-3" id="mark-paid-btn">Marcar como Crédito Pagado</button>
             </div>
           </div>
         </div>
@@ -1550,15 +1720,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       const res = await window.api.addCreditPayment(saleId, abonoAmount, method, reference);
-      Swal.fire(res.success ? 'Éxito' : 'Error', res.message, res.success ? 'success' : 'error');
-      modal.hide();
-      await loadCredits();
-    });
-
-    document.getElementById("mark-paid-btn").addEventListener("click", async () => {
-      const method = methodSelect.value;
-      const reference = document.getElementById("abono-ref").value;
-      const res = await window.api.markCreditAsPaid(saleId, method, reference);
       Swal.fire(res.success ? 'Éxito' : 'Error', res.message, res.success ? 'success' : 'error');
       modal.hide();
       await loadCredits();

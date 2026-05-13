@@ -112,7 +112,14 @@
         document.body.insertAdjacentHTML('beforeend', modalHtml);
 
         // 3. Lógica Funcional
-        const modal = new bootstrap.Modal(document.getElementById('priceLookupModal'));
+        let modal;
+        try {
+            // Intentar inicializar, pero no morir si bootstrap no está listo
+            if (typeof bootstrap !== 'undefined') {
+                modal = new bootstrap.Modal(document.getElementById('priceLookupModal'));
+            }
+        } catch (e) { console.warn("Price Lookup: Esperando a Bootstrap..."); }
+
         const input = document.getElementById('lookup-query');
         const container = document.getElementById('lookup-results-list');
         const formatCOP = (n) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(n || 0);
@@ -204,8 +211,16 @@
             handleSearch();
         });
 
-        document.getElementById('open-lookup-btn').addEventListener('click', () => modal.show());
-        document.addEventListener('keydown', (e) => { if (e.ctrlKey && e.key.toLowerCase() === 'b') { e.preventDefault(); modal.show(); }});
+        // Función segura para mostrar el modal
+        const showModal = () => {
+            if (!modal && typeof bootstrap !== 'undefined') {
+                modal = new bootstrap.Modal(document.getElementById('priceLookupModal'));
+            }
+            if (modal) modal.show();
+        };
+
+        document.getElementById('open-lookup-btn').addEventListener('click', showModal);
+        document.addEventListener('keydown', (e) => { if (e.ctrlKey && e.key.toLowerCase() === 'b') { e.preventDefault(); showModal(); }});
         document.getElementById('priceLookupModal').addEventListener('shown.bs.modal', () => { refreshCache(); input.focus(); if(input.value) handleSearch(); });
     };
 

@@ -37,9 +37,10 @@ contextBridge.exposeInMainWorld("api", {
 
   // sales
   createSale: (data) => ipcRenderer.invoke("create-sale", data),
-  getSales: (limit, offset, clientId, searchTerm) => ipcRenderer.invoke("get-sales", limit, offset, clientId, searchTerm),
+  getSales: (limit, offset, clientId, searchTerm, statusFilter) => ipcRenderer.invoke("get-sales", limit, offset, clientId, searchTerm, statusFilter),
   getSaleById: (id) => ipcRenderer.invoke("get-sale-by-id", id),
   getSaleItems: (id) => ipcRenderer.invoke("get-sale-items", id),
+  annulSale: (id) => ipcRenderer.invoke("annul-sale", id), // Nuevo manejador para anular
   deleteSale: (id) => ipcRenderer.invoke("delete-sale", id),
   updateSale: (data) => ipcRenderer.invoke("update-sale", data),
   deleteSaleItem: (id) => ipcRenderer.invoke("delete-sale-item", id),
@@ -51,10 +52,12 @@ contextBridge.exposeInMainWorld("api", {
   exportSaleReceiptPDF: (id, receivedBy, observations) =>
     ipcRenderer.invoke("export-sale-receipt-pdf", { id, receivedBy, observations }),
 
-  // credits ⚠️ <-- AGREGAR ESTO
-getCredits: (searchTerm = "") => ipcRenderer.invoke("get-credits", searchTerm),
-addCreditPayment: (saleId, amount, method, reference) => ipcRenderer.invoke("add-credit-payment", saleId, amount, method, reference),
-markCreditAsPaid: (saleId, method, reference) => ipcRenderer.invoke("mark-credit-as-paid", saleId, method, reference),
+  // credits
+  getCredits: (searchTerm = "", onlyPending = true) => ipcRenderer.invoke("get-credits", searchTerm, onlyPending),
+  addCreditPayment: (saleId, amount, method, reference) => ipcRenderer.invoke("add-credit-payment", saleId, amount, method, reference),
+  getSalePayments: (saleId) => ipcRenderer.invoke("get-sale-payments", saleId),
+  exportPaymentReceiptPDF: (paymentId, type) => ipcRenderer.invoke("export-payment-receipt-pdf", { paymentId, type }),
+  markCreditAsPaid: (saleId, method, reference) => ipcRenderer.invoke("mark-credit-as-paid", saleId, method, reference),
 
   // Purchase Orders
   createPurchaseOrder: (data) => ipcRenderer.invoke("create-purchase-order", data),
@@ -67,7 +70,7 @@ markCreditAsPaid: (saleId, method, reference) => ipcRenderer.invoke("mark-credit
   getPurchaseOrdersCount: () => ipcRenderer.invoke("get-purchase-orders-count"),
   
   // --- GESTIÓN DE PAGOS A PROVEEDORES (NUEVO) ---
-  updatePurchaseInvoiceNumber: (id, invoiceNumber) => ipcRenderer.invoke("update-purchase-invoice-number", { id, invoiceNumber }),
+  updatePurchaseInvoiceNumber: (data) => ipcRenderer.invoke("update-purchase-invoice-number", data),
   addPurchasePayment: (data) => ipcRenderer.invoke("add-purchase-payment", data),
   getPurchasePayments: (orderId) => ipcRenderer.invoke("get-purchase-payments", orderId),
   getRetentionsReport: (filters) => ipcRenderer.invoke("get-retentions-report", filters),
@@ -148,22 +151,20 @@ markCreditAsPaid: (saleId, method, reference) => ipcRenderer.invoke("mark-credit
   previewInvoice: (data) => ipcRenderer.invoke("preview-invoice", data),
   getCompanyLogo: () => ipcRenderer.invoke("get-company-logo"),
 
-// Caja registradora
-openCashRegister: (openingBalance) => 
-    ipcRenderer.invoke("open-cash-register", openingBalance),
-
-  getActiveCashSession: () => 
-    ipcRenderer.invoke("get-active-cash-session"),
-
-  addCashMovement: (sessionId, type, amount, description) => 
-    ipcRenderer.invoke("add-cash-movement", { sessionId, type, amount, description }),
-
-  closeCashRegister: (realClosingBalance) => 
-    ipcRenderer.invoke("close-cash-register", realClosingBalance),
-
-  getCashRegisterSessions: () => 
-    ipcRenderer.invoke("get-cash-register-sessions"),
-
-  getCashMovements: (sessionId) => 
-    ipcRenderer.invoke("get-cash-movements", sessionId),
+  // Caja registradora (Cash Register Module)
+  openCashRegister: (data) => ipcRenderer.invoke("open-cash-register", data),
+  getActiveCashSession: () => ipcRenderer.invoke("get-active-cash-session"),
+  addCashMovementManual: (data) => ipcRenderer.invoke("add-cash-movement-manual", data),
+  closeCashRegister: (data) => ipcRenderer.invoke("close-cash-register", data),
+  getCashRegisterSessions: () => ipcRenderer.invoke("get-cash-register-sessions"),
+  getCashMovements: (sessionId) => ipcRenderer.invoke("get-cash-movements", sessionId),
+  getCashMovementsDetailed: (sessionId) => ipcRenderer.invoke("get-cash-movements-detailed", sessionId),
+  getSalesForSession: (sessionId) => ipcRenderer.invoke("get-sales-for-session", sessionId),
+  getExpensesForSession: (sessionId) => ipcRenderer.invoke("get-expenses-for-session", sessionId),
+  getPurchasePaymentsForSession: (sessionId) => ipcRenderer.invoke("get-purchase-payments-for-session", sessionId),
+  getServicePaymentsForSession: (sessionId) => ipcRenderer.invoke("get-service-payments-for-session", sessionId),
+  getCreditPaymentsForSession: (sessionId) => ipcRenderer.invoke("get-credit-payments-for-session", sessionId),
+  saveReconciliationDetails: (data) => ipcRenderer.invoke("save-reconciliation-details", data),
+  getReconciliationDetails: (sessionId) => ipcRenderer.invoke("get-reconciliation-details", sessionId),
+  exportCashRegisterReportPDF: (sessionId) => ipcRenderer.invoke("export-cash-register-report-pdf", sessionId),
 });

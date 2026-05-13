@@ -135,7 +135,7 @@ function renderTable() {
     });
 
     if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">No se encontraron órdenes</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">No se encontraron órdenes</td></tr>`;
         return;
     }
 
@@ -173,6 +173,7 @@ function renderTable() {
             <td>${new Date(order.order_date).toLocaleDateString()}<br><small class="text-muted">Vence: ${order.due_date || '-'}</small></td>
             <td>${invoiceDisplay}</td>
             <td class="text-end fw-bold">${formatCurrency(order.total_amount)}</td>
+            <td class="text-end text-success">${formatCurrency(order.discount_amount || 0)}</td>
             <td class="text-end text-danger">${isReceived ? formatCurrency(order.outstanding_balance) : '-'}</td>
             <td class="text-center">${statusBadge}</td>
             <td class="text-center">${payBadge}</td>
@@ -266,8 +267,10 @@ async function deleteOrder(id) {
 
 let currentInvoiceModal;
 function openInvoiceModal(id, currentNumber) {
+    const order = allOrders.find(o => o.id == id);
     document.getElementById('invOrderId').value = id;
     document.getElementById('invNumberInput').value = currentNumber || '';
+    document.getElementById('invDiscountInput').value = order.discount_amount || 0;
     currentInvoiceModal = new bootstrap.Modal(document.getElementById('invoiceModal'));
     currentInvoiceModal.show();
 }
@@ -275,10 +278,11 @@ function openInvoiceModal(id, currentNumber) {
 async function saveInvoiceNumber() {
     const id = document.getElementById('invOrderId').value;
     const number = document.getElementById('invNumberInput').value.trim();
+    const discount = parseFloat(document.getElementById('invDiscountInput').value) || 0;
     
     if (!number) return Swal.fire('Atención', 'Debes escribir un número de factura', 'warning');
 
-    const res = await window.api.updatePurchaseInvoiceNumber(id, number);
+    const res = await window.api.updatePurchaseInvoiceNumber({ id, invoiceNumber: number, discountAmount: discount });
     if (res.success) {
         currentInvoiceModal.hide();
         loadOrders();
@@ -302,7 +306,6 @@ function openPaymentModal(id) {
     
     // Reset form
     document.getElementById('payAmount').value = order.outstanding_balance; // Sugerir pagar todo
-    document.getElementById('payAmount').dataset.originalBalance = order.outstanding_balance; // Guardar base para cálculo
     document.getElementById('payAmount').max = order.outstanding_balance;
     document.getElementById('payReference').value = '';
     document.getElementById('payNotes').value = '';
@@ -339,25 +342,35 @@ function openPaymentModal(id) {
         const typeSelect = document.getElementById('payRetentionType');
         const amountInput = document.getElementById('payRetentionAmount');
         const payInput = document.getElementById('payAmount');
+        const netPreview = document.getElementById('net-pay-preview');
 
-        typeSelect.addEventListener('change', () => {
-            const rate = parseFloat(typeSelect.value);
-            const baseAmount = parseFloat(payInput.dataset.originalBalance) || 0;
+        const updateRetention = () => {
+            const rate = parseFloat(typeSelect.value) || 0;
+            const baseAmount = parseFloat(payInput.value) || 0;
+            
             if (rate > 0 && rate !== 100) {
                 // Calcular retención sugerida basada en el monto a pagar (asumiendo que es la base)
                 const retention = Math.round(baseAmount * (rate / 100));
                 amountInput.value = retention;
-                // Restar automáticamente del monto a pagar
-                payInput.value = Math.max(0, baseAmount - retention);
-            } else if (rate === 0) {
-                amountInput.value = 0;
-                payInput.value = baseAmount; // Restaurar valor original
             }
-        });
+            
+            const currentRetention = parseFloat(amountInput.value) || 0;
+            const net = Math.max(0, baseAmount - currentRetention);
+            if (netPreview) {
+                netPreview.innerHTML = `<strong>Total a Girar (Neto):</strong> ${formatCurrency(net)}`;
+            }
+        };
+
+        typeSelect.addEventListener('change', updateRetention);
+        payInput.addEventListener('input', updateRetention);
+        amountInput.addEventListener('input', updateRetention);
+        
+        updateRetention();
     } else {
         // Resetear campos si ya existían
         document.getElementById('payRetentionType').value = "0";
         document.getElementById('payRetentionAmount').value = "0";
+        document.getElementById('payAmount').dispatchEvent(new Event('input'));
     }
     
     currentPaymentModal = new bootstrap.Modal(document.getElementById('paymentModal'));
@@ -366,22 +379,34 @@ function openPaymentModal(id) {
 
 async function submitPayment() {
     const id = document.getElementById('payOrderId').value;
-    const amount = parseFloat(document.getElementById('payAmount').value);
+    const baseAmount = parseFloat(document.getElementById('payAmount').value) || 0;
+    const retentionAmount = parseFloat(document.getElementById('payRetentionAmount')?.value) || 0;
+
+    // El backend espera el monto NETO en 'amount' (el dinero que sale de caja)
+    // y el valor de retención por separado. La deuda baja por la suma de ambos (Base).
+    const netAmount = baseAmount - retentionAmount;
+
     const date = document.getElementById('payDate').value;
-    const method = document.getElementById('payMethod').value;
+    const methodRaw = document.getElementById('payMethod').value;
+    // Normalizar método a valores estándar que el backend espera
+    let method = (methodRaw || '').toString().toLowerCase();
+    if (method === 'efectivo' || method === 'cash') method = 'cash';
+    else if (method === 'transferencia' || method === 'transfer' || method === 'transferencia') method = 'transfer';
+    else if (method === 'cheque') method = 'cheque';
+    else if (method === 'tarjeta' || method === 'tarjeta crédito/débito' || method === 'tarjeta crédito/débito') method = 'card';
+    else method = method; // dejar tal cual si es otro valor
     const reference = document.getElementById('payReference').value;
     const notes = document.getElementById('payNotes').value;
     
-    // Capturar retención
-    const retentionAmount = parseFloat(document.getElementById('payRetentionAmount')?.value) || 0;
     const retentionType = document.getElementById('payRetentionType')?.options[document.getElementById('payRetentionType').selectedIndex].text || '';
 
-    if (!amount || amount <= 0) return Swal.fire('Error', 'Ingrese un monto válido', 'warning');
+    if (baseAmount <= 0) return Swal.fire('Error', 'Ingrese un monto válido', 'warning');
+    if (netAmount < 0) return Swal.fire('Error', 'El valor retenido no puede superar al monto del abono', 'warning');
     if (!date) return Swal.fire('Error', 'Seleccione una fecha', 'warning');
 
     const res = await window.api.addPurchasePayment({
         orderId: id,
-        amount,
+        amount: netAmount,
         date,
         method,
         reference,
@@ -405,6 +430,16 @@ async function submitPayment() {
 
 // --- HISTORIAL DE PAGOS ---
 
+window.downloadPaymentReceipt = async (id) => {
+    const res = await window.api.exportPaymentReceiptPDF(id, 'purchase');
+    if (res.success) {
+        const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
+        Toast.fire({ icon: 'success', title: 'Comprobante generado correctamente' });
+    } else if (res.message) {
+        Swal.fire('Error', res.message, 'error');
+    }
+};
+
 let currentHistoryModal;
 async function openHistoryModal(id) {
     const payments = await window.api.getPurchasePayments(id);
@@ -418,10 +453,12 @@ async function openHistoryModal(id) {
             tbody.innerHTML += `
                 <tr>
                     <td class="ps-3">${p.date}</td>
+                    <td>${p.supplier_invoice_number || '-'}</td>
                     <td>${p.method}</td>
                     <td>${p.reference || '-'}</td>
                     <td><small>${p.notes || ''}</small></td>
                     <td class="text-end pe-3 fw-bold">${formatCurrency(p.amount)}</td>
+                    <td class="text-center"><button class="btn btn-sm btn-outline-danger border-0 p-0" onclick="downloadPaymentReceipt(${p.id})"><i class="fas fa-file-pdf"></i></button></td>
                 </tr>
             `;
         });

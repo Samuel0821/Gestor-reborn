@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cierre de Caja - GestorFX</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link href="../styles.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container-fluid mt-4">
+        <h1 class="mb-4">Módulo de Cierre de Caja</h1>
+
+        <!-- Sección de Apertura de Caja -->
+        <div id="open-session-section" class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-cash-register me-2"></i>Abrir Sesión de Caja</h5>
+            </div>
+            <div class="card-body text-center">
+                <p class="lead">No hay una sesión de caja activa. ¡Comience su día!</p>
+                <button id="open-cash-register-btn" class="btn btn-success btn-lg">
+                    <i class="fas fa-play-circle me-2"></i>Abrir Caja
+                </button>
+            </div>
+        </div>
+
+        <!-- Sección de Sesión Activa -->
+        <div id="active-session-section" style="display: none;">
+            <div class="row mb-4">
+                <!-- KPI: Estado de la Sesión -->
+                <div class="col-md-3 mb-3">
+                    <div class="kpi-card bg-light">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="kpi-label">Estado de Sesión</div>
+                                <span id="session-status-badge" class="badge bg-success kpi-value">Abierta</span>
+                            </div>
+                            <div class="kpi-icon-wrapper text-success"><i class="fas fa-circle-notch"></i></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- KPI: Abierta Desde -->
+                <div class="col-md-3 mb-3">
+                    <div class="kpi-card">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="kpi-label">Abierta Desde</div>
+                                <div id="session-opened-at" class="fw-bold text-muted" style="font-size: 0.85rem;">--/--/---- --:--</div>
+                                <div id="session-duration" class="kpi-value">00:00:00</div>
+                            </div>
+                            <div class="kpi-icon-wrapper text-info"><i class="fas fa-clock"></i></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- KPI: Cajero -->
+                <div class="col-md-3 mb-3">
+                    <div class="kpi-card">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="kpi-label">Cajero</div>
+                                <div id="session-opened-by" class="kpi-value small">N/A</div>
+                            </div>
+                            <div class="kpi-icon-wrapper text-primary"><i class="fas fa-user-tie"></i></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- KPI: Saldo Inicial -->
+                <div class="col-md-3 mb-3">
+                    <div class="kpi-card">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="kpi-label">Saldo Inicial</div>
+                                <div id="session-opening-balance" class="kpi-value">0</div>
+                            </div>
+                            <div class="kpi-icon-wrapper text-warning"><i class="fas fa-money-bill-alt"></i></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <!-- Columna Izquierda: Movimientos Manuales y Arqueo -->
+                <div class="col-md-4">
+                    <!-- Movimientos Manuales -->
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-secondary text-white">
+                            <h5 class="mb-0"><i class="fas fa-exchange-alt me-2"></i>Movimientos Manuales</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="manual-movement-form">
+                                <div class="mb-3">
+                                    <label for="manual-movement-amount" class="form-label">Monto</label>
+                                    <input type="number" class="form-control" id="manual-movement-amount" min="0" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="manual-movement-type" class="form-label">Tipo</label>
+                                    <select class="form-select" id="manual-movement-type">
+                                        <option value="in">Ingreso</option>
+                                        <option value="out">Egreso</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="manual-movement-description" class="form-label">Descripción</label>
+                                    <input type="text" class="form-control" id="manual-movement-description" required>
+                                </div>
+                                <button type="submit" id="add-manual-movement-btn" class="btn btn-primary w-100">
+                                    <i class="fas fa-plus-circle me-2"></i>Registrar Movimiento
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Arqueo de Caja -->
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-info text-white">
+                            <h5 class="mb-0"><i class="fas fa-calculator me-2"></i>Arqueo de Caja</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <span class="fw-bold">Base Inicial:</span>
+                                <span id="expected-cash-balance" class="fs-5 fw-bold text-primary">0</span>
+                            </div>
+                            <hr>
+                            <h6 class="mb-3">Conteo de Billetes y Monedas</h6>
+                            <div id="reconciliation-denominations">
+                                <!-- Denominations will be rendered here by JS -->
+                            </div>
+                            <hr>
+                            <div class="d-flex justify-content-between align-items-center mt-3">
+                                <span class="fw-bold">Total Contado:</span>
+                                <span id="total-counted-cash" class="fs-5 fw-bold text-success">0</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                <span class="fw-bold">Diferencia:</span>
+                                <span id="cash-difference" class="fs-5 fw-bold text-danger">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Botón de Cierre de Caja -->
+                    <button id="close-cash-register-btn" class="btn btn-danger btn-lg w-100 mb-3">
+                        <i class="fas fa-lock me-2"></i>Cerrar Caja
+                    </button>
+                    <button id="export-cash-report-btn" class="btn btn-outline-primary btn-lg w-100">
+                        <i class="fas fa-file-pdf me-2"></i>Exportar Reporte de Cierre
+                    </button>
+                </div>
+
+                <!-- Columna Derecha: Resumen de Movimientos -->
+                <div class="col-md-8">
+                    <ul class="nav nav-tabs mb-3" id="cashRegisterTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="summary-tab" data-bs-toggle="tab" data-bs-target="#summary" type="button" role="tab" aria-controls="summary" aria-selected="true">Resumen</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="sales-tab" data-bs-toggle="tab" data-bs-target="#sales" type="button" role="tab" aria-controls="sales" aria-selected="false">Ventas</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="expenses-tab" data-bs-toggle="tab" data-bs-target="#expenses" type="button" role="tab" aria-controls="expenses" aria-selected="false">Egresos</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="service-payments-tab" data-bs-toggle="tab" data-bs-target="#service-payments" type="button" role="tab" aria-controls="service-payments" aria-selected="false">Abonos Servicios</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="credit-payments-tab" data-bs-toggle="tab" data-bs-target="#credit-payments" type="button" role="tab" aria-controls="credit-payments" aria-selected="false">Abonos Créditos</button>
+                        </li>
+                    </ul>
+                    <div class="tab-content" id="cashRegisterTabContent">
+                        <!-- Resumen Tab -->
+                        <div class="tab-pane fade show active" id="summary" role="tabpanel" aria-labelledby="summary-tab">
+                            <div class="card shadow-sm">
+                                <div class="card-body">
+                                    <h5 class="card-title">Resumen de la Sesión</h5>
+                                    <p>Aquí se mostrará un resumen consolidado de todos los movimientos.</p>
+                                    <!-- Placeholder for summary content -->
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Ventas Tab -->
+                        <div class="tab-pane fade" id="sales" role="tabpanel" aria-labelledby="sales-tab">
+                            <div class="card shadow-sm">
+                                <div class="card-body">
+                                    <h5 class="card-title">Ventas en Efectivo/Transferencia</h5>
+                                    <div class="table-responsive">
+                                        <table class="table table-striped table-hover table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Factura #</th>
+                                                    <th>Cliente</th>
+                                                    <th>Método</th>
+                                                    <th class="text-end">Monto</th>
+                                                    <th>Fecha</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="sales-table-body">
+                                                <!-- Sales will be loaded here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Egresos Tab -->
+                        <div class="tab-pane fade" id="expenses" role="tabpanel" aria-labelledby="expenses-tab">
+                            <div class="card shadow-sm">
+                                <div class="card-body">
+                                    <h5 class="card-title">Egresos Registrados</h5>
+                                    <div class="table-responsive">
+                                        <table class="table table-striped table-hover table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Descripción</th>
+                                                    <th>Categoría</th>
+                                                    <th>Método</th>
+                                                    <th class="text-end">Monto</th>
+                                                    <th>Fecha</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="expenses-table-body">
+                                                <!-- Expenses will be loaded here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Abonos Servicios Tab -->
+                        <div class="tab-pane fade" id="service-payments" role="tabpanel" aria-labelledby="service-payments-tab">
+                            <div class="card shadow-sm">
+                                <div class="card-body">
+                                    <h5 class="card-title">Abonos a Servicios (Efe / Trf)</h5>
+                                    <div class="table-responsive">
+                                        <table class="table table-striped table-hover table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Servicio / Cliente</th>
+                                                    <th>Método</th>
+                                                    <th class="text-end">Monto</th>
+                                                    <th>Fecha</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="service-payments-table-body">
+                                                <!-- Service Payments will be loaded here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Abonos Créditos Tab -->
+                        <div class="tab-pane fade" id="credit-payments" role="tabpanel" aria-labelledby="credit-payments-tab">
+                            <div class="card shadow-sm">
+                                <div class="card-body">
+                                    <h5 class="card-title">Abonos a Créditos (Efe / Trf)</h5>
+                                    <div class="table-responsive">
+                                        <table class="table table-striped table-hover table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Factura / Cliente</th>
+                                                    <th>Método</th>
+                                                    <th class="text-end">Monto</th>
+                                                    <th>Fecha</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="credit-payments-table-body">
+                                                <!-- Credit Payments will be loaded here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts Globales -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="../js/layout.js"></script>
+    <script src="../js/cash_register.js"></script>
+</body>
+</html>
