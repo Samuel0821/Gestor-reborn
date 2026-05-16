@@ -1,6 +1,6 @@
 # Manual Técnico - GestorFX
 
-**Versión del Sistema:** 1.0.8
+**Versión del Sistema:** 1.0.9
 **Desarrollado por:** Grisalis Technologies
 
 ---
@@ -37,7 +37,7 @@ El sistema utiliza tecnologías web modernas encapsuladas para ejecutarse como u
 *   **HTML5:** Estructura semántica de las vistas.
 *   **CSS3:** Estilos personalizados y diseño responsivo.
 *   **JavaScript (Vanilla ES6+):** Lógica del lado del cliente, manipulación del DOM y llamadas a la API expuesta por Electron.
-*   **Bootstrap 5:** Framework CSS para componentes UI (Modales, Tablas, Botones, Grid).
+*   **Bootstrap 5:** Framework CSS para componentes UI. Uso extensivo de `datalist` para autocompletado en campos de selección de terceros.
 *   **Estilos Dinámicos:** Inyección de CSS en tiempo de ejecución para componentes personalizados (Menús desplegables flotantes, Modo Oscuro).
 *   **FontAwesome 6:** Iconografía vectorial.
 *   **Chart.js:** Librería para la visualización de datos y gráficos en el Dashboard.
@@ -125,12 +125,12 @@ El sistema utiliza un modelo relacional robusto. Las tablas principales son:
 4.  **categories:** Categorización de productos.
 5.  **clients:** Base de datos de clientes.
 6.  **suppliers:** Base de datos de proveedores.
-7.  **sales:** Cabecera de ventas (total, fecha, cliente, tipo de pago, estado de crédito, `receipt_number`).
-8.  **sale_items:** Detalle de productos vendidos (incluye `variant_id`, `conversion_factor` para manejo de unidades y `skip_stock` para ítems de servicios).
+7.  **sales:** Cabecera de ventas (total, fecha, cliente, tipo de pago, estado de crédito, `receipt_number`, `notes`).
+8.  **sale_items:** Detalle de productos vendidos (incluye `variant_id`, `conversion_factor`, `serial_number` y `skip_stock`).
 9.  **sale_payments:** Desglose de métodos de pago (efectivo, transferencia, referencia bancaria, fecha real de ingreso).
 10. **cash_register_sessions:** Control de turnos de caja (apertura/cierre).
 11. **cash_movements:** Auditoría de movimientos de dinero en caja.
-12. **quotes / quote_items:** Gestión de cotizaciones. `quote_items` incluye `variant_id` y `skip_stock`.
+12. **quotes / quote_items:** Gestión de cotizaciones con soporte para `notes` y `status`. `quote_items` incluye `variant_id` y `skip_stock`.
 13. **purchase_orders / purchase_order_items:** Gestión de compras. `purchase_orders` incluye `include_iva` y `due_date`.
 14. **purchase_payments:** Registro de pagos a proveedores con soporte para `retention_amount` y `retention_type`.
 15. **services / service_products:** Definición de servicios (incluye `client_id`, `status`, `scheduled_date`, `performed_at`) y recetas de materiales.

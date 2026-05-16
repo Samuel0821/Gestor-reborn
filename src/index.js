@@ -1,6 +1,9 @@
   // ---------- DEPENDENCIAS PRINCIPALES ----------
   const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
   const path = require("node:path");
+  
+  // Handle creating/removing shortcuts on Windows when installing/uninstalling.
+  if (require('electron-squirrel-startup')) app.quit();
   const fs = require("fs");
   const db = require("./database");
   const PDFDocument = require("pdfkit");
@@ -28,7 +31,7 @@
     });
 
     // Eliminar la barra de menú por defecto (Archivo, Vista, etc.)
-    //mainWindow.setMenu(null);
+    mainWindow.setMenu(null);
 
     // Siempre iniciar en login.html
     mainWindow.loadFile(path.join(__dirname, "views", "login.html"));
@@ -491,7 +494,7 @@
 
       // Cotizaciones
       ipcMain.handle("create-quote", (event, data) => db.createQuote(data));
-      ipcMain.handle("get-quotes", (event, clientId) => db.getQuotes(clientId));
+      ipcMain.handle("get-quotes", (event, clientId, searchTerm) => db.getQuotes(clientId, searchTerm));
       ipcMain.handle("get-quote-by-id", (event, id) => db.getQuoteById(id));
       ipcMain.handle("get-quote-items", (event, id) => db.getQuoteItems(id));
       ipcMain.handle("delete-quote", (event, id) => db.deleteQuote(id));
@@ -1461,7 +1464,7 @@
           }
 
           // 📌 NUEVO: Detalle de pagos
-          doc.moveDown(2);
+          let currentY = doc.y + 20; // Inicializar currentY después de los totales y con un espacio
           
           // Obtener referencia de transferencia si existe
           let transferRef = "";
@@ -1477,36 +1480,80 @@
           const isCredit = sale.sale_type === "credit";
           
           doc.fontSize(11).font("Helvetica");
-          let currentY = doc.y;
+          // currentY ya está definido y posicionado después de los totales.
+          // Lo usaremos como punto de partida y lo actualizaremos.
+
+          const labelX = 350; // Posición X para las etiquetas (ej. "Abonos previos:")
+          const valueX = 450; // Posición X para los valores (alineados a la derecha)
+          const valueWidth = 100; // Ancho para los valores alineados a la derecha
+          const lineHeight = 16; // Altura estándar de línea para los detalles de pago
 
           if (isCredit) {
-              doc.text(`Crédito: ${formatCOP(sale.total_amount)}`, 400, currentY + 6, { align: "right", width: 150 });
-              if (sale.due_date) {
-                  doc.font("Helvetica-Bold").text(`Vencimiento: ${sale.due_date}`, 400, currentY + 22, { align: "right", width: 150 });
-                  currentY += 16;
+              if (sale.paid_amount > 0) { // Si hay abonos previos
+                  doc.text(`Abonos previos:`, labelX, currentY);
+                  doc.text(formatCOP(sale.paid_amount), valueX, currentY, { align: "right", width: valueWidth });
+                  currentY += lineHeight;
+                  doc.text(`Saldo pendiente a crédito:`, labelX, currentY);
+                  doc.text(formatCOP(sale.outstanding_balance), valueX, currentY, { align: "right", width: valueWidth });
+                  currentY += lineHeight;
+              } else { // Si no hay abonos previos
+                  doc.text(`Venta a crédito:`, labelX, currentY);
+                  doc.text(formatCOP(sale.total_amount), valueX, currentY, { align: "right", width: valueWidth });
+                  currentY += lineHeight;
+              }
+
+              if (sale.due_date) { // Si hay fecha de vencimiento, siempre en negrita
+                  doc.font("Helvetica-Bold").text(`Vencimiento:`, labelX, currentY);
+                  doc.text(sale.due_date, valueX, currentY, { align: "right", width: valueWidth });
+                  currentY += lineHeight;
               }
           } else {
               if (abonosPrevios > 0) {
-                  doc.text(`Abonos previos: ${formatCOP(abonosPrevios)}`, 400, currentY + 6, { align: "right", width: 150 });
-                  currentY += 16;
+                  doc.text(`Abonos previos:`, labelX, currentY);
+                  doc.text(formatCOP(abonosPrevios), valueX, currentY, { align: "right", width: valueWidth });
+                  currentY += lineHeight;
               }
               if (cash > 0 && transfer > 0) {
-                  doc.text(`Pago en efectivo: ${formatCOP(cash)}`, 400, currentY + 6, { align: "right", width: 150 });
-                  doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}: ${formatCOP(transfer)}`, 400, currentY + 22, { align: "right", width: 150 });
-                  currentY += 16;
+                  doc.text(`Pago en efectivo:`, labelX, currentY);
+                  doc.text(formatCOP(cash), valueX, currentY, { align: "right", width: valueWidth });
+                  currentY += lineHeight;
+                  doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}:`, labelX, currentY);
+                  doc.text(formatCOP(transfer), valueX, currentY, { align: "right", width: valueWidth });
+                  currentY += lineHeight;
               } else if (cash > 0) {
-                  doc.text(`Pago en efectivo: ${formatCOP(cash)}`, 400, currentY + 6, { align: "right", width: 150 });
-              } else if (transfer > 0) {
-                  doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}: ${formatCOP(transfer)}`, 400, currentY + 6, { align: "right", width: 150 });
+                  doc.text(`Pago en efectivo:`, labelX, currentY);
+                  doc.text(formatCOP(cash), valueX, currentY, { align: "right", width: valueWidth });
+                  currentY += lineHeight;
+              } else if (transfer > 0) { // Solo transferencia
+                  doc.text(`Transferencia ${transferRef ? `(${transferRef})` : ""}:`, labelX, currentY);
+                  doc.text(formatCOP(transfer), valueX, currentY, { align: "right", width: valueWidth });
+                  currentY += lineHeight;
               } else if (abonosPrevios > 0) {
-                  doc.font("Helvetica-Bold").text("SERVICIO PAGADO POR ANTICIPADO", 400, currentY + 6, { align: "right", width: 150, fontSize: 8 });
+                  // Este caso es para cuando hay abonosPrevios pero no pagos en efectivo/transferencia en esta transacción de venta.
+                  // Típicamente significa que el servicio fue pagado por adelantado.
+                  doc.font("Helvetica-Bold").fontSize(8).text("SERVICIO PAGADO POR ANTICIPADO", labelX, currentY, { align: "right", width: valueX + valueWidth - labelX });
+                  currentY += lineHeight;
               }
           }
 
-          const change = (sale.paid_amount || 0) - total; 
+          const change = (sale.paid_amount || 0) - total;
           
-          if (change !== 0 && !isCredit) {
-            doc.text(`Cambio entregado: ${formatCOP(change)}`, 400, currentY + 22, { align: "right", width: 150 });
+          if (change > 0 && !isCredit) { // Solo mostrar cambio si es un valor positivo y no es crédito
+            doc.text(`Cambio entregado:`, labelX, currentY);
+            doc.text(formatCOP(change), valueX, currentY, { align: "right", width: valueWidth });
+            currentY += lineHeight;
+          }
+
+          // 🔹 Notas / Observaciones al final del PDF
+          // Añadir un espacio vertical antes de las notas
+          currentY += 20; 
+          let notesY = currentY;
+          if (sale.notes) {
+              if (notesY > 750) { doc.addPage(); notesY = 50; }
+              doc.font("Helvetica-Bold").fontSize(9).fillColor("#444444").text("NOTAS / OBSERVACIONES:", 50, notesY);
+              notesY += 12;
+              doc.font("Helvetica").fontSize(9).fillColor("#000000").text(sale.notes, 50, notesY, { width: 500, align: 'justify' });
+              currentY = notesY + doc.heightOfString(sale.notes, { width: 500 });
           }
 
           // Marca de agua "ANULADA" si la venta está anulada
@@ -1807,6 +1854,15 @@
                 doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 10, { align: "right", width: 150 });
             }
 
+            // 🔹 Notas / Observaciones al final del PDF
+            y += includeIva ? 70 : 40; // Espacio después de los totales
+            if (quote.notes) {
+                if (y > 750) { doc.addPage(); y = 50; }
+                doc.font("Helvetica-Bold").fontSize(9).fillColor("#444444").text("NOTAS / OBSERVACIONES:", 50, y);
+                y += 12;
+                doc.font("Helvetica").fontSize(9).fillColor("#000000").text(quote.notes, 50, y, { width: 500, align: 'justify' });
+            }
+
             doc.end();
             await new Promise((res, rej) => {
                 stream.on("finish", res);
@@ -2059,9 +2115,12 @@
       let y = doc.y + 8;
       let pageCount = 1;
       const bottomLimit = doc.page.height - doc.page.margins.bottom - 40;
+      let limitReached = false;
+
       function ensureSpace(h) {
+        if (limitReached) return false;
         if (y + h > bottomLimit) {
-          if (pageCount >= 3) return false; // no more pages allowed
+          if (pageCount >= 3) { limitReached = true; return false; }
           doc.addPage();
           pageCount++;
           y = doc.page.margins.top;
@@ -2142,49 +2201,71 @@
         }
       });
 
-      // SECCIÓN 3 — RESUMEN DE INGRESOS (Con conteos por método y detalle en apartado)
-      if (!ensureSpace(120)) { doc.text('... (Detalles truncados)'); return { success: true, filePath }; }
+      // SECCIÓN 3 — RESUMEN DE INGRESOS
+      ensureSpace(100);
       doc.fontSize(10).font("Helvetica-Bold").text("3. Resumen de Ingresos", 50, y);
-      doc.fontSize(8).font("Helvetica");
-      y += 10;
+      doc.fontSize(8).font("Helvetica"); y += 12;
 
-      doc.font("Helvetica").text(`INGRESOS (EFECTIVO):`, 50, y); y += 10;
-      doc.text(`- Venta (Efectivo): ${formatCOP(sums.sales_cash)}`, 60, y); y += 10;
-      doc.text(`- Abono Crédito (Efectivo): ${formatCOP(sums.credit_cash)}`, 60, y); y += 10;
-      doc.text(`- Abono Servicio (Efectivo): ${formatCOP(sums.service_cash)}`, 60, y); y += 10;
-      doc.text(`- Otros Ingresos / Manual: ${formatCOP(sums.manual_in)}`, 60, y); y += 12;
+      const drawTableLine = (label, cash, bank) => {
+        doc.text(label, 50, y);
+        doc.text(formatCOP(cash), 200, y, { width: 80, align: 'right' });
+        doc.text(formatCOP(bank), 300, y, { width: 80, align: 'right' });
+        doc.text(formatCOP(cash + bank), 400, y, { width: 100, align: 'right' });
+        y += 10;
+      };
 
-      doc.font("Helvetica").text(`INGRESOS (BANCO / TRANSFERENCIA):`, 300, y - 34);
-      doc.text(`- Venta: ${formatCOP(sums.sales_transfer)}`, 310, y - 24);
-      doc.text(`- Abono Crédito: ${formatCOP(sums.credit_transfer)}`, 310, y - 14);
-      doc.text(`- Abono Servicio: ${formatCOP(sums.service_transfer)}`, 310, y - 4);
-      y += 24;
-      doc.font("Helvetica-Bold").text(`Total Efectivo: ${formatCOP(sums.in_cash)}`, 50, y);
-      doc.text(`Total Banco: ${formatCOP(sums.in_transfer)}`, 300, y);
-      y += 14;
+      doc.font("Helvetica-Bold");
+      doc.text("Concepto", 50, y); doc.text("Efectivo", 200, y, { width: 80, align: 'right' }); doc.text("Transferencia", 300, y, { width: 80, align: 'right' }); doc.text("Subtotal", 400, y, { width: 100, align: 'right' });
+      y += 12; doc.font("Helvetica");
+
+      drawTableLine("Ventas", sums.sales_cash, sums.sales_transfer);
+      drawTableLine("Abonos Créditos", sums.credit_cash, sums.credit_transfer);
+      drawTableLine("Abonos Servicios", sums.service_cash, sums.service_transfer);
+      drawTableLine("Manuales / Otros", sums.manual_in, 0);
+      
+      y += 2; doc.rect(50, y, 450, 0.5).stroke(); y += 5;
+      doc.font("Helvetica-Bold");
+      drawTableLine("TOTAL INGRESOS", sums.in_cash, sums.in_transfer);
+      y += 15;
 
       // SECCIÓN 4 — RESUMEN DE EGRESOS
-      doc.fontSize(12).font("Helvetica-Bold").text("4. Resumen de Egresos", 50, y);
-      doc.fontSize(10).font("Helvetica");
-      y += 12;
-      doc.text(`EGRESOS (EFECTIVO):`, 50, y); y += 10;
-      doc.text(`- Gastos (Efectivo): ${formatCOP(sums.expense_cash + sums.purchase_cash + sums.refund_cash + sums.manual_out)}`, 60, y); y += 12;
-      doc.text(`EGRESOS (BANCO / TRANSFERENCIA):`, 300, y - 12);
-      doc.text(`- Gastos (Transferencia): ${formatCOP(sums.expense_transfer + sums.purchase_transfer + sums.refund_transfer)}`, 310, y - 2);
-      y += 24;
+      ensureSpace(60);
+      doc.fontSize(10).font("Helvetica-Bold").text("4. Resumen de Egresos", 50, y);
+      doc.fontSize(8).font("Helvetica"); y += 12;
+
+      drawTableLine("Gastos Generales", sums.expense_cash, sums.expense_transfer);
+      drawTableLine("Pagos Proveedores", sums.purchase_cash, sums.purchase_transfer);
+      drawTableLine("Devoluciones / Manual", sums.refund_cash + sums.manual_out, sums.refund_transfer);
+
+      y += 2; doc.rect(50, y, 450, 0.5).stroke(); y += 5;
+      doc.font("Helvetica-Bold");
+      drawTableLine("TOTAL EGRESOS", sums.out_cash, sums.out_transfer);
+      y += 15;
 
       // SECCIÓN 5 — ARQUEO DE CAJA
-      doc.fontSize(12).font("Helvetica-Bold").text("5. Arqueo de Caja", 50, y);
-      doc.fontSize(10).font("Helvetica");
+      ensureSpace(110);
+      doc.fontSize(10).font("Helvetica-Bold").text("5. Arqueo de Caja (Efectivo)", 50, y);
+      doc.fontSize(8).font("Helvetica");
       y += 15;
       const computedExpected = (session.opening_balance || 0) + (sums.in_cash || 0) - (sums.out_cash || 0);
       const countedCash = (reconciliationDetails && reconciliationDetails.length > 0) ? reconciliationDetails.reduce((s, d) => s + (d.amount || 0), 0) : (session.closing_balance || 0);
       doc.text(`Efectivo Esperado: ${formatCOP(computedExpected)}`, 50, y);
-      y += 12;
+      y += 12; // Mover hacia abajo para la siguiente línea
       doc.text(`Efectivo Contado: ${formatCOP(countedCash)}`, 50, y);
-      y += 12;
-      doc.text(`Diferencia: ${formatCOP(countedCash - computedExpected)}`, 50, y);
-      y += 12;
+      
+      const diff = countedCash - computedExpected;
+      y += 12; // Mover hacia abajo antes de imprimir la diferencia
+      doc.fillColor("black").text(`Diferencia: `, 50, y, { continued: true });
+      
+      if (diff === 0) {
+        doc.text("0 (cuadre perfecto)");
+      } else if (diff < 0) {
+        doc.fillColor("red").text(`${formatCOP(diff)}`);
+      } else {
+        doc.fillColor("green").text(`${formatCOP(diff)}`);
+      }
+      doc.fillColor("black"); // Resetear color a negro para el texto subsiguiente
+      y += 15; // Mover hacia abajo después de la diferencia, con un poco más de espacio
       if (reconciliationDetails && reconciliationDetails.length > 0) {
         doc.font("Helvetica-Bold").text("Detalle de Conteo:", 60, y);
         y += 10;
@@ -2195,41 +2276,10 @@
         y += 8;
       }
 
-      // Resumen detallado por tipo con totales y conteos (compacto para caber en 3 páginas)
-      const groupCounts = (typeRegex) => {
-        return movementsDetailed
-          .filter(m => m.type === 'in' && typeRegex.test((m.sub_type||'').toString()))
-          .reduce((acc, m) => ({ amount: acc.amount + (m.total_amount||0), count: acc.count + (m.count||0) }), { amount:0, count:0 });
-      };
-
-      const salesIn = movementsDetailed.filter(m => m.type === 'in' && /sale/i.test((m.sub_type||'').toString()));
-      const creditsIn = movementsDetailed.filter(m => m.type === 'in' && /credit/i.test((m.sub_type||'').toString()));
-      const servicesIn = movementsDetailed.filter(m => m.type === 'in' && /service/i.test((m.sub_type||'').toString()));
-
-      doc.fontSize(10).font("Helvetica-Bold").text("Detalle Resumido de Movimientos", 50, y);
-      y += 12;
-
-      const sumAndCount = (arr) => arr.reduce((acc,m) => ({ amount: acc.amount + (m.total_amount||0), count: acc.count + (m.count||0) }), { amount:0, count:0 });
-
-      const sSales = sumAndCount(salesIn);
-      const sCredits = sumAndCount(creditsIn);
-      const sServices = sumAndCount(servicesIn);
-
-      doc.fontSize(9).font("Helvetica").text(`- Ventas (Efectivo+Banco): ${formatCOP(sSales.amount)} (${sSales.count} trans.)`, 60, y); y += 10;
-      doc.text(`- Abonos Créditos (Efectivo+Banco): ${formatCOP(sCredits.amount)} (${sCredits.count} trans.)`, 60, y); y += 10;
-      doc.text(`- Abonos Servicios (Efectivo+Banco): ${formatCOP(sServices.amount)} (${sServices.count} trans.)`, 60, y); y += 10;
-
-      // Mostrar conteos de egresos
-      const expenseOut = movementsDetailed.filter(m => m.type === 'out');
-      const sExpenses = sumAndCount(expenseOut);
-      doc.text(`- Egresos Totales: ${formatCOP(sExpenses.amount)} (${sExpenses.count} trans.)`, 60, y); y += 12;
-
-      doc.fontSize(8).font("Helvetica-Oblique").text("Si necesita el listado completo de transacciones, utilice la sección de auditoría en la aplicación.", 50, y, { width: 500 });
-      y += 14;
-
       // SECCIÓN 6 — RESUMEN DE SALDOS
-      doc.fontSize(12).font("Helvetica-Bold").text("6. Resumen de Saldos", 50, y);
-      doc.fontSize(10).font("Helvetica");
+      ensureSpace(80);
+      doc.fontSize(10).font("Helvetica-Bold").text("6. Resumen de Saldos Finales", 50, y);
+      doc.fontSize(8).font("Helvetica");
       y += 15;
       doc.text(`(+) Base Inicial Efectivo: ${formatCOP(session.opening_balance)}`, 50, y);
       y += 12;
@@ -2237,7 +2287,7 @@
       y += 12;
       doc.text(`(-) Total Egresos Efectivo: ${formatCOP(sums.out_cash)}`, 50, y);
       y += 12;
-      doc.font("Helvetica-Bold").text(`= SALDO EFECTIVO EN CAJA: ${formatCOP(session.expected_balance)}`, 50, y);
+      doc.font("Helvetica-Bold").text(`= SALDO EFECTIVO ESPERADO: ${formatCOP(computedExpected)}`, 50, y);
       
       y += 14;
       doc.font("Helvetica-Bold").text(`RESUMEN BANCO (TRANSFERENCIAS):`, 50, y);
@@ -2249,15 +2299,22 @@
       y += 20;
 
       // SECCIÓN 7 — OBSERVACIONES
-      doc.fontSize(12).font("Helvetica-Bold").text("7. Observaciones del Cierre", 50, y);
-      doc.fontSize(10).font("Helvetica");
+      ensureSpace(60);
+      doc.fontSize(10).font("Helvetica-Bold").text("7. Observaciones del Cierre", 50, y);
+      doc.fontSize(8).font("Helvetica");
       y += 15;
       doc.text(session.closing_notes || 'N/A', 50, y, { width: 500 });
-      y += 25;
+      y += 20;
+
+      if (limitReached) {
+        doc.fillColor('red').fontSize(8).text('*** REPORTE RESUMIDO POR LÍMITE DE PÁGINAS ***', 50, y);
+        y += 12;
+      }
 
       // SECCIÓN 8 — AUDITORÍA
-      doc.fontSize(12).font("Helvetica-Bold").text("8. Auditoría", 50, y);
-      doc.fontSize(10).font("Helvetica");
+      ensureSpace(40);
+      doc.fontSize(10).font("Helvetica-Bold").text("8. Auditoría", 50, y);
+      doc.fontSize(8).font("Helvetica");
       y += 15;
       doc.text(`Usuario Apertura: ${session.user_name || 'N/A'}`, 50, y);
       doc.text(`Usuario Cierre: ${session.closed_by_user_name || 'N/A'}`, 300, y);

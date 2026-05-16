@@ -104,6 +104,14 @@ try {
   }
 } catch (e) { /* ignorar */ }
 
+// MIGRACIÓN: Agregar notes a quotes
+try {
+  const qCols = db.prepare("PRAGMA table_info(quotes)").all();
+  if (!qCols.some(c => c.name === "notes")) {
+    db.prepare("ALTER TABLE quotes ADD COLUMN notes TEXT").run();
+  }
+} catch (e) { /* ignorar */ }
+
 // MIGRACIÓN: Agregar status a services
 try {
   const sCols = db.prepare("PRAGMA table_info(services)").all();
@@ -600,6 +608,8 @@ CREATE TABLE IF NOT EXISTS quotes (
   quote_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   total_amount REAL NOT NULL DEFAULT 0,
   quote_number TEXT UNIQUE,
+  notes TEXT,
+  status TEXT DEFAULT 'pending',
   FOREIGN KEY (client_id) REFERENCES clients(id)
 )`).run();
 
@@ -936,7 +946,8 @@ function createSale({
   transfer_reference = null,
   service_id = null,
   due_date = null,
-  status = 'active' // Por defecto, una nueva venta está activa
+  status = 'active',
+  notes = null
 }) {
   const insertSale = db.prepare(`
     INSERT INTO sales (
@@ -949,8 +960,9 @@ function createSale({
       cash_payment, 
       transfer_payment, 
       due_date, 
-      status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      status,
+      notes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertPayment = db.prepare(`
@@ -967,7 +979,7 @@ function createSale({
   const getProduct = db.prepare("SELECT id, code, name, stock FROM products WHERE id = ?");
   const getVariant = db.prepare("SELECT * FROM product_variants WHERE id = ?");
 
-  const trx = db.transaction((client_id, items, cash_payment, transfer_payment, transfer_reference, service_id) => {
+  const trx = db.transaction((client_id, items, cash_payment, transfer_payment, transfer_reference, service_id, notes) => {
     const formattedDate = new Date().toLocaleString('sv-SE'); // Genera YYYY-MM-DD HH:mm:ss local para compatibilidad
 
     let total = 0;
@@ -1016,7 +1028,8 @@ function createSale({
       netCashValue, // Registrar el valor neto en la tabla sales
       transfer_payment,
       due_date,
-      status
+      status,
+      notes
     );
     const saleId = saleRes.lastInsertRowid;
 
@@ -1090,7 +1103,7 @@ function createSale({
   });
 
   try {
-    const id = trx(client_id, items, cash_payment, transfer_payment, transfer_reference, service_id);
+    const id = trx(client_id, items, cash_payment, transfer_payment, transfer_reference, service_id, notes);
     return { success: true, message: "Venta registrada", id };
   } catch (err) {
     return { success: false, message: String(err) };
@@ -1255,7 +1268,7 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName, due_
         const newSaleType = newOutstandingBalance > 0 ? 'credit' : 'paid';
 
         // 5. Update the main sale record
-        db.prepare(`UPDATE sales SET client_id = ?, total_amount = ?, paid_amount = ?, outstanding_balance = ?, sale_type = ?, cash_payment = ?, transfer_payment = ?, due_date = ? WHERE id = ?`).run(clientId, newTotalAmount, newPaidAmount, newOutstandingBalance, newSaleType, currentCashReceived, currentTransferReceived, due_date, saleId);
+        db.prepare(`UPDATE sales SET client_id = ?, total_amount = ?, paid_amount = ?, outstanding_balance = ?, sale_type = ?, cash_payment = ?, transfer_payment = ?, due_date = ?, notes = ? WHERE id = ?`).run(clientId, newTotalAmount, newPaidAmount, newOutstandingBalance, newSaleType, currentCashReceived, currentTransferReceived, due_date, notes, saleId);
 
         logAction(userName, 'Editar Venta', `Factura #${originalSale.invoice_number || saleId} modificada. Total: ${originalSale.total_amount} -> ${newTotalAmount}`);
     });
@@ -1327,16 +1340,19 @@ function getSalePaymentDetailsForPdf(paymentId) {
   const sale = db.prepare("SELECT s.*, c.name as client_name FROM sales s LEFT JOIN clients c ON s.client_id = c.id WHERE s.id = ?").get(payment.sale_id);
   if (!sale) return null;
 
-  // Calculamos el saldo antes de este abono sumando los abonos posteriores y el saldo actual
-  const paymentsAfterThisOne = db.prepare(`
+  // Calculamos cuánto se ha pagado en TOTAL después de este abono específico.
+  // Esto incluye abonos a crédito que se hicieron cronológicamente después del que estamos consultando.
+  const totalPaidLaterRow = db.prepare(`
     SELECT SUM(amount) as total 
     FROM sale_payments 
-    WHERE sale_id = ? AND id < ?
+    WHERE sale_id = ? AND id > ?
   `).get(payment.sale_id, paymentId);
 
-  const paidBeforeThis = paymentsAfterThisOne.total || 0;
-  const balanceBefore = sale.total_amount - paidBeforeThis;
-  const balanceAfter = balanceBefore - payment.amount;
+  const totalPaidLater = totalPaidLaterRow.total || 0;
+  
+  // El saldo pendiente DESPUÉS de este abono es el saldo actual de la factura más todos los abonos posteriores.
+  const balanceAfter = sale.outstanding_balance + totalPaidLater;
+  const balanceBefore = balanceAfter + payment.amount;
 
   return {
     payment,
@@ -1646,12 +1662,12 @@ function annulSale(id) {
     }
 
 // COTIZACIONES
-function createQuote({ client_id = null, items = [] }) {
-  const insertQuote = db.prepare("INSERT INTO quotes (client_id, total_amount) VALUES (?, ?)");
+function createQuote({ client_id = null, items = [], notes = null }) {
+  const insertQuote = db.prepare("INSERT INTO quotes (client_id, total_amount, notes) VALUES (?, ?, ?)");
   const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const getProduct = db.prepare("SELECT id, code, name, sale_price FROM products WHERE id = ?");
-  const trx = db.transaction((client_id, items) => {
-    const q = insertQuote.run(client_id || null, 0);
+  const trx = db.transaction((client_id, items, notes) => {
+    const q = insertQuote.run(client_id || null, 0, notes);
     const quoteId = q.lastInsertRowid;
     let total = 0;
     for (const it of items) {
@@ -1676,20 +1692,31 @@ function createQuote({ client_id = null, items = [] }) {
     return quoteId;
   });
   try {
-    const id = trx(client_id || null, items);
+    const id = trx(client_id || null, items, notes);
     return { success: true, message: "Cotización registrada", id };
   } catch (err) {
     return { success: false, message: String(err) };
   }
 }
 
-function getQuotes(clientId = null) {
-  let query = "SELECT id, client_id, quote_date, total_amount, quote_number FROM quotes";
+function getQuotes(clientId = null, searchTerm = null) {
+  let query = "SELECT q.*, c.name as client_name FROM quotes q LEFT JOIN clients c ON q.client_id = c.id";
   const params = [];
+  const conditions = [];
+
   if (clientId) {
-    query += " WHERE client_id = ?";
+    conditions.push("q.client_id = ?");
     params.push(clientId);
   }
+  if (searchTerm) {
+    conditions.push("(q.quote_number LIKE ? OR c.name LIKE ?)");
+    params.push(`%${searchTerm}%`, `%${searchTerm}%`);
+  }
+
+  if (conditions.length > 0) {
+    query += " WHERE " + conditions.join(" AND ");
+  }
+
   query += " ORDER BY quote_date DESC";
   const quotes = db.prepare(query).all(...params);
   const itemsStmt = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock FROM quote_items WHERE quote_id = ?");
@@ -1727,8 +1754,8 @@ function updateQuote({ id, status }) {
   return info.changes > 0;
 }
 
-function updateQuoteDetails({ id, client_id, items }) {
-  const updateHeader = db.prepare("UPDATE quotes SET client_id = ?, total_amount = ? WHERE id = ?");
+function updateQuoteDetails({ id, client_id, items, notes }) {
+  const updateHeader = db.prepare("UPDATE quotes SET client_id = ?, total_amount = ?, notes = ? WHERE id = ?");
   const deleteItems = db.prepare("DELETE FROM quote_items WHERE quote_id = ?");
   const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const getProduct = db.prepare("SELECT id, code, name, sale_price FROM products WHERE id = ?");
@@ -1742,7 +1769,7 @@ function updateQuoteDetails({ id, client_id, items }) {
       total += price * it.quantity;
     }
     
-    updateHeader.run(client_id || null, total, id);
+    updateHeader.run(client_id || null, total, notes, id);
     deleteItems.run(id);
 
     for (const it of items) {

@@ -1,6 +1,6 @@
 # Manual de Usuario - GestorFX
 
-**Versión del Sistema:** 1.0.8
+**Versión del Sistema:** 1.0.9
 **Desarrollado por:** Grisalis Technologies
 
 ---
@@ -57,7 +57,7 @@ El corazón del sistema para facturación rápida y eficiente.
     *   **Escáner:** Use su lector de código de barras en el campo "Escanear / Ingresar código". Si el producto existe, se abrirá una vista previa para confirmar cantidad. Si no existe, el sistema le preguntará si desea crearlo.
     *   **Búsqueda Manual:** Escriba el nombre o código en el campo "Producto" y selecciónelo de la lista desplegable.
     *   **Variantes:** Si el producto tiene presentaciones (ej. "Bulto" vs "Kilo"), el sistema le pedirá seleccionar cuál desea vender.
-2.  **Seleccionar Cliente:** Elija un cliente de la lista o déjelo en blanco para "Cliente General".
+2.  **Seleccionar Cliente:** Comience a escribir el nombre o NIT en el campo "Cliente" para filtrar la lista automáticamente y selecciónelo.
 3.  **Ajustar Precios:** En la tabla de ítems, encontrará un menú desplegable para elegir entre **Precio Normal, Especial 1 y Especial 2** para cada producto agregado.
 4.  **Finalizar:** Verifique el total y haga clic en **"Finalizar Venta" (F9)**.
 
@@ -65,7 +65,7 @@ El corazón del sistema para facturación rápida y eficiente.
 Al finalizar, se abrirá una ventana de pago:
 *   **Tipo de Venta:** Contado o Crédito.
 *   **Vencimiento:** Si selecciona "Crédito", el sistema le permite establecer una fecha límite de pago.
-*   **Métodos de Pago:** Ingrese cuánto recibe en **Efectivo** y/o **Transferencia**. El sistema soporta pagos mixtos.
+*   **Métodos de Pago:** Ingrese cuánto recibe en **Efectivo** y/o **Transferencia**. El sistema soporta pagos mixtos y detecta abonos previos de servicios.
 *   **Referencia:** Si es transferencia, ingrese el nombre del banco o número de aprobación.
 *   **Cambio:** El sistema calculará automáticamente el dinero a devolver si el efectivo supera el total.
 
@@ -91,6 +91,8 @@ Administre todo su catálogo de artículos.
 *   **Precios Múltiples:** Puede definir hasta 3 precios de venta por producto: **Normal, Especial 1 y Especial 2**.
 *   **Cálculo Inteligente:** El sistema calcula automáticamente los precios basándose en el margen de ganancia ingresado, o viceversa (calcula el margen si ingresa el precio directo). Soporta decimales.
 *   **Variantes (Unidades de Medida):** Venda un mismo producto en diferentes presentaciones (ej. Unidad, Caja, Metro). Cada variante puede tener sus propios costos y su propio juego de 3 precios de venta, con la opción de calcularlos también por margen de utilidad.
+*   **Lector de Barras:** Al escanear un código nuevo, el sistema permite la creación rápida del producto redirigiéndolo a este módulo.
+
 *   **Stock Mínimo:** Defina una cantidad mínima para que el sistema le avise cuándo reabastecer.
 *   **Exportar:** Botones para descargar su inventario completo en **Excel** o **PDF**.
 
@@ -100,6 +102,7 @@ Administre todo su catálogo de artículos.
 Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 
 *   **Crear Servicio:** Defina el nombre, precio y asocie un **Cliente** específico para llevar un mejor control.
+*   **Buscador de Cliente:** Escriba para encontrar rápidamente al cliente asociado.
 *   **Estados del Servicio:**
     *   **Abierto:** Borrador editable.
     *   **Cotizado:** Enviado a cotización (bloqueado para edición).
@@ -115,8 +118,8 @@ Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 
 ## 8. Módulo de Cotizaciones
 Genere propuestas comerciales profesionales sin descontar inventario.
-
-*   **Crear:** Seleccione cliente y productos. Soporta variantes y selección de precios múltiples (Normal, Esp 1, Esp 2) directamente en el carrito.
+*   **Búsqueda Histórica:** Encuentre cotizaciones antiguas escribiendo el nombre del cliente o el número de cotización.
+*   **Crear:** Seleccione cliente y productos. Soporta variantes, selección de precios múltiples y **Notas/Observaciones** (ej. "Válido por 7 días") que aparecen en el PDF.
 *   **Editar:** Puede modificar cotizaciones guardadas previamente.
 *   **Exportar:** Genere un PDF formal con el logo de su empresa para enviar al cliente.
 *   **Aprobar:** Cuando el cliente acepte, haga clic en "Aprobar". El sistema verificará el stock disponible (convirtiendo las variantes a la unidad base del inventario) y abrirá la ventana de pago para convertirla en una Venta real inmediatamente.

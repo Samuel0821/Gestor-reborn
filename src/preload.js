@@ -78,7 +78,7 @@ contextBridge.exposeInMainWorld("api", {
 
   // quotes
   createQuote: (data) => ipcRenderer.invoke("create-quote", data),
-  getQuotes: (clientId) => ipcRenderer.invoke("get-quotes", clientId),
+  getQuotes: (clientId, searchTerm) => ipcRenderer.invoke("get-quotes", clientId, searchTerm),
   getQuoteById: (id) => ipcRenderer.invoke("get-quote-by-id", id),
   getQuoteItems: (id) => ipcRenderer.invoke("get-quote-items", id),
   deleteQuote: (id) => ipcRenderer.invoke("delete-quote", id),

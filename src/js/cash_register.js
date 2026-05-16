@@ -122,6 +122,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let activeSession = null;
     let durationInterval = null;
+    let calculatedExpectedBalance = 0; // Almacén para el balance esperado real
 
     const formatCOP = (value) => {
         return new Intl.NumberFormat("es-CO", {
@@ -206,9 +207,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         totalCountedCash.textContent = formatCOP(total);
 
         if (activeSession) {
-            const difference = total - activeSession.expected_balance;
-            cashDifference.textContent = formatCOP(difference);
-            cashDifference.className = `kpi-value ${difference === 0 ? 'text-success' : (difference > 0 ? 'text-primary' : 'text-danger')}`;
+            // Usar el balance esperado calculado en tiempo real
+            const expected = activeSession.status === 'closed' ? activeSession.expected_balance : calculatedExpectedBalance;
+            const difference = total - expected;
+            
+            if (difference === 0) {
+                cashDifference.textContent = "0 (cuadre perfecto)";
+                cashDifference.className = "kpi-value text-dark"; // Negro si es exacto
+            } else if (difference < 0) {
+                cashDifference.textContent = formatCOP(difference); // El signo "-" lo pone el formatCOP
+                cashDifference.className = "kpi-value text-danger"; // Rojo si falta dinero
+            } else {
+                cashDifference.textContent = formatCOP(difference);
+                cashDifference.className = "kpi-value text-success"; // Verde si sobra dinero
+            }
             totalCountedCash.textContent = formatCOP(total);
 
             // Save reconciliation details automatically
@@ -245,6 +257,85 @@ document.addEventListener('DOMContentLoaded', async () => {
         durationInterval = setInterval(updateDuration, 1000);
     }
 
+    async function loadSessionsHistory() {
+        const openSection = document.getElementById('open-session-section');
+        if (!openSection) return;
+
+        let historyContainer = document.getElementById('sessions-history-container');
+        if (!historyContainer) {
+            historyContainer = document.createElement('div');
+            historyContainer.id = 'sessions-history-container';
+            historyContainer.className = 'mt-5 pt-4 border-top';
+            openSection.appendChild(historyContainer);
+        }
+
+        const sessions = await window.api.getCashRegisterSessions();
+        // Filtrar solo las sesiones cerradas para el historial
+        const closedSessions = sessions.filter(s => s.status === 'closed');
+
+        if (closedSessions.length === 0) {
+            historyContainer.innerHTML = '';
+            return;
+        }
+
+        historyContainer.innerHTML = `
+            <h5 class="mb-3 text-muted"><i class="fa fa-history me-2"></i>Historial de Cierres Recientes</h5>
+            <div class="card shadow-sm overflow-hidden border-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" style="font-size: 0.9rem;">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">ID</th>
+                                <th>Fecha de Cierre</th>
+                                <th>Cajero</th>
+                                <th class="text-end">Balance Final</th>
+                                <th class="text-end">Diferencia</th>
+                                <th class="text-center">Reporte</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${closedSessions.slice(0, 10).map(s => {
+                                const diff = s.difference || 0;
+                                const diffClass = diff === 0 ? 'text-dark' : (diff > 0 ? 'text-success' : 'text-danger');
+                                const diffText = diff === 0 ? '0 (Cuadre)' : formatCOP(diff);
+                                
+                                return `
+                                    <tr>
+                                        <td class="ps-4 fw-bold text-primary">#${s.id}</td>
+                                        <td>${formatDateTime(s.closed_at_iso)}</td>
+                                        <td>${s.closed_by_user_name || s.user_name || 'N/A'}</td>
+                                        <td class="text-end">${formatCOP(s.closing_balance)}</td>
+                                        <td class="text-end fw-bold ${diffClass}">${diffText}</td>
+                                        <td class="text-center">
+                                            <button class="btn btn-sm btn-outline-danger border-0 download-history-pdf" data-id="${s.id}" title="Descargar PDF">
+                                                <i class="fa fa-file-pdf fa-lg"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                ${closedSessions.length > 10 ? `<div class="card-footer bg-white text-center py-2"><small class="text-muted">Mostrando los últimos 10 cierres.</small></div>` : ''}
+            </div>
+        `;
+
+        // Event listener para los botones de descarga de historial
+        historyContainer.querySelectorAll('.download-history-pdf').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const id = parseInt(e.currentTarget.dataset.id);
+                const res = await window.api.exportCashRegisterReportPDF(id);
+                if (res && res.success) {
+                    const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
+                    Toast.fire({ icon: 'success', title: 'Reporte generado: ' + res.filePath.split(/[\\\\/]/).pop() });
+                } else if (res) {
+                    Swal.fire('Error', res.message || 'No se pudo generar el reporte.', 'error');
+                }
+            });
+        });
+    }
+
     async function loadActiveSession() {
         activeSession = await window.api.getActiveCashSession();
         if (activeSession) {
@@ -272,8 +363,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 });
             }
-            updateReconciliationTotals(); // Recalculate based on loaded values
-
             await renderSummary(activeSession.id); // Render summary tab
             // Load and render detailed movements
             await loadSessionDetails(activeSession.id);
@@ -283,6 +372,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             manualMovementBtn.disabled = activeSession.status !== 'open';
             // Habilitar botón de exportar incluso si la sesión está abierta
             exportReportBtn.disabled = false;
+
+            updateReconciliationTotals(); // Asegurar cálculo correcto al cargar
 
         } else {
             document.getElementById('open-session-section').style.display = 'block';
@@ -299,6 +390,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             totalCountedCash.textContent = formatCOP(0);
             cashDifference.textContent = formatCOP(0);
             renderDenominations(); // Reset denominations input
+
+            // --- NUEVO: Cargar historial cuando no hay caja abierta ---
+            await loadSessionsHistory();
         }
     }
 
@@ -360,6 +454,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
 
+        // Actualizar el balance esperado global para el arqueo
+        calculatedExpectedBalance = activeSession.opening_balance + sums.in_cash - sums.out_cash;
 
         summaryContainer.innerHTML = `
             <div class="card shadow-sm">
@@ -393,7 +489,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <div class="col-md-6 border-end">
                             <div class="d-flex justify-content-between align-items-center">
                                 <span class="fw-bold fs-6">EFECTIVO EN CAJA (ESPERADO):</span>
-                                <span class="text-primary fw-bold fs-5">${formatCOP(activeSession.opening_balance + sums.in_cash - sums.out_cash)}</span>
+                                <span class="text-primary fw-bold fs-5">${formatCOP(calculatedExpectedBalance)}</span>
                             </div>
                             <small class="text-muted">(Base inicial + Entradas Efe. - Salidas Efe.)</small>
                         </div>
@@ -610,7 +706,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 html: `
                     <p><strong>Balance Esperado:</strong> ${formatCOP(res.expected_balance)}</p>
                     <p><strong>Balance Contado:</strong> ${formatCOP(res.closing_balance)}</p>
-                    <p><strong>Diferencia:</strong> <span class="${res.difference === 0 ? 'text-success' : (res.difference > 0 ? 'text-primary' : 'text-danger')}">${formatCOP(res.difference)}</span></p>
+                    <p><strong>Diferencia:</strong> <span class="${res.difference === 0 ? 'text-dark' : (res.difference > 0 ? 'text-success' : 'text-danger')}">${res.difference === 0 ? '0 (cuadre perfecto)' : formatCOP(res.difference)}</span></p>
                 `,
                 icon: res.difference === 0 ? 'success' : (res.difference > 0 ? 'info' : 'warning')
             });

@@ -2,6 +2,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Layout manejado por layout.js
 
   const clientSelect = document.getElementById('quote-client');
+  const clientInput = document.getElementById('quote-client-input');
+  const clientsDatalist = document.getElementById('clients-datalist');
+  const clientHiddenIdInput = document.getElementById('quote-client-id');
+  const quoteNotesInput = document.getElementById('quote-notes');
   const productInput = document.getElementById('quote-product-input');
   const productDatalist = document.getElementById('quote-products-list');
   const qtyInput = document.getElementById('quote-quantity');
@@ -82,23 +86,49 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- FILTRO POR CLIENTE (Mover al inicio para evitar ReferenceError) ---
   const filterContainer = document.createElement("div");
-  filterContainer.className = "mb-3 d-flex align-items-center";
+  filterContainer.className = "mb-3 d-flex align-items-center gap-3 flex-wrap";
   filterContainer.innerHTML = `
-    <label class="me-2 fw-bold">Filtrar por Cliente:</label>
-    <select id="filter-client-quote" class="form-select w-auto">
-        <option value="">-- Todos --</option>
-    </select>
+    <div class="input-group flex-grow-1">
+        <span class="input-group-text"><i class="fa fa-search"></i></span>
+        <input type="text" id="search-quote-history" class="form-control" placeholder="Buscar por cliente o número de cotización...">
+    </div>
+    <div class="d-flex align-items-center">
+        <label class="me-2 fw-bold whitespace-nowrap">Filtrar:</label>
+        <select id="filter-client-quote" class="form-select w-auto">
+            <option value="">-- Todos los clientes --</option>
+        </select>
+    </div>
   `;
   if (quotesList && quotesList.parentNode) {
       quotesList.parentNode.insertBefore(filterContainer, quotesList);
   }
   const filterClientSelect = document.getElementById('filter-client-quote');
+  const searchInput = document.getElementById('search-quote-history');
+
   filterClientSelect.addEventListener('change', () => loadQuotes());
+  
+  let searchTimeout;
+  searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => loadQuotes(), 300);
+  });
 
   // --- Carga Inicial ---
   await loadProducts();
   await loadClients();
   await loadQuotes();
+
+  // Event listener para el input del cliente: actualiza el campo oculto con el ID
+  clientInput.addEventListener('input', () => {
+    const selectedOption = Array.from(clientsDatalist.options).find(
+      opt => opt.value === clientInput.value
+    );
+    if (selectedOption) {
+      clientHiddenIdInput.value = selectedOption.dataset.id;
+    } else {
+      clientHiddenIdInput.value = "";
+    }
+  });
 
   // Cargar carritos guardados DESPUÉS de cargar productos para poder enriquecerlos
   const persistentCart = localStorage.getItem('persistentQuoteCart');
@@ -253,11 +283,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function loadClients() {
     const clients = await window.api.getClients();
     clientSelect.innerHTML = '<option value="">-- Sin cliente --</option>';
+    clientsDatalist.innerHTML = '';
+    
+    const noClientOpt = document.createElement("option");
+    noClientOpt.value = "-- Sin cliente --";
+    noClientOpt.dataset.id = "";
+    clientsDatalist.appendChild(noClientOpt);
+
     clients.forEach(c => {
       const opt = document.createElement("option");
       opt.value = c.id;
       opt.textContent = `${c.name} (${c.id_card_or_nit})`;
       clientSelect.appendChild(opt);
+
+      const optDL = document.createElement("option");
+      optDL.value = `${c.name} (${c.id_card_or_nit})`;
+      optDL.dataset.id = c.id;
+      clientsDatalist.appendChild(optDL);
       
       // Llenar también el filtro
       const optFilter = document.createElement("option");
@@ -371,15 +413,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Finalizar cotización
   finalizeBtn.addEventListener("click", async ()=>{
     if(quoteItems.length===0){ Swal.fire('Atención', "No hay items", 'warning'); return;}
-    const clientId = clientSelect.value ? Number(clientSelect.value) : null;
+    const clientId = clientHiddenIdInput.value ? Number(clientHiddenIdInput.value) : null;
+    const notes = quoteNotesInput.value.trim();
     
     let res;
     if (editingQuoteId) {
       // Actualizar cotización existente
-      res = await window.api.updateQuoteDetails({ id: editingQuoteId, client_id: clientId, items: quoteItems });
+      res = await window.api.updateQuoteDetails({ id: editingQuoteId, client_id: clientId, items: quoteItems, notes });
     } else {
       // Crear nueva cotización
-      res = await window.api.createQuote({ client_id: clientId, items: quoteItems });
+      res = await window.api.createQuote({ client_id: clientId, items: quoteItems, notes });
     }
 
     if(!res.success){ Swal.fire('Error', res.message, 'error'); return; }
@@ -397,6 +440,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     quoteItems = [];
     renderQuoteItems();
     clientSelect.value = "";
+    clientInput.value = "";
+    clientHiddenIdInput.value = "";
+    quoteNotesInput.value = "";
     finalizeBtn.textContent = "Finalizar Cotización";
     finalizeBtn.classList.remove('btn-warning');
     finalizeBtn.classList.add('btn-primary');
@@ -407,7 +453,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Cargar cotizaciones
   async function loadQuotes(){
     const clientId = filterClientSelect.value ? Number(filterClientSelect.value) : null;
-    const quotes = await window.api.getQuotes(clientId);
+    const searchTerm = searchInput.value.trim();
+    const quotes = await window.api.getQuotes(clientId, searchTerm);
     if(!quotes.length){
       quotesList.innerHTML='<div class="alert alert-secondary">No hay cotizaciones</div>';
       return;
@@ -458,7 +505,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         editingQuoteId = quoteId;
         clientSelect.value = quote.client_id || "";
-        
+        const client = await window.api.getClientById(quote.client_id);
+        clientInput.value = client ? `${client.name} (${client.id_card_or_nit})` : "-- Sin cliente --";
+        clientHiddenIdInput.value = quote.client_id || "";
+        quoteNotesInput.value = quote.notes || "";
+
         // Reconstruir items con detalles de producto para permitir edición de precios/variantes
         const detailedItems = [];
         for (const item of quote.items) {

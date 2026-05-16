@@ -1,6 +1,7 @@
 console.log('sales.js cargado');
 
 let saleItems = [];
+let allClients = []; // Variable global para almacenar todos los clientes y facilitar la búsqueda
 let allProducts = [];
 let editingSaleId = null;
 
@@ -29,6 +30,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   const finalizeBtn = document.getElementById("finalize-sale");
   const salesList = document.getElementById("sales-list");
   const clientSelect = document.getElementById("sale-client");
+  const clientInput = document.getElementById("sale-client-input"); // Nuevo: Input para el nombre del cliente
+  const clientsDatalist = document.getElementById("clients-datalist"); // Nuevo: Datalist para sugerencias
+  const clientHiddenIdInput = document.getElementById("sale-client-id"); // Nuevo: Input oculto para el ID real
+  const saleNotesInput = document.getElementById("sale-notes");
   const saleTypeSelect = document.getElementById("sale-type");
   const creditsList = document.getElementById("credits-list");
   const creditSearchInput = document.getElementById("credit-search-input");
@@ -133,6 +138,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   // --- Carga Inicial ---
   await loadProducts();
   await loadClients(); // Cargar clientes al inicio para poblar el datalist
+  
+  // Event listener para el input del cliente: actualiza el campo oculto con el ID
+  clientInput.addEventListener('input', () => {
+    const selectedOption = Array.from(clientsDatalist.options).find(
+      opt => opt.value === clientInput.value
+    );
+    if (selectedOption) {
+      clientHiddenIdInput.value = selectedOption.dataset.id;
+    } else {
+      clientHiddenIdInput.value = ""; // Limpiar si no hay una selección válida
+    }
+  });
 
   // Cargar carrito desde sessionStorage DESPUÉS de cargar productos para poder enriquecer los datos
   const savedCart = sessionStorage.getItem('shoppingCart');
@@ -159,6 +176,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     saleItems = [];
     renderSaleItems();
     clientSelect.value = "";
+    clientInput.value = ""; // Limpiar el campo visible
+    clientHiddenIdInput.value = ""; // Limpiar el ID oculto
+    saleNotesInput.value = "";
     saleTypeSelect.value = "cash";
     finalizeBtn.textContent = "Finalizar Venta";
     finalizeBtn.classList.remove('btn-warning');
@@ -208,11 +228,26 @@ document.addEventListener("DOMContentLoaded", async () => {
   async function loadClients() {
     const clients = await window.api.getClients();
     clientSelect.innerHTML = '<option value="">-- Sin cliente --</option>';
+    allClients = await window.api.getClients(); // Almacenar todos los clientes globalmente
+    clientsDatalist.innerHTML = ''; // Limpiar opciones previas
+
+    const noClientOpt = document.createElement("option");
+    noClientOpt.value = "-- Sin cliente --";
+    noClientOpt.dataset.id = ""; // ID vacío para "Sin cliente"
+    clientsDatalist.appendChild(noClientOpt);
+
     clients.forEach((c) => {
-      const opt = document.createElement("option");
-      opt.value = c.id;
-      opt.textContent = `${c.name} (${c.id_card_or_nit})`;
-      clientSelect.appendChild(opt);
+      // Poblar select oculto para compatibilidad
+      const optSelect = document.createElement("option");
+      optSelect.value = c.id;
+      optSelect.textContent = `${c.name} (${c.id_card_or_nit})`;
+      clientSelect.appendChild(optSelect);
+
+      // Poblar datalist para la búsqueda interactiva
+      const optDL = document.createElement("option");
+      optDL.value = `${c.name} (${c.id_card_or_nit})`; 
+      optDL.dataset.id = c.id; 
+      clientsDatalist.appendChild(optDL);
     });
 
     // Poblar el datalist de búsqueda de clientes
@@ -682,6 +717,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       const outstandingBalance = saleType === "credit" ? remainingToPay : Math.max(0, remainingToPay - totalPaid);
       const paidAmount = saleType === "credit" ? 0 : totalPaid;
+      const notes = saleNotesInput.value.trim();
 
       const saleData = {
         client_id: clientId,
@@ -693,7 +729,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         cash_payment: cash,
         transfer_payment: transfer,
         transfer_reference: transferRef,
-        service_id: serviceId // Enviar ID para migrar abonos
+        service_id: serviceId, // Enviar ID para migrar abonos
+        notes: notes
       };
 
       const res = await window.api.createSale(saleData);
@@ -715,9 +752,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (printResult.isConfirmed) {
           handlePrintSale(res.id);
       }
-      sessionStorage.removeItem('shoppingCart'); // Limpiar carrito de la sesión
-      saleItems = [];
-      renderSaleItems();
+      cancelEdit(); 
       modal.hide();
       await loadSales();
       await loadProducts();
@@ -740,9 +775,10 @@ document.addEventListener("DOMContentLoaded", async () => {
           Swal.fire('Atención', "No hay items en la venta.", 'warning');
           return;
       }
-      const clientId = clientSelect.value ? Number(clientSelect.value) : null;
+      const clientId = clientHiddenIdInput.value ? Number(clientHiddenIdInput.value) : null;
       const saleType = saleTypeSelect.value;
       const totalAmount = saleItems.reduce((sum, item) => sum + item.subtotal, 0);
+      const notes = saleNotesInput.value.trim();
       const dueDate = document.getElementById('sale-due-date')?.value || null;
 
       // Verificar si hay abonos previos (si viene de un servicio)
@@ -789,7 +825,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                   transfer_payment: 0,
                   transfer_reference: null,
                   service_id: serviceId,
-                  due_date: dueDate
+                  due_date: dueDate,
+                  notes: notes
               };
               const res = await window.api.createSale(saleData);
               if (!res.success) {
@@ -811,9 +848,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                   handlePrintSale(res.id);
               }
 
-              sessionStorage.removeItem('shoppingCart');
-              saleItems = [];
-              renderSaleItems();
+              cancelEdit();
               await loadSales();
               await loadProducts();
               await loadCredits();
@@ -829,6 +864,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const originalSale = await window.api.getSaleById(editingSaleId);
       const newTotalAmount = saleItems.reduce((sum, item) => sum + item.subtotal, 0);
       const difference = newTotalAmount - originalSale.total_amount;
+      const notes = saleNotesInput.value.trim();
       const dueDate = document.getElementById('sale-due-date')?.value || null;
 
       let paymentAdjustment = null;
@@ -854,14 +890,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       const updateData = {
-          saleId: editingSaleId,
-          clientId: clientSelect.value ? Number(clientSelect.value) : null,
+          saleId: editingSaleId, // Se mantiene
+          clientId: clientHiddenIdInput.value ? Number(clientHiddenIdInput.value) : null,
           items: saleItems,
           paymentAdjustment: paymentAdjustment,
             sale_type: saleTypeSelect.value, // Informamos el tipo de venta actual
             total_amount: newTotalAmount,   // Enviamos el nuevo total calculado
           userName: localStorage.getItem('user_name') || 'system',
-          due_date: dueDate
+          due_date: dueDate,
+          notes: notes
       };
 
       const res = await window.api.updateSale(updateData);
@@ -1124,6 +1161,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         editingSaleId = saleId;
         clientSelect.value = sale.client_id || "";
+        const client = allClients.find(c => c.id === sale.client_id); // Buscar el cliente por ID
+        clientInput.value = client ? `${client.name} (${client.id_card_or_nit})` : "-- Sin cliente --"; // Mostrar el nombre en el input visible
+        clientHiddenIdInput.value = sale.client_id || ""; // Establecer el ID en el campo oculto
+        saleNotesInput.value = sale.notes || "";
         saleTypeSelect.value = sale.sale_type;
         saleTypeSelect.dispatchEvent(new Event('change'));
         if (sale.due_date) {
@@ -1223,7 +1264,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                   }
                   const cambio = totalAbonado - total;
                   const cambioContainer = document.getElementById("cambioContainer");
-                  if (cambio !== 0) {
+                  if (cambio > 0) {
                     cambioContainer.innerHTML = '<tr><td>Cambio:</td><td>' + formatCOP(cambio) + '</td></tr>';
                   } else {
                     cambioContainer.innerHTML = "";
@@ -1436,8 +1477,16 @@ document.addEventListener("DOMContentLoaded", async () => {
                     ${sale.sale_type === "credit" ? `
                         <tr>
                             <td><strong>Forma de pago:</strong></td>
-                            <td>Venta a crédito</td>
+                            <td>
+                                ${sale.paid_amount > 0 ? `Abonos previos: ${formatCOP(sale.paid_amount)}` : `Venta a crédito`}
+                            </td>
                         </tr>
+                        ${sale.outstanding_balance > 0 ? `
+                            <tr>
+                                <td><strong>Saldo pendiente a crédito:</strong></td>
+                                <td>${formatCOP(sale.outstanding_balance)}</td>
+                            </tr>
+                        ` : ''}
                         ${sale.due_date ? `<tr><td><strong>Vencimiento:</strong></td><td>${sale.due_date}</td></tr>` : ""}
                     ` : `
                         <tr>
@@ -1457,6 +1506,13 @@ document.addEventListener("DOMContentLoaded", async () => {
                 </table>
                 <table style="width: 95%;"><tbody id="cambioContainer"></tbody></table>
               </div>
+
+              ${sale.notes ? `
+              <div class="notes-section" style="margin-top: 6mm; border-top: 1px solid #ccc; padding-top: 3mm;">
+                <p style="font-size: 9px; font-weight: bold; margin-bottom: 2px; color: #444;">NOTAS / OBSERVACIONES:</p>
+                <p style="font-size: 9px; margin: 0; text-align: justify; line-height: 1.2;">${sale.notes}</p>
+              </div>
+              ` : ''}
 
               <div class="footer">
                 <p>Gracias por su compra</p>

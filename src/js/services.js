@@ -87,14 +87,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const clientContainer = document.createElement('div');
   clientContainer.className = 'mb-3';
   clientContainer.innerHTML = `
-    <label class="form-label">Cliente Asociado</label>
-    <select class="form-select" id="service-client">
-        <option value="">-- Ninguno --</option>
-    </select>
+    <label class="form-label" for="service-client-input">Cliente Asociado</label>
+    <div class="input-group">
+        <span class="input-group-text"><i class="fa fa-user"></i></span>
+        <input type="text" id="service-client-input" class="form-control" list="service-clients-datalist" placeholder="Escriba el nombre o NIT/Cédula del cliente...">
+        <datalist id="service-clients-datalist"></datalist>
+        <input type="hidden" id="service-client">
+    </div>
   `;
   // Insertar antes del campo de nombre
   form.prepend(clientContainer);
-  const clientSelect = document.getElementById('service-client');
+  const clientInput = document.getElementById('service-client-input');
+  const clientHiddenIdInput = document.getElementById('service-client');
+  const clientsDatalist = document.getElementById('service-clients-datalist');
   // ------------------------------------
 
   // --- INYECTAR FECHA PROGRAMADA ---
@@ -160,14 +165,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         name: nameInput.value,
         price: priceInput.value,
         description: descInput.value,
-        client_id: clientSelect.value,
+        client_id: clientHiddenIdInput.value,
         scheduled_date: scheduledDateInput.value,
         products: currentServiceProducts
     };
     sessionStorage.setItem('service_draft', JSON.stringify(draft));
   }
 
-  function loadDraft() {
+  async function loadDraft() {
     const draftStr = sessionStorage.getItem('service_draft');
     if (draftStr && !idInput.value) { // Solo cargar si no estamos editando
         try {
@@ -175,7 +180,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             nameInput.value = draft.name || "";
             priceInput.value = draft.price || "";
             descInput.value = draft.description || "";
-            clientSelect.value = draft.client_id || "";
+            clientHiddenIdInput.value = draft.client_id || "";
+            
+            if (draft.client_id) {
+                const client = await window.api.getClientById(draft.client_id);
+                clientInput.value = client ? `${client.name} (${client.id_card_or_nit})` : "";
+            } else {
+                clientInput.value = "";
+            }
+
             scheduledDateInput.value = draft.scheduled_date || "";
             currentServiceProducts = draft.products || [];
             renderServiceProducts();
@@ -189,8 +202,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     sessionStorage.removeItem('service_draft');
   }
 
+  // Event listener para el input del cliente: actualiza el campo oculto con el ID
+  clientInput.addEventListener('input', () => {
+    const selectedOption = Array.from(clientsDatalist.options).find(
+      opt => opt.value === clientInput.value
+    );
+    if (selectedOption) {
+      clientHiddenIdInput.value = selectedOption.dataset.id;
+    } else {
+      clientHiddenIdInput.value = ""; 
+    }
+    saveDraft();
+  });
+
   // Listeners para guardar borrador en campos de texto
-  [nameInput, priceInput, descInput, clientSelect, scheduledDateInput].forEach(el => {
+  [nameInput, priceInput, descInput, clientHiddenIdInput, scheduledDateInput].forEach(el => {
       el.addEventListener('input', saveDraft);
       el.addEventListener('change', saveDraft);
   });
@@ -212,12 +238,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Cargar clientes
   async function loadClients() {
       const clients = await window.api.getClients();
-      clientSelect.innerHTML = '<option value="">-- Ninguno --</option>';
+      clientsDatalist.innerHTML = '';
+      
+      const noClientOpt = document.createElement("option");
+      noClientOpt.value = "-- Ninguno --";
+      noClientOpt.dataset.id = "";
+      clientsDatalist.appendChild(noClientOpt);
+
       clients.forEach(c => {
-          const opt = document.createElement('option');
-          opt.value = c.id;
-          opt.textContent = c.name;
-          clientSelect.appendChild(opt);
+          const optDL = document.createElement('option');
+          optDL.value = `${c.name} (${c.id_card_or_nit})`;
+          optDL.dataset.id = c.id;
+          clientsDatalist.appendChild(optDL);
       });
   }
 
@@ -424,7 +456,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       id: idInput.value ? Number(idInput.value) : null,
       name: nameInput.value,
       price: Number(priceInput.value) || 0,
-      client_id: clientSelect.value ? Number(clientSelect.value) : null,
+      client_id: clientHiddenIdInput.value ? Number(clientHiddenIdInput.value) : null,
       scheduled_date: scheduledDateInput.value || null,
       description: descInput.value,
       products: currentServiceProducts
@@ -447,7 +479,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   function resetForm() {
     form.reset();
     idInput.value = "";
-    clientSelect.value = "";
+    clientHiddenIdInput.value = "";
+    clientInput.value = "";
     scheduledDateInput.value = "";
     currentServiceProducts = [];
     renderServiceProducts();
@@ -692,7 +725,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       nameInput.value = service.name;
       priceInput.value = service.price;
       descInput.value = service.description;
-      clientSelect.value = service.client_id || "";
+      clientHiddenIdInput.value = service.client_id || "";
+      const client = await window.api.getClientById(service.client_id);
+      clientInput.value = client ? `${client.name} (${client.id_card_or_nit})` : "";
       scheduledDateInput.value = service.scheduled_date || "";
       
       currentServiceProducts = service.products.map(p => ({

@@ -14,15 +14,15 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
 1.  **Dashboard Interactivo:**
     - **Estadísticas Avanzadas:** Análisis de utilidad bruta (Ventas - Costos), top 5 productos más vendidos y desglose de métodos de pago.
     - **Centro de Alertas:** Notificaciones de stock mínimo, órdenes de compra pendientes, deudores de crédito y cuentas por pagar vencidas.
-    - **Gestión Operativa:** Widgets en tiempo real para servicios programados y borradores de trabajo.
+    - **Gestión Operativa:** Widgets en tiempo real para servicios programados y borradores de servicios abiertos.
     - **Actividad Reciente:** Historial rápido de las últimas transacciones y modificaciones.
 2.  **Punto de Venta (POS):**
-    - Facturación rápida con soporte para lector de código de barras.
+    - Facturación rápida con soporte para lector de código de barras y búsqueda inteligente de clientes mediante autocompletado.
     - Manejo de variantes de productos (Unidades de medida) con precios y costos específicos.
     - **Precios Múltiples:** Selección de 3 listas de precios (Normal, Especial 1, Especial 2).
-    - Pagos mixtos (Efectivo + Transferencia).
+    - **Pagos mixtos:** Soporte para transacciones combinadas (Efectivo + Transferencia).
     - Ventas a crédito y gestión de abonos.
-    - **Recibos de Caja Oficiales:** Generación de comprobantes de ingreso con valor en letras y detalles de saldo.
+    - **Recibos de Caja Oficiales:** Generación de comprobantes de ingreso con valor en letras, detalles de saldo y persistencia de observaciones de garantía.
     - **Edición Avanzada:** Modificación de facturas existentes con ajuste automático de stock y conciliación financiera (pagos adicionales o egresos por devolución).
     - **Anulación Protegida:** Permite anular ventas restaurando el stock y dejando rastro en auditoría.
 3.  **Inventario Avanzado:**
@@ -31,16 +31,16 @@ GestorFX es una solución de software de escritorio robusta y moderna para la ge
     - **Trazabilidad:** Control de números de serial para garantías.
     - Exportación de inventario a Excel y PDF.
 4.  **Servicios:**
-    - **Gestión de Anticipos:** Los abonos a servicios impactan la caja del día y se reflejan como pagos previos al facturar.
+    - **Gestión de Anticipos:** Los abonos a servicios impactan la caja del día y se integran automáticamente como pagos previos en la facturación final.
     - **Ciclo Operativo:** Control de fechas programadas y registro de "Realizado" con marca de tiempo.
-    - **Integración POS:** Conversión directa de servicios a Venta o Cotización con un solo clic, evitando la doble deducción de stock.
+    - **Integración POS:** Conversión directa de servicios a Venta o Cotización con búsqueda de clientes optimizada y prevención de doble descuento de stock.
 5.  **Compras y Proveedores:**
-    - **Contabilidad de Compras:** Manejo de IVA (19%) opcional, descuentos comerciales y fechas de vencimiento.
+    - **Contabilidad de Compras:** Manejo de IVA (19%) opcional, descuentos financieros y fechas de vencimiento.
     - **Retenciones DIAN:** Aplicación de retenciones en la fuente (Compras, Servicios, Honorarios) al registrar pagos a proveedores.
     - **Cuentas por Pagar:** Seguimiento de saldos pendientes con historial de pagos y generación de Comprobantes de Egreso.
 6.  **Cotizaciones:**
-    - **Validación Pre-Venta:** Al aprobar una cotización, el sistema valida el stock real actual antes de permitir la conversión a factura.
-    - **Borradores:** Persistencia automática del carrito para evitar pérdida de datos.
+    - **Validación Pre-Venta:** Al aprobar una cotización, el sistema valida el stock real actual antes de permitir la conversión a factura. Incluye buscador histórico por número o cliente.
+    - **Borradores:** Persistencia automática del carrito y notas de observaciones de validez.
 7.  **Finanzas y Caja:**
     - **Cierre de Caja Detallado:** Arqueo por denominaciones de billetes/monedas con cálculo de diferencias.
     - **Reportes Contables:** Utilidad Neta Real (Ingresos - Costos - Gastos), Reporte de Retenciones (DIAN) y Reporte de Egresos Detallado.

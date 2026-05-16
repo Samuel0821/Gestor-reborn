@@ -57,9 +57,10 @@
               <h5 class="mb-3">Cliente (opcional)</h5>
               <div class="input-group">
                 <span class="input-group-text"><i class="fa fa-user"></i></span>
-                <select id="sale-client" class="form-select">
-                  <option value="">-- Venta sin cliente --</option>
-                </select>
+                <input type="text" id="sale-client-input" class="form-control" list="clients-datalist" placeholder="Escriba el nombre o NIT/Cédula del cliente...">
+                <datalist id="clients-datalist"></datalist>
+                <input type="hidden" id="sale-client-id">
+                <select id="sale-client" class="d-none"></select>
               </div>
             </div>
 
@@ -115,6 +116,10 @@
                 <option value="credit">Crédito</option>
               </select>
             </div>
+          </div>
+          <div class="mt-3">
+            <label for="sale-notes" class="form-label">Notas / Observaciones (Aparecerán en la Factura)</label>
+            <textarea id="sale-notes" class="form-control" rows="2" placeholder="Ej: Garantía de 3 meses por defectos de fábrica."></textarea>
           </div>
           <div class="mt-2">
             <button id="finalize-sale" class="btn btn-success px-4">Finalizar Venta</button>
