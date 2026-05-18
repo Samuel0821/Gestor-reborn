@@ -172,11 +172,15 @@ function getCreditPaymentsForSession(sessionId) {
     FROM sale_payments sp
     JOIN sales s ON sp.sale_id = s.id
     LEFT JOIN clients c ON s.client_id = c.id
-    WHERE DATETIME(sp.created_at) BETWEEN (SELECT opened_at FROM cash_register_sessions WHERE id = ?) AND (SELECT COALESCE(closed_at, DATETIME('now', 'localtime')) FROM cash_register_sessions WHERE id = ?)
-      AND (s.sale_type = 'credit' OR s.paid_amount < s.total_amount OR EXISTS (SELECT 1 FROM sale_payments sp2 WHERE sp2.sale_id = s.id AND sp2.id != sp.id))
+    JOIN cash_movements cm ON cm.related_id = s.id 
+      AND cm.amount = sp.amount 
+      AND cm.session_id = ?
+      AND cm.sub_type LIKE 'credit_payment%'
+    WHERE DATETIME(sp.created_at) BETWEEN (SELECT opened_at FROM cash_register_sessions WHERE id = ?) 
+                                      AND (SELECT COALESCE(closed_at, DATETIME('now', 'localtime')) FROM cash_register_sessions WHERE id = ?)
     ORDER BY sp.created_at ASC
   `);
-  const rows = stmt.all(sessionId, sessionId);
+  const rows = stmt.all(sessionId, sessionId, sessionId);
   return rows;
 }
 
