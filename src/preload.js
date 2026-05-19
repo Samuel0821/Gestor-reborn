@@ -53,7 +53,7 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("export-sale-receipt-pdf", { id, receivedBy, observations }),
 
   // credits
-  getCredits: (searchTerm = "", onlyPending = true) => ipcRenderer.invoke("get-credits", searchTerm, onlyPending),
+  getCredits: (searchTerm = "", onlyPending = true, limit = -1, offset = 0) => ipcRenderer.invoke("get-credits", searchTerm, onlyPending, limit, offset),
   addCreditPayment: (saleId, amount, method, reference) => ipcRenderer.invoke("add-credit-payment", saleId, amount, method, reference),
   getSalePayments: (saleId) => ipcRenderer.invoke("get-sale-payments", saleId),
   exportPaymentReceiptPDF: (paymentId, type) => ipcRenderer.invoke("export-payment-receipt-pdf", { paymentId, type }),

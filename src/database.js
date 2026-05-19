@@ -1568,8 +1568,8 @@ function annulSale(id) {
 }
 
     // GESTIÓN DE CRÉDITOS
-    // Obtiene todos los créditos pendientes, opcionalmente filtrados por cliente.
-    function getCredits(searchTerm, onlyPending = true) {
+    // Obtiene créditos pendientes o pagados, con búsqueda y paginación.
+    function getCredits(searchTerm, onlyPending = true, limit = -1, offset = 0) {
         let query = `
             SELECT
                 s.id, s.invoice_number, s.sale_date, s.total_amount, s.paid_amount, s.outstanding_balance, s.due_date,
@@ -1582,11 +1582,20 @@ function annulSale(id) {
 
         if (onlyPending) {
             query += " AND s.outstanding_balance > 0";
+        } else {
+            query += " AND s.outstanding_balance <= 0";
         }
 
         if (searchTerm) {
-            query += ` AND c.name LIKE ?`;
-            params.push(`%${searchTerm}%`);
+            query += ` AND (c.name LIKE ? OR s.invoice_number LIKE ?)`;
+            params.push(`%${searchTerm}%`, `%${searchTerm}%`);
+        }
+
+        query += " ORDER BY s.sale_date DESC";
+
+        if (limit !== -1) {
+            query += " LIMIT ? OFFSET ?";
+            params.push(limit, offset);
         }
 
         return db.prepare(query).all(...params);

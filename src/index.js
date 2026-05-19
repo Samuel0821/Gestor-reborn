@@ -274,7 +274,7 @@
       
       // Gestión de Créditos
 
-      ipcMain.handle("get-credits", async (event, searchTerm, onlyPending) => db.getCredits(searchTerm, onlyPending));
+      ipcMain.handle("get-credits", async (event, searchTerm, onlyPending, limit, offset) => db.getCredits(searchTerm, onlyPending, limit, offset));
       ipcMain.handle("add-credit-payment", async (event, saleId, amount, method, reference) => db.addCreditPayment(saleId, amount, method, reference));
       ipcMain.handle("mark-credit-as-paid", async (event, saleId, method, reference) => db.markCreditAsPaid(saleId, method, reference));
       ipcMain.handle("get-sale-payments", (event, saleId) => db.getSalePayments(saleId));

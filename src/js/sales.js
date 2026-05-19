@@ -4,6 +4,9 @@ let saleItems = [];
 let allClients = []; // Variable global para almacenar todos los clientes y facilitar la búsqueda
 let allProducts = [];
 let editingSaleId = null;
+let currentCreditOffset = 0;
+const CREDITS_LIMIT = 10;
+let loadMoreCreditsBtn;
 
 function saveCart() {
   sessionStorage.setItem('shoppingCart', JSON.stringify(saleItems));
@@ -1525,32 +1528,55 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Cargar créditos
 
-  async function loadCredits(searchTerm = "", showPaid = false) {
-    const credits = await window.api.getCredits(searchTerm, !showPaid);
-    creditsList.innerHTML = "";
+  async function loadCredits(append = false) {
+    if (!append) {
+      currentCreditOffset = 0;
+      creditsList.innerHTML = "";
+    }
 
-    // Inyectar controles de filtro si no existen
+    const searchTerm = creditSearchInput.value.trim();
+    const showPaid = document.getElementById('show-paid-credits')?.checked || false;
+
+    // Inyectar controles de filtro y botón de carga si no existen
     if (!document.getElementById('credit-filter-container')) {
         const filterHtml = `
             <div id="credit-filter-container" class="mb-3 d-flex align-items-center gap-2">
                 <div class="form-check form-switch">
-                    <input class="form-check-input" type="checkbox" id="show-paid-credits" ${showPaid ? 'checked' : ''}>
+                    <input class="form-check-input" type="checkbox" id="show-paid-credits">
                     <label class="form-check-label" for="show-paid-credits">Ver créditos pagados</label>
                 </div>
             </div>
         `;
         creditsList.parentNode.insertBefore(document.createRange().createContextualFragment(filterHtml), creditsList);
-        document.getElementById('show-paid-credits').addEventListener('change', (e) => {
-            loadCredits(creditSearchInput.value, e.target.checked);
+        document.getElementById('show-paid-credits').addEventListener('change', () => loadCredits(false));
+
+        // Crear contenedor del botón "Cargar más"
+        const btnContainer = document.createElement("div");
+        btnContainer.className = "text-center mt-3 mb-3";
+        loadMoreCreditsBtn = document.createElement("button");
+        loadMoreCreditsBtn.className = "btn btn-outline-secondary btn-sm";
+        loadMoreCreditsBtn.textContent = "Cargar más...";
+        loadMoreCreditsBtn.style.display = "none";
+        loadMoreCreditsBtn.addEventListener("click", () => loadCredits(true));
+        btnContainer.appendChild(loadMoreCreditsBtn);
+        creditsList.parentNode.insertBefore(btnContainer, creditsList.nextSibling);
+
+        // Delegación de eventos para los botones de detalle
+        creditsList.addEventListener("click", (e) => {
+            const btn = e.target.closest('.view-credit-details');
+            if (btn) showCreditDetails(Number(btn.dataset.id));
         });
     }
 
+    const credits = await window.api.getCredits(searchTerm, !showPaid, CREDITS_LIMIT, currentCreditOffset);
+
     if (!credits || credits.length === 0) {
-      creditsList.innerHTML = `<div class="alert alert-secondary">No hay créditos pendientes.</div>`;
+      if (!append) creditsList.innerHTML = `<div class="alert alert-secondary">No hay créditos ${showPaid ? 'pagados' : 'pendientes'}.</div>`;
+      if (loadMoreCreditsBtn) loadMoreCreditsBtn.style.display = "none";
       return;
     }
 
-    credits.forEach(c => {
+    const html = credits.map(c => {
       const isPaid = c.outstanding_balance <= 0;
 
       let daysInfo = "";
@@ -1565,10 +1591,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                       </div>`;
       }
 
-      const creditCard = document.createElement("div");
-      creditCard.classList.add("card", "mb-2", "p-2", "credit-card");
-      if (isPaid) creditCard.style.borderLeft = "5px solid #198754";
-      creditCard.innerHTML = `
+      return `
+        <div class="card mb-2 p-2 credit-card" ${isPaid ? 'style="border-left: 5px solid #198754"' : ''}>
         <div>
           <strong>Factura #${c.invoice_number || c.id}</strong> — Cliente: ${c.client_name}
           ${daysInfo}
@@ -1579,24 +1603,33 @@ document.addEventListener("DOMContentLoaded", async () => {
         <div class="mt-2">
           <button class="btn btn-sm btn-info view-credit-details" data-id="${c.id}">Ver Detalle</button>
         </div>
+        </div>
       `;
-      creditsList.appendChild(creditCard);
-    });
+    }).join("");
 
-    creditsList.querySelectorAll(".view-credit-details").forEach(btn => {
-      btn.addEventListener("click", async (e) => {
-        const saleId = Number(e.target.dataset.id);
-        showCreditDetails(saleId);
-      });
-    });
+    if (append) {
+      creditsList.insertAdjacentHTML('beforeend', html);
+    } else {
+      creditsList.innerHTML = html;
+    }
+
+    currentCreditOffset += credits.length;
+    if (loadMoreCreditsBtn) {
+        loadMoreCreditsBtn.style.display = (credits.length === CREDITS_LIMIT) ? "inline-block" : "none";
+    }
   }
 
  
   // Buscar créditos
+  let creditSearchTimeout;
+  creditSearchInput.addEventListener('input', () => {
+    clearTimeout(creditSearchTimeout);
+    creditSearchTimeout = setTimeout(() => loadCredits(false), 400);
+  });
 
-  creditSearchBtn.addEventListener("click", () => {
-    const searchTerm = creditSearchInput.value;
-    loadCredits(searchTerm);
+  creditSearchBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    loadCredits(false);
   });
 
   function showDifferenceModal(type, amount) {
