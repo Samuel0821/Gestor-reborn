@@ -454,7 +454,28 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
 
-        // Actualizar el balance esperado global para el arqueo
+        // Además, incluir abonos a crédito que estén registrados en sale_payments pero NO tengan movimiento de caja asociado
+        // (getCreditPaymentsForSession devuelve ambos tipos; las filas sin 'id' corresponden a pagos sin cash_movement)
+        try {
+            const creditPayments = await window.api.getCreditPaymentsForSession(sessionId);
+            creditPayments.forEach(p => {
+                if (!p.id) { // pago sin movimiento de caja
+                    const amount = p.amount || 0;
+                    const method = (p.method || '').toString();
+                    const isTransfer = /transfer/i.test(method);
+                    if (isTransfer) { sums.in_transfer += amount; sums.credit_transfer += amount; }
+                    else { sums.in_cash += amount; sums.credit_cash += amount; }
+                }
+            });
+        } catch (e) {
+            console.error('Error cargando credit payments fallback:', e);
+        }
+
+        // Calcular subtotales independientes para mostrar (no mezclar con egresos)
+        const subtotalReceived = sums.sales_cash + sums.sales_transfer + sums.credit_cash + sums.credit_transfer + sums.service_cash + sums.service_transfer + sums.manual_in;
+        const subtotalPaid = sums.out_cash + sums.out_transfer;
+
+        // Actualizar el balance esperado global para el arqueo (base inicial + entradas en efectivo - salidas en efectivo)
         calculatedExpectedBalance = activeSession.opening_balance + sums.in_cash - sums.out_cash;
 
         summaryContainer.innerHTML = `
@@ -472,7 +493,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 <li class="list-group-item d-flex justify-content-between">Abonos Servicios (Efectivo): <span>${formatCOP(sums.service_cash)}</span></li>
                                 <li class="list-group-item d-flex justify-content-between">Abonos Servicios (Banco): <span>${formatCOP(sums.service_transfer)}</span></li>
                                 <li class="list-group-item d-flex justify-content-between">Manuales: <span>${formatCOP(sums.manual_in)}</span></li>
-                                <li class="list-group-item d-flex justify-content-between fw-bold bg-light">Subtotal Recibido: <span>${formatCOP(sums.in_cash + sums.in_transfer)}</span></li>
+                                <li class="list-group-item d-flex justify-content-between fw-bold bg-light">Subtotal Recibido: <span>${formatCOP(subtotalReceived)}</span></li>
                             </ul>
                         </div>
                         <div class="col-md-6">
@@ -481,7 +502,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 <li class="list-group-item d-flex justify-content-between">Gastos (Efectivo): <span>-${formatCOP(sums.expense_cash + sums.purchase_cash + sums.refund_cash + sums.manual_out)}</span></li>
                                 <li class="list-group-item d-flex justify-content-between">Gastos (Transferencia): <span>-${formatCOP(sums.expense_transfer + sums.purchase_transfer + sums.refund_transfer)}</span></li>
                                 <li class="list-group-item d-flex justify-content-between">Salidas Manuales: <span>-${formatCOP(sums.manual_out)}</span></li>
-                                <li class="list-group-item d-flex justify-content-between fw-bold bg-light">Subtotal Pagado: <span>-${formatCOP(sums.out_cash + sums.out_transfer)}</span></li>
+                                <li class="list-group-item d-flex justify-content-between fw-bold bg-light">Subtotal Pagado: <span>-${formatCOP(subtotalPaid)}</span></li>
                             </ul>
                         </div>
                     </div>
@@ -502,7 +523,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         </div>
                     </div>
                     <div class="mt-4 pt-3 border-top text-center">
-                        <div class="fw-bold fs-4">BALANCE TOTAL NETO: <span class="${(sums.in_cash + sums.in_transfer - sums.out_cash - sums.out_transfer) >= 0 ? 'text-success' : 'text-danger'}">${formatCOP(sums.in_cash + sums.in_transfer - sums.out_cash - sums.out_transfer)}</span></div>
+                        <div class="fw-bold fs-4">BALANCE TOTAL NETO: <span class="${(subtotalReceived - subtotalPaid) >= 0 ? 'text-success' : 'text-danger'}">${formatCOP(subtotalReceived - subtotalPaid)}</span></div>
                     </div>
                 </div>
             </div>
@@ -540,7 +561,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <td>${s.invoice_number || s.id}</td>
                     <td>${s.client_name || 'Consumidor Final'}</td>
                     <td>${s.cash_paid > 0 && s.transfer_paid > 0 ? 'Mixto' : (s.cash_paid > 0 ? 'Efectivo' : 'Transferencia')}</td>
-                    <td class="text-end">${formatCOP(s.total_amount)}</td>
+                    <td class="text-end">${formatCOP(s.session_amount || s.total_amount)}</td>
                     <td>${formatDateTime(s.sale_date)}</td>
                 </tr>
             `;
@@ -748,7 +769,43 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // Escuchar cambios externos que afecten movimientos de caja y refrescar resumen automáticamente
+    if (window.api && window.api.onCashDataUpdated) {
+        window.api.onCashDataUpdated(async (info) => {
+            try {
+                // If the event is for the current active session, just re-render the summary and details
+                if (activeSession && info && info.sessionId && Number(info.sessionId) === Number(activeSession.id)) {
+                    await renderSummary(activeSession.id);
+                    await loadSessionDetails(activeSession.id);
+                    updateReconciliationTotals();
+                } else {
+                    // Otherwise reload active session (covers cases where session changed)
+                    await loadActiveSession();
+                }
+            } catch (e) {
+                console.error('Error handling cash-data-updated:', e);
+                await loadActiveSession();
+            }
+        });
+    }
+
     // Initial load
     renderDenominations();
     await loadActiveSession();
+
+    // If the renderer missed an initial push or navigation timing caused a race,
+    // also retry pulling the active session shortly after load and when window regains focus
+    // or becomes visible. This makes the summary robust to app restarts and SPA navigation.
+    try { setTimeout(() => { loadActiveSession().catch(() => {}); }, 500); } catch (e) {}
+    try { setTimeout(() => { loadActiveSession().catch(() => {}); }, 2000); } catch (e) {}
+
+    // Reload active session when window/tab regains focus or becomes visible
+    window.addEventListener('focus', () => {
+        try { loadActiveSession().catch(e => console.error('Error reloading active session on focus', e)); } catch (e) {}
+    });
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            try { loadActiveSession().catch(e => console.error('Error reloading active session on visibilitychange', e)); } catch (e) {}
+        }
+    });
 });

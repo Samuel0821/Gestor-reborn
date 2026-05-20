@@ -1089,13 +1089,24 @@ function createSale({
     }
     db.prepare("UPDATE sales SET invoice_number = ? WHERE id = ?").run(next, saleId);
 
-    // Si la venta proviene de un servicio, solo marcar el servicio como finalizado.
+    // Si la venta incluye servicios (cada item puede traer `service_id`), marcar TODOS los servicios involucrados como Finalizado.
     // Evitar migrar los registros de `service_payments` a `sale_payments` porque:
     // - Los abonos ya están registrados en `service_payments` y en movimientos de caja cuando se realizaron.
     // - Migrarlos causa que esos abonos aparezcan también en la pestaña de "Abonos Créditos" al consultar `sale_payments`.
     // Por tanto, NO duplicamos los abonos aquí; se conserva el historial en `service_payments`.
-    if (service_id) {
-      db.prepare("UPDATE services SET status = 'Finalizado' WHERE id = ?").run(service_id);
+    try {
+      const markServiceStmt = db.prepare("UPDATE services SET status = 'Finalizado' WHERE id = ?");
+      const serviceIds = new Set();
+      for (const it of items) {
+        if (it.service_id) serviceIds.add(it.service_id);
+      }
+      // También mantener compatibilidad con parámetro service_id (antiguo comportamiento)
+      if (service_id) serviceIds.add(service_id);
+      for (const sid of serviceIds) {
+        markServiceStmt.run(sid);
+      }
+    } catch (e) {
+      console.error('Error al marcar servicios como Finalizado en createSale:', e);
     }
     // ---------------------------------------
 
@@ -1130,7 +1141,7 @@ function createSaleFromQuote(data) {
   }
 }
 
-function updateSale({ saleId, clientId, items, paymentAdjustment, userName, due_date }) {
+function updateSale({ saleId, clientId, items, paymentAdjustment, userName, due_date, notes = null, sale_type = null, total_amount = null }) {
     const trx = db.transaction(() => {
         // 1. Get original sale and items
         const originalSale = db.prepare("SELECT * FROM sales WHERE id = ?").get(saleId);
@@ -1490,6 +1501,11 @@ function assignReceiptNumber(saleId) {
 function deleteSale(id) {
   try {
     db.prepare("DELETE FROM sales WHERE id = ?").run(id); // ON DELETE CASCADE se encarga de items y pagos
+    try {
+      db.prepare("DELETE FROM cash_movements WHERE related_id = ?").run(id);
+    } catch (e) {
+      console.error('Error eliminando movimientos de caja relacionados a la venta:', e);
+    }
     return { success: true, message: "Venta eliminada permanentemente (el inventario no fue afectado)." };
   } catch (err) {
     return { success: false, message: String(err) };
@@ -1559,6 +1575,12 @@ function annulSale(id) {
             notes = COALESCE(notes, '') || ' (Anulada el ' || datetime('now') || ')'
         WHERE id = ?
       `).run(id);
+      // Eliminar movimientos de caja asociados a esta venta para mantener consistencia en reportes
+      try {
+        db.prepare("DELETE FROM cash_movements WHERE related_id = ?").run(id);
+      } catch (e) {
+        console.error('Error eliminando movimientos de caja al anular venta:', e);
+      }
     });
     trx();
     return { success: true, message: "Venta anulada y stock restaurado." };
@@ -1577,6 +1599,7 @@ function annulSale(id) {
             FROM sales s
             LEFT JOIN clients c ON s.client_id = c.id
             WHERE (s.sale_type = 'credit' OR (s.sale_type = 'paid' AND EXISTS (SELECT 1 FROM sale_payments WHERE sale_id = s.id)))
+              AND (s.status IS NULL OR s.status != 'annulled') -- Excluir ventas anuladas
         `;
         const params = [];
 
@@ -1919,7 +1942,13 @@ function saveExpense(expense) {
 }
 
 function deleteExpense(id) {
+  // Eliminar el gasto y cualquier movimiento de caja relacionado
   db.prepare("DELETE FROM expenses WHERE id = ?").run(id);
+  try {
+    db.prepare("DELETE FROM cash_movements WHERE related_id = ?").run(id);
+  } catch (e) {
+    console.error('Error eliminando movimientos de caja relacionados al egreso:', e);
+  }
   return { success: true };
 }
 

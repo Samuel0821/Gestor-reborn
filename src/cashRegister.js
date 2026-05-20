@@ -118,15 +118,23 @@ function getSalesForSession(sessionId) {
     SELECT s.id, s.invoice_number, s.total_amount, s.sale_type, s.sale_date,
            c.name as client_name,
            SUM(CASE WHEN sp.method = 'cash' THEN sp.amount ELSE 0 END) as cash_paid,
-           SUM(CASE WHEN sp.method = 'transfer' THEN sp.amount ELSE 0 END) as transfer_paid
+           SUM(CASE WHEN sp.method = 'transfer' THEN sp.amount ELSE 0 END) as transfer_paid,
+           -- session_amount: preferir la suma de cash_movements (ya registra el neto tras cambio),
+           -- si no hay movimientos, caer a la suma de sale_payments ajustada
+           -- Solo sumar los movimientos de caja correspondientes a la propia venta (sale_cash / sale_transfer)
+           (SELECT COALESCE(SUM(cm.amount), 0) FROM cash_movements cm WHERE cm.related_id = s.id AND cm.session_id = ? AND (cm.sub_type LIKE 'sale_%' OR cm.sub_type LIKE 'sale%')) as session_amount
     FROM sales s
     LEFT JOIN sale_payments sp ON s.id = sp.sale_id
     LEFT JOIN clients c ON s.client_id = c.id
-    WHERE DATETIME(sp.created_at) BETWEEN (SELECT opened_at FROM cash_register_sessions WHERE id = ?) AND (SELECT COALESCE(closed_at, DATETIME('now', 'localtime')) FROM cash_register_sessions WHERE id = ?)
-      AND s.status != 'annulled' -- Excluir ventas anuladas
+    WHERE s.status != 'annulled' -- Excluir ventas anuladas
+      AND s.sale_type NOT IN ('credit', 'paid') -- Mostrar solo ventas NO a crédito en la pestaña de Ventas (excluir créditos aunque estén marcados como 'paid')
+      AND (
+        EXISTS (SELECT 1 FROM sale_payments sp2 WHERE sp2.sale_id = s.id AND DATETIME(sp2.created_at) BETWEEN (SELECT opened_at FROM cash_register_sessions WHERE id = ?) AND (SELECT COALESCE(closed_at, DATETIME('now', 'localtime')) FROM cash_register_sessions WHERE id = ?))
+        OR EXISTS (SELECT 1 FROM cash_movements cm2 WHERE cm2.related_id = s.id AND cm2.session_id = ?)
+      )
     GROUP BY s.id
     ORDER BY s.sale_date ASC
-  `).all(sessionId, sessionId);
+  `).all(sessionId, sessionId, sessionId, sessionId);
 }
 
 function getExpensesForSession(sessionId) {
@@ -167,20 +175,37 @@ function getServicePaymentsForSession(sessionId) {
 function getCreditPaymentsForSession(sessionId) {
   // no debug logging
   const stmt = db.prepare(`
-    SELECT sp.id, sp.amount, sp.method, sp.reference, sp.created_at,
-           s.invoice_number, c.name as client_name
+    -- Primero, movimientos de caja que correspondan a abonos de crédito en esta sesión
+    SELECT cm.id as id, s.id as sale_id, cm.amount, 
+           CASE WHEN cm.sub_type LIKE '%cash%' THEN 'cash' WHEN cm.sub_type LIKE '%transfer%' THEN 'transfer' ELSE NULL END as method,
+           cm.created_at as created_at, s.invoice_number, c.name as client_name
+    FROM cash_movements cm
+    LEFT JOIN sales s ON cm.related_id = s.id
+    LEFT JOIN clients c ON s.client_id = c.id
+    WHERE cm.session_id = ?
+      AND cm.sub_type LIKE 'credit_payment%'
+
+    UNION
+
+    -- Luego, incluir pagos registrados en sale_payments dentro del periodo de sesión que NO tengan movimiento de caja asociado
+    SELECT NULL as id, s.id as sale_id, sp.amount, sp.method, sp.created_at as created_at, s.invoice_number, c.name as client_name
     FROM sale_payments sp
     JOIN sales s ON sp.sale_id = s.id
     LEFT JOIN clients c ON s.client_id = c.id
-    JOIN cash_movements cm ON cm.related_id = s.id 
-      AND cm.amount = sp.amount 
-      AND cm.session_id = ?
-      AND cm.sub_type LIKE 'credit_payment%'
     WHERE DATETIME(sp.created_at) BETWEEN (SELECT opened_at FROM cash_register_sessions WHERE id = ?) 
-                                      AND (SELECT COALESCE(closed_at, DATETIME('now', 'localtime')) FROM cash_register_sessions WHERE id = ?)
-    ORDER BY sp.created_at ASC
+      AND (SELECT COALESCE(closed_at, DATETIME('now', 'localtime')) FROM cash_register_sessions WHERE id = ?)
+        AND s.sale_type = 'credit'
+        AND NOT EXISTS (
+        SELECT 1 FROM cash_movements cm2
+        WHERE cm2.related_id = s.id
+          AND cm2.amount = sp.amount
+          AND cm2.session_id = ?
+          AND cm2.sub_type LIKE 'credit_payment%'
+      )
+
+    ORDER BY created_at ASC
   `);
-  const rows = stmt.all(sessionId, sessionId, sessionId);
+  const rows = stmt.all(sessionId, sessionId, sessionId, sessionId);
   return rows;
 }
 

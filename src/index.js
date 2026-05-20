@@ -36,6 +36,14 @@
     // Siempre iniciar en login.html
     mainWindow.loadFile(path.join(__dirname, "views", "login.html"));
 
+    // Push current cash session to renderer once the page finishes loading
+    mainWindow.webContents.on('did-finish-load', () => {
+      try {
+        const s = cashRegister.getActiveSession();
+        if (s && mainWindow) mainWindow.webContents.send('cash-data-updated', { sessionId: s.id });
+      } catch (e) { /* ignore */ }
+    });
+
     // Manejar enlaces externos para que se abran en el navegador
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
       shell.openExternal(url);
@@ -247,8 +255,22 @@
       ipcMain.handle("get-sales", (event, limit, offset, clientId, searchTerm, statusFilter) => db.getSales(limit, offset, clientId, searchTerm, statusFilter));
       ipcMain.handle("get-sale-by-id", (event, id) => db.getSaleById(id));
       ipcMain.handle("get-sale-items", (event, id) => db.getSaleItems(id));
-      ipcMain.handle("annul-sale", (event, id) => db.annulSale(id)); // Registrar manejador para anular
-      ipcMain.handle("delete-sale", (event, id) => db.deleteSale(id));
+      ipcMain.handle("annul-sale", (event, id) => {
+        const res = db.annulSale(id);
+        try { if (mainWindow) {
+          const s = cashRegister.getActiveSession();
+          mainWindow.webContents.send('cash-data-updated', { type: 'sale_annulled', id, sessionId: s ? s.id : null });
+        } } catch(e){}
+        return res;
+      }); // Registrar manejador para anular
+      ipcMain.handle("delete-sale", (event, id) => {
+        const res = db.deleteSale(id);
+        try { if (mainWindow) {
+          const s = cashRegister.getActiveSession();
+          mainWindow.webContents.send('cash-data-updated', { type: 'sale_deleted', id, sessionId: s ? s.id : null });
+        } } catch(e){}
+        return res;
+      });
       ipcMain.handle("update-sale", (event, data) => db.updateSale(data));
 
       ipcMain.handle("delete-sale-item", (event, id) => db.deleteSaleItem(id));
@@ -275,8 +297,22 @@
       // Gestión de Créditos
 
       ipcMain.handle("get-credits", async (event, searchTerm, onlyPending, limit, offset) => db.getCredits(searchTerm, onlyPending, limit, offset));
-      ipcMain.handle("add-credit-payment", async (event, saleId, amount, method, reference) => db.addCreditPayment(saleId, amount, method, reference));
-      ipcMain.handle("mark-credit-as-paid", async (event, saleId, method, reference) => db.markCreditAsPaid(saleId, method, reference));
+      ipcMain.handle("add-credit-payment", async (event, saleId, amount, method, reference) => {
+        const res = db.addCreditPayment(saleId, amount, method, reference);
+        try { if (mainWindow) {
+          const s = cashRegister.getActiveSession();
+          mainWindow.webContents.send('cash-data-updated', { type: 'credit_payment_added', saleId, amount, method, sessionId: s ? s.id : null });
+        } } catch(e){}
+        return res;
+      });
+      ipcMain.handle("mark-credit-as-paid", async (event, saleId, method, reference) => {
+        const res = db.markCreditAsPaid(saleId, method, reference);
+        try { if (mainWindow) {
+          const s = cashRegister.getActiveSession();
+          mainWindow.webContents.send('cash-data-updated', { type: 'credit_marked_paid', saleId, sessionId: s ? s.id : null });
+        } } catch(e){}
+        return res;
+      });
       ipcMain.handle("get-sale-payments", (event, saleId) => db.getSalePayments(saleId));
       
       ipcMain.handle("export-payment-receipt-pdf", async (event, { paymentId, type }) => {
@@ -487,7 +523,14 @@
       
       // --- GESTIÓN DE PAGOS A PROVEEDORES ---
       ipcMain.handle("update-purchase-invoice-number", (event, { id, invoiceNumber, discountAmount }) => db.updatePurchaseInvoiceNumber(id, invoiceNumber, discountAmount)); // No cambia
-      ipcMain.handle("add-purchase-payment", (event, data) => db.addPurchasePayment(data));
+      ipcMain.handle("add-purchase-payment", (event, data) => {
+        const res = db.addPurchasePayment(data);
+        try { if (mainWindow) {
+          const s = cashRegister.getActiveSession();
+          mainWindow.webContents.send('cash-data-updated', { type: 'purchase_payment_added', data, sessionId: s ? s.id : null });
+        } } catch(e){}
+        return res;
+      });
       ipcMain.handle("get-purchase-payments", (event, orderId) => db.getPurchasePayments(orderId));
       ipcMain.handle("get-retentions-report", (event, filters) => db.getRetentionsReport(filters));
       ipcMain.handle("get-due-purchase-orders", () => db.getDuePurchaseOrders());
@@ -511,7 +554,14 @@
       ipcMain.handle("delete-service", (event, id) => db.deleteService(id));
       ipcMain.handle("update-service-status", (event, { id, status }) => db.updateServiceStatus(id, status));
       ipcMain.handle("cancel-service", (event, id) => db.cancelService(id));
-      ipcMain.handle("add-service-payment", (event, { serviceId, amount, method, reference }) => db.addServicePayment(serviceId, amount, method, reference));
+      ipcMain.handle("add-service-payment", (event, { serviceId, amount, method, reference }) => {
+        const res = db.addServicePayment(serviceId, amount, method, reference);
+        try { if (mainWindow) {
+          const s = cashRegister.getActiveSession();
+          mainWindow.webContents.send('cash-data-updated', { type: 'service_payment_added', serviceId, amount, method, sessionId: s ? s.id : null });
+        } } catch(e){}
+        return res;
+      });
       ipcMain.handle("get-service-payments", (event, serviceId) => db.getServicePayments(serviceId));
       ipcMain.handle("mark-service-performed", (event, id) => db.markServicePerformed(id));
       ipcMain.handle("get-pending-scheduled-services", () => db.getPendingScheduledServices());
@@ -541,8 +591,22 @@
       // Gastos
       ipcMain.handle('get-expenses', async (event, startDate, endDate) => db.getExpenses(startDate, endDate));
       ipcMain.handle('get-expense-by-id', async (event, id) => db.getExpenseById(id));
-      ipcMain.handle('save-expense', async (event, expense) => db.saveExpense(expense));
-      ipcMain.handle('delete-expense', async (event, id) => db.deleteExpense(id));
+      ipcMain.handle('save-expense', async (event, expense) => {
+        const res = db.saveExpense(expense);
+        try { if (mainWindow) {
+          const s = cashRegister.getActiveSession();
+          mainWindow.webContents.send('cash-data-updated', { type: 'expense_saved', id: res && res.id ? res.id : null, sessionId: s ? s.id : null });
+        } } catch(e){}
+        return res;
+      });
+      ipcMain.handle('delete-expense', async (event, id) => {
+        const res = db.deleteExpense(id);
+        try { if (mainWindow) {
+          const s = cashRegister.getActiveSession();
+          mainWindow.webContents.send('cash-data-updated', { type: 'expense_deleted', id, sessionId: s ? s.id : null });
+        } } catch(e){}
+        return res;
+      });
       
       ipcMain.handle('export-expense-pdf', async (event, id) => {
         try {

@@ -626,16 +626,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Modal de pago (nuevo)
  
   async function showPaymentModal(totalAmount, clientId, saleType) {
-    // Verificar si hay abonos previos (si viene de un servicio)
-    let serviceId = null;
+    // Verificar si hay abonos previos (si viene de uno o varios servicios)
     let previousPaymentsTotal = 0;
-    
-    // Buscar service_id en los items
-    const serviceItem = saleItems.find(i => i.service_id);
-    if (serviceItem) {
-        serviceId = serviceItem.service_id;
-        const payments = await window.api.getServicePayments(serviceId);
-        previousPaymentsTotal = payments.reduce((sum, p) => sum + p.amount, 0);
+    let serviceId = null; // mantener compatibilidad con el primer serviceId si hacía falta
+
+    // Recolectar todos los service_id presentes en los items (únicos)
+    const serviceIds = [...new Set(saleItems.map(i => i.service_id).filter(Boolean))];
+    if (serviceIds.length > 0) {
+      serviceId = serviceIds[0];
+      const paymentsArrays = await Promise.all(serviceIds.map(id => window.api.getServicePayments(id)));
+      previousPaymentsTotal = paymentsArrays.flat().reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     }
 
     const remainingToPay = Math.max(0, totalAmount - previousPaymentsTotal);
@@ -784,16 +784,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       const notes = saleNotesInput.value.trim();
       const dueDate = document.getElementById('sale-due-date')?.value || null;
 
-      // Verificar si hay abonos previos (si viene de un servicio)
-      let serviceId = null;
+      // Verificar si hay abonos previos (si viene de uno o varios servicios)
       let previousPaymentsTotal = 0;
-      
-      // Buscar service_id en los items
-      const serviceItem = saleItems.find(i => i.service_id);
-      if (serviceItem) {
-          serviceId = serviceItem.service_id;
-          const payments = await window.api.getServicePayments(serviceId);
-          previousPaymentsTotal = payments.reduce((sum, p) => sum + p.amount, 0);
+      let serviceId = null;
+      const serviceIds = [...new Set(saleItems.map(i => i.service_id).filter(Boolean))];
+      if (serviceIds.length > 0) {
+        serviceId = serviceIds[0];
+        const paymentsArrays = await Promise.all(serviceIds.map(id => window.api.getServicePayments(id)));
+        previousPaymentsTotal = paymentsArrays.flat().reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
       }
 
       if (saleType === 'credit') {

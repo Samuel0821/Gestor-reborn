@@ -154,6 +154,8 @@ contextBridge.exposeInMainWorld("api", {
   // Caja registradora (Cash Register Module)
   openCashRegister: (data) => ipcRenderer.invoke("open-cash-register", data),
   getActiveCashSession: () => ipcRenderer.invoke("get-active-cash-session"),
+  // legacy alias used by some scripts/tests
+  getActiveSession: () => ipcRenderer.invoke("get-active-cash-session"),
   addCashMovementManual: (data) => ipcRenderer.invoke("add-cash-movement-manual", data),
   closeCashRegister: (data) => ipcRenderer.invoke("close-cash-register", data),
   getCashRegisterSessions: () => ipcRenderer.invoke("get-cash-register-sessions"),
@@ -167,4 +169,6 @@ contextBridge.exposeInMainWorld("api", {
   saveReconciliationDetails: (data) => ipcRenderer.invoke("save-reconciliation-details", data),
   getReconciliationDetails: (sessionId) => ipcRenderer.invoke("get-reconciliation-details", sessionId),
   exportCashRegisterReportPDF: (sessionId) => ipcRenderer.invoke("export-cash-register-report-pdf", sessionId),
+  // Event: notify renderers when cash-related data changes elsewhere
+  onCashDataUpdated: (callback) => ipcRenderer.on('cash-data-updated', (event, data) => callback(data)),
 });
