@@ -93,7 +93,7 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("update-quote-details", data),
 
   // services
-  getServices: (limit, offset, status, executionStatus) => ipcRenderer.invoke("get-services", limit, offset, status, executionStatus),
+  getServices: (limit, offset, status, executionStatus, searchTerm = "") => ipcRenderer.invoke("get-services", limit, offset, status, executionStatus, searchTerm),
   getServiceById: (id) => ipcRenderer.invoke("get-service-by-id", id),
   createService: (data) => ipcRenderer.invoke("create-service", data),
   updateService: (data) => ipcRenderer.invoke("update-service", data),

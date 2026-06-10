@@ -1,6 +1,6 @@
 # Manual Técnico - GestorFX
 
-**Versión del Sistema:** 1.0.9
+**Versión del Sistema:** 1.0.8
 **Desarrollado por:** Grisalis Technologies
 
 ---
@@ -116,6 +116,20 @@ GESTOR-REBORN/
 ```
 
 ## 5. Esquema de Base de Datos
+## Cambios técnicos recientes (v1.0.10)
+
+- Caja / Resumen:
+    - Se añadió emisión IPC (`cash-data-updated`) desde el proceso principal al cargar la ventana para notificar al renderer sobre la sesión activa.
+    - El renderer ahora reintenta la carga de la sesión activa al inicio y al recuperar foco/visibilidad para evitar condiciones de carrera.
+- Consultas y reportes:
+    - `getSalesForSession` fue ajustada para excluir `sale_type` = 'credit' y 'paid' en la lista de ventas del turno.
+    - `session_amount` ahora suma únicamente `cash_movements` con `sub_type` relacionados a la venta (`sale_cash`, `sale_transfer`), evitando sumar abonos a servicios.
+- Pagos y créditos:
+    - `getCreditPaymentsForSession` devuelve primero movimientos de caja y luego pagos en `sale_payments` que no tengan movimiento asociado (evita duplicados).
+    - `markCreditAsPaid` registra el pago restante y agrega movimiento de caja en la sesión activa.
+- Servicios:
+    - `createSale` marca todos los `service_id` encontrados en los items como `Finalizado` al facturar servicios.
+
 
 El sistema utiliza un modelo relacional robusto. Las tablas principales son:
 

@@ -2434,7 +2434,7 @@ function getDuePurchaseOrders() {
 }
 
 // GESTIÓN DE SERVICIOS
-function getServices(limit = 10, offset = 0, status = null, executionStatus = null) {
+function getServices(limit = 10, offset = 0, status = null, executionStatus = null, searchTerm = null) {
   let query = `
     SELECT s.*, c.name as client_name,
       (SELECT COALESCE(SUM(sp.quantity * CASE WHEN sp.price > 0 THEN sp.price ELSE COALESCE(pv.sale_price, p.sale_price) END), 0)
@@ -2459,6 +2459,13 @@ function getServices(limit = 10, offset = 0, status = null, executionStatus = nu
   if (executionStatus && executionStatus !== 'all') {
     if (executionStatus === 'pending') conditions.push("s.performed_at IS NULL");
     else if (executionStatus === 'performed') conditions.push("s.performed_at IS NOT NULL");
+  }
+
+  // Búsqueda server-side por nombre de servicio, descripción o nombre de cliente
+  if (searchTerm && String(searchTerm).trim() !== '') {
+    const st = `%${String(searchTerm).trim()}%`;
+    conditions.push("(s.name LIKE ? OR s.description LIKE ? OR c.name LIKE ?)");
+    params.push(st, st, st);
   }
 
   if (conditions.length > 0) {

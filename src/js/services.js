@@ -81,6 +81,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentServiceProducts = []; // { product_id, name, price, quantity }
   let allServices = [];
   let currentOffset = 0;
+  let currentSearchTerm = '';
   const SERVICES_LIMIT = 10;
 
   // --- INYECTAR SELECTOR DE CLIENTE ---
@@ -500,7 +501,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   loadMoreBtn.addEventListener('click', () => loadServices(true));
 
-  async function loadServices(append = false) {
+  async function loadServices(append = false, searchTerm = '') {
     if (!append) {
         currentOffset = 0;
         servicesTable.innerHTML = "";
@@ -509,7 +510,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const status = statusFilter.value;
     const executionStatus = executionFilter.value;
-    const newServices = await window.api.getServices(SERVICES_LIMIT, currentOffset, status, executionStatus);
+    // Guardar término de búsqueda actual para usarlo en paginación (cargar más)
+    currentSearchTerm = String(searchTerm || '').trim();
+    const newServices = await window.api.getServices(SERVICES_LIMIT, currentOffset, status, executionStatus, currentSearchTerm);
     
     if (newServices.length > 0) {
         renderServicesTable(newServices, append);
@@ -852,22 +855,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   searchInput.addEventListener("input", (e) => {
-    // La búsqueda en tiempo real con paginación es compleja si no se hace en backend.
-    // Por simplicidad, recargamos todo sin filtro de estado, o implementamos búsqueda en backend.
-    // Dado que getServices ahora pagina, el filtro local solo funciona sobre lo cargado.
-    // Lo ideal es recargar.
-    // NOTA: Para mantenerlo simple y funcional con la paginación, deshabilitamos la búsqueda local
-    // y sugerimos implementar búsqueda en backend en el futuro, o cargar todo si son pocos.
-    // Aquí simplemente no hacemos nada o advertimos.
-    // O mejor, recargamos la tabla filtrando visualmente solo lo que hay (limitado a 10).
-    // Para cumplir con el requerimiento de paginación, la búsqueda debería ser server-side.
-    // Dejaremos la búsqueda visual sobre los elementos renderizados por ahora.
-    const term = e.target.value.toLowerCase();
-    const rows = servicesTable.querySelectorAll('tr');
-    rows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = text.includes(term) ? '' : 'none';
-    });
+    const term = e.target.value || '';
+    // Realizar búsqueda server-side: reiniciar offset y recargar resultados
+    loadServices(false, term);
   });
 
   // --- MODAL DE ABONOS ---

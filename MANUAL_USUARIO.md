@@ -1,6 +1,6 @@
 # Manual de Usuario - GestorFX
 
-**Versión del Sistema:** 1.0.9
+**Versión del Sistema:** 1.0.8
 **Desarrollado por:** Grisalis Technologies
 
 ---
@@ -9,6 +9,15 @@
 GestorFX es un sistema de gestión empresarial (ERP) integral diseñado para optimizar la administración de su negocio. Esta plataforma le permite controlar inventarios, ventas, servicios, créditos, compras y facturación desde una interfaz moderna y fácil de usar.
 
 ---
+
+## Últimos cambios (v1.0.8)
+
+- Resuelto: El resumen de caja ahora se refresca correctamente al reiniciar la app o al regresar al foco, evitando mostrar información desactualizada.
+- Resuelto: Las ventas a crédito ya no aparecen en la pestaña "Ventas" aunque estén totalmente pagadas; ahora se muestran únicamente en "Abonos Créditos".
+- Resuelto: Se evitaron duplicados en los registros de abonos a créditos.
+- Resuelto: Al facturar servicios con varios abonos previos, todos los servicios incluidos se marcan como `Finalizado`.
+- Mejora: La suma mostrada en el historial de ventas usa sólo los movimientos de venta registrados en caja (evita sumar abonos a servicios u otros movimientos no relacionados).
+
 
 ## 2. Acceso y Apertura de Caja
 

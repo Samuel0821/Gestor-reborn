@@ -133,6 +133,14 @@ Recomendado usar [Electron Forge](https://www.electronforge.io/) o [Electron Bui
 - **Usuario:** admin
 - **Contraseña:** 12345
 
+## Notas de la versión (v1.0.8)
+
+- Se mejoró la sincronización entre proceso principal y renderer para el módulo de caja, evitando que el resumen mostrase datos desactualizados al reiniciar la app.
+- Se corrigió la lógica que mostraba facturas de crédito en la pestaña `Ventas` aun cuando ya estaban pagadas; ahora las facturas a crédito permanecen en `Abonos Créditos`.
+- Se ajustó la agregación de montos en el reporte de ventas para sumar únicamente movimientos de venta registrados en caja.
+- Mejoras en la gestión de abonos a servicios y en la marcación de servicios como `Finalizado` al facturarlos.
+
+
 ## Notas de seguridad
 - Cambia el usuario/contraseña en producción.
 - El valor inicial del día se guarda en localStorage.

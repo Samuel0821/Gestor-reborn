@@ -547,7 +547,7 @@
       ipcMain.handle("update-quote-details", (event, data) => db.updateQuoteDetails(data));
 
       // Servicios
-      ipcMain.handle("get-services", (event, limit, offset, status, executionStatus) => db.getServices(limit, offset, status, executionStatus));
+      ipcMain.handle("get-services", (event, limit, offset, status, executionStatus, searchTerm) => db.getServices(limit, offset, status, executionStatus, searchTerm));
       ipcMain.handle("get-service-by-id", (event, id) => db.getServiceById(id));
       ipcMain.handle("create-service", (event, data) => db.createService(data));
       ipcMain.handle("update-service", (event, data) => db.updateService(data));
@@ -627,7 +627,13 @@
             const stream = fs.createWriteStream(filePath);
             doc.pipe(stream);
             
-            renderPdfHeader(doc, company, "COMPROBANTE DE EGRESO", `No. ${String(id).padStart(4, '0')}`, expense.created_at);
+            const todayStr = new Date().toISOString().slice(0,10);
+            // Si la fecha del egreso es la fecha de hoy, mostramos en el encabezado la fecha y hora de registro (created_at).
+            // Si la fecha es distinta a hoy (egreso de mes anterior), mostramos la fecha seleccionada en el egreso.
+            const headerDate = (expense.date && expense.date === todayStr)
+              ? (expense.created_at || new Date().toISOString())
+              : (expense.date || expense.created_at || new Date().toISOString().slice(0,10));
+            renderPdfHeader(doc, company, "COMPROBANTE DE EGRESO", `No. ${String(id).padStart(4, '0')}`, headerDate);
             
             doc.fontSize(10).font("Helvetica");
             const labelX = 50;
@@ -643,7 +649,15 @@
             drawField("Categoría:", expense.category || "General");
             drawField("Descripción:", expense.description || "-");
             drawField("Monto:", formatCOP(expense.amount), "red");
-            if (expense.created_at) drawField("Fecha Registro:", expense.created_at);
+            // Mostrar solo la fecha relevante para evitar confusiones:
+            // - Si el egreso fue registrado con fecha de hoy: mostrar la fecha y hora de registro (created_at).
+            // - Si el egreso fue registrado con una fecha distinta a hoy: mostrar la fecha del egreso seleccionada.
+            if (expense.date && expense.date === todayStr) {
+              if (expense.created_at) drawField("Fecha Registro:", expense.created_at);
+            } else {
+              if (expense.date) drawField("Fecha Egreso:", expense.date);
+              else if (expense.created_at) drawField("Fecha Registro:", expense.created_at);
+            }
 
             // Punto 4: Si es Pago Proveedores, mostrar detalles
             if (expense.category === 'Pago Proveedores' && expense.details) {
