@@ -49,7 +49,26 @@
           <div class="tab-pane fade show active" id="list-company" role="tabpanel" aria-labelledby="list-company-list">
             <div class="card p-4">
               <h5 class="card-title mb-3">Ajustes de Empresa</h5>
+              <div id="business-profile-summary" class="settings-business-profile mb-4">
+                <div class="settings-business-profile-icon"><i class="fa fa-store"></i></div>
+                <div class="flex-grow-1">
+                  <div class="settings-business-profile-label">Perfil registrado en la configuración inicial</div>
+                  <h4 id="business-profile-name" class="mb-1">Cargando perfil...</h4>
+                  <p id="business-profile-description" class="mb-2 text-muted"></p>
+                  <div id="business-profile-capabilities" class="d-flex flex-wrap gap-2"></div>
+                  <div class="mt-3 d-flex align-items-center gap-2 flex-wrap">
+                    <label class="form-label mb-0" for="business-type-select">Tipo de negocio</label>
+                    <select id="business-type-select" class="form-select form-select-sm" style="max-width: 320px"></select>
+                    <button id="save-business-type" type="button" class="btn btn-sm btn-outline-primary">Actualizar perfil</button>
+                  </div>
+                </div>
+                <span id="setup-status-badge" class="badge bg-success align-self-start">Configuración completa</span>
+              </div>
               <form id="settings-form" class="form-section">
+                <div class="row g-3 mb-1">
+                  <div class="col-md-6"><label class="form-label">País</label><input id="company-country" class="form-control" readonly></div>
+                  <div class="col-md-6"><label class="form-label">Moneda</label><input id="company-currency" class="form-control" readonly></div>
+                </div>
                 <div class="mb-3"><label class="form-label">Nombre</label><input id="company-name" class="form-control"></div>
                 <div class="mb-3"><label class="form-label">NIT / Cédula</label><input id="company-id-card-or-nit" class="form-control"></div>
                 <div class="mb-3"><label class="form-label">Dirección</label><input id="company-address" class="form-control"></div>

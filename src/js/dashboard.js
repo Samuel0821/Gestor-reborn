@@ -1,3 +1,5 @@
+let dashboardModuleConfig = null;
+
 document.addEventListener('DOMContentLoaded', async () => {
   // La lógica del layout ahora se maneja en layout.js
 
@@ -35,6 +37,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const dateEl = document.getElementById('current-date');
   if (dateEl) dateEl.textContent = new Date().toLocaleDateString('es-ES', options);
 
+  try {
+      const moduleConfig = await window.api.getBusinessModuleConfig();
+    dashboardModuleConfig = moduleConfig;
+      applyDashboardProfile(moduleConfig);
+  } catch (error) {
+      console.error('Error cargando perfil del dashboard:', error);
+  }
+
   // 2. Configurar Filtros de Fecha (Por defecto: Mes actual)
   const now = new Date();
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
@@ -54,15 +64,45 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadDashboardData(firstDay, lastDay);
 });
 
+function applyDashboardProfile(config) {
+    const businessType = config?.businessType;
+    const modules = config?.modules || {};
+    const workflows = config?.workflows || {};
+    const subtitle = document.getElementById('dashboard-business-subtitle');
+    const operationalTitle = document.getElementById('operational-summary-title');
+
+    if (subtitle && businessType) {
+        subtitle.textContent = `${businessType.name}: ${businessType.description || 'Resumen operativo de tu negocio.'}`;
+    }
+    if (operationalTitle && businessType) {
+        operationalTitle.innerHTML = `<i class="fa fa-cubes me-2"></i>Resumen de ${businessType.name}`;
+    }
+
+    document.querySelectorAll('[data-dashboard-module]').forEach(element => {
+        const module = element.dataset.dashboardModule;
+        element.classList.toggle('d-none', modules[module] === false);
+    });
+    document.querySelectorAll('[data-dashboard-workflow]').forEach(element => {
+        const workflow = element.dataset.dashboardWorkflow;
+        element.classList.toggle('d-none', workflows[workflow] === false);
+    });
+
+    if (modules.services === false) {
+        document.getElementById('services-widgets-row')?.remove();
+    }
+}
 async function loadDashboardData(startDate, endDate) {
   try {
-      const [stats, recentActivity, lowStock, dueOrders, scheduledServices, openServices] = await Promise.all([
+      const modules = dashboardModuleConfig?.modules || {};
+      const workflows = dashboardModuleConfig?.workflows || {};
+    const [stats, recentActivity, lowStock, dueOrders, expirationLots, scheduledServices, openServices] = await Promise.all([
           window.api.getAdvancedDashboardStats({ startDate, endDate }),
           window.api.getRecentActivity(),
-          window.api.getLowStockProducts(),
-          window.api.getDuePurchaseOrders(),
-          window.api.getPendingScheduledServices(),
-          window.api.getOpenServicesList()
+          workflows.inventory ? window.api.getLowStockProducts() : Promise.resolve([]),
+          modules.purchases ? window.api.getDuePurchaseOrders() : Promise.resolve([]),
+          workflows.lotsAndExpiration ? window.api.getExpirationAlerts(30, 'all') : Promise.resolve([]),
+          modules.services ? window.api.getPendingScheduledServices() : Promise.resolve([]),
+          modules.services ? window.api.getOpenServicesList() : Promise.resolve([])
       ]);
 
       if (stats) {
@@ -71,8 +111,11 @@ async function loadDashboardData(startDate, endDate) {
       }
       
       renderActivity(recentActivity);
-      renderAlerts(stats ? stats.alerts : {}, lowStock, dueOrders);
-      renderServiceWidgets(scheduledServices, openServices);
+    const visibleAlerts = { ...(stats ? stats.alerts : {}) };
+    if (!workflows.inventory) visibleAlerts.lowStock = 0;
+    if (!modules.purchases) visibleAlerts.pendingOrders = 0;
+    renderAlerts(visibleAlerts, lowStock, dueOrders, expirationLots);
+    if (modules.services !== false) renderServiceWidgets(scheduledServices, openServices);
 
   } catch (error) {
       console.error("Error cargando dashboard:", error);
@@ -107,7 +150,7 @@ function renderKPIs(stats) {
     updateKpi('kpi-net-profit', stats.financials.netProfit, true);
 
     // Alertas
-    const totalAlerts = (stats.alerts.lowStock || 0) + (stats.alerts.pendingOrders || 0);
+    const totalAlerts = (stats.alerts.lowStock || 0) + (stats.alerts.pendingOrders || 0) + (stats.alerts.expiration || 0);
     updateKpi('kpi-alerts-count', totalAlerts, false);
 
     // Deudores
@@ -294,10 +337,23 @@ function renderActivity(activities) {
 }
 
 // --- ALERTAS ---
-function renderAlerts(alertCounts, lowStockProducts, dueOrders) {
+function renderAlerts(alertCounts, lowStockProducts, dueOrders, expirationLots = []) {
     const container = document.getElementById('alerts-container');
     if (!container) return;
     container.innerHTML = '';
+
+        if (expirationLots.length > 0) {
+                const rows = expirationLots.slice(0, 8).map(lot => {
+                        const expired = lot.days_remaining < 0;
+                        const label = lot.variant_name || lot.product_name;
+                        return `<tr><td class="ps-3"><small class="fw-bold">${label}</small></td><td><small>${lot.lot_number}</small></td><td><small>${lot.expiration_date}</small></td><td class="text-end pe-3"><span class="badge ${expired ? 'bg-danger' : 'bg-warning text-dark'}">${expired ? 'Vencido' : `${lot.days_remaining} días`}</span></td></tr>`;
+                }).join('');
+                container.insertAdjacentHTML('beforeend', `
+                    <div class="alert ${expirationLots.some(lot => lot.days_remaining < 0) ? 'alert-danger' : 'alert-warning'} p-0 overflow-hidden mb-3">
+                        <div class="d-flex align-items-center p-3 bg-warning bg-opacity-10"><i class="fa fa-calendar-xmark me-3 fs-4"></i><div><div class="fw-bold">${expirationLots.length} lotes vencidos o próximos a vencer</div><div class="small">Revisa existencias antes de vender.</div></div></div>
+                        <div class="bg-white" style="max-height: 220px; overflow-y: auto;"><table class="table table-sm table-hover mb-0"><thead><tr><th class="ps-3">Producto</th><th>Lote</th><th>Vence</th><th class="text-end pe-3">Estado</th></tr></thead><tbody>${rows}</tbody></table></div>
+                    </div>`);
+        }
 
     // 1. Stock Bajo
     if (lowStockProducts && lowStockProducts.length > 0) {
@@ -391,7 +447,7 @@ function renderAlerts(alertCounts, lowStockProducts, dueOrders) {
         container.insertAdjacentHTML('beforeend', alertHtml);
     }
 
-    if ((!alertCounts || (alertCounts.lowStock === 0 && alertCounts.pendingOrders === 0 && (!dueOrders || dueOrders.length === 0)))) {
+    if ((!alertCounts || (alertCounts.lowStock === 0 && alertCounts.pendingOrders === 0 && (!dueOrders || dueOrders.length === 0) && expirationLots.length === 0))) {
         container.innerHTML = `
             <div class="text-center py-4 text-success">
                 <i class="fa fa-check-circle fs-1 mb-2 opacity-50"></i>

@@ -5,9 +5,6 @@ module.exports = {
   packagerConfig: {
     asar: true,
     icon: './src/logo/gestorfx_logof.ico', // Icono del ejecutable
-    extraResource: [ // <-- Esta es la línea que agregué.
-      "./database.sqlite" // <-- Esto le dice a Electron Forge que incluya el archivo de la base de datos.
-    ]
   },
   rebuildConfig: {},
   makers: [

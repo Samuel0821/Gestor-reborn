@@ -4,6 +4,10 @@ let availableProducts = [];
 let editingOrderId = null;
 
 document.addEventListener("DOMContentLoaded", () => {
+    if (typeof bootstrap === 'undefined') {
+        console.error('Bootstrap no está disponible para el módulo de órdenes de compra.');
+        return;
+    }
     // Layout manejado por layout.js
 
     // --- ESTILOS PERSONALIZADOS PARA EL MENÚ DESPLEGABLE (Modo Oscuro + Efecto Flotante) ---
@@ -310,12 +314,18 @@ function openPaymentModal(id) {
     document.getElementById('payReference').value = '';
     document.getElementById('payNotes').value = '';
 
+    const realInvoiceTotal = Math.max(0, Number(order.total_amount || 0) - Number(order.discount_amount || 0));
+    const invoiceTaxBase = order.include_iva ? realInvoiceTotal / 1.19 : realInvoiceTotal;
+    const taxBaseLabel = document.getElementById('payTaxBase');
+    if (taxBaseLabel) taxBaseLabel.textContent = formatCurrency(invoiceTaxBase);
+
     // --- INYECCIÓN DE CONTROLES DE RETENCIÓN (SI NO EXISTEN) ---
     const payBody = document.querySelector('#paymentModal .modal-body');
     if (!document.getElementById('retention-container')) {
         const retentionHtml = `
             <div id="retention-container" class="mb-3 pb-3 border-bottom">
                 <h6 class="text-muted mb-2">Retenciones (DIAN)</h6>
+                <div class="d-flex justify-content-between small mb-2"><span>Base de retención (subtotal sin IVA):</span><strong id="payTaxBase">${formatCurrency(invoiceTaxBase)}</strong></div>
                 <div class="row g-2">
                     <div class="col-md-6">
                         <label class="form-label small">Concepto</label>
@@ -329,7 +339,7 @@ function openPaymentModal(id) {
                         </select>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label small">Valor Retenido</label>
+                        <label class="form-label small">Valor retenido (no sale de caja)</label>
                         <input type="number" id="payRetentionAmount" class="form-control form-control-sm" value="0" min="0">
                     </div>
                 </div>
@@ -346,18 +356,18 @@ function openPaymentModal(id) {
 
         const updateRetention = () => {
             const rate = parseFloat(typeSelect.value) || 0;
-            const baseAmount = parseFloat(payInput.value) || 0;
+            const grossAmount = parseFloat(payInput.value) || 0;
+            const taxableBase = order.include_iva ? grossAmount / 1.19 : grossAmount;
             
             if (rate > 0 && rate !== 100) {
-                // Calcular retención sugerida basada en el monto a pagar (asumiendo que es la base)
-                const retention = Math.round(baseAmount * (rate / 100));
+                const retention = Math.round(taxableBase * (rate / 100));
                 amountInput.value = retention;
             }
             
             const currentRetention = parseFloat(amountInput.value) || 0;
-            const net = Math.max(0, baseAmount - currentRetention);
+            const net = Math.max(0, grossAmount - currentRetention);
             if (netPreview) {
-                netPreview.innerHTML = `<strong>Total a Girar (Neto):</strong> ${formatCurrency(net)}`;
+                netPreview.innerHTML = `<div>Base de retención sin IVA: <strong>${formatCurrency(taxableBase)}</strong></div><div><strong>Total a Girar (Neto):</strong> ${formatCurrency(net)}</div>`;
             }
         };
 
@@ -382,9 +392,10 @@ async function submitPayment() {
     const baseAmount = parseFloat(document.getElementById('payAmount').value) || 0;
     const retentionAmount = parseFloat(document.getElementById('payRetentionAmount')?.value) || 0;
 
-    // El backend espera el monto NETO en 'amount' (el dinero que sale de caja)
-    // y el valor de retención por separado. La deuda baja por la suma de ambos (Base).
+    // payAmount es el valor bruto aplicado a la deuda; amount enviado al backend es el neto girado.
     const netAmount = baseAmount - retentionAmount;
+    const order = allOrders.find(item => item.id == id);
+    const taxableBase = order?.include_iva ? baseAmount / 1.19 : baseAmount;
 
     const date = document.getElementById('payDate').value;
     const methodRaw = document.getElementById('payMethod').value;
@@ -400,8 +411,10 @@ async function submitPayment() {
     
     const retentionType = document.getElementById('payRetentionType')?.options[document.getElementById('payRetentionType').selectedIndex].text || '';
 
-    if (baseAmount <= 0) return Swal.fire('Error', 'Ingrese un monto válido', 'warning');
+    if (baseAmount <= 0) return Swal.fire('Error', 'Ingrese un monto bruto válido', 'warning');
     if (netAmount < 0) return Swal.fire('Error', 'El valor retenido no puede superar al monto del abono', 'warning');
+    if (retentionAmount > taxableBase + 0.01) return Swal.fire('Error', 'La retención no puede superar el subtotal antes de IVA', 'warning');
+    if (baseAmount > (parseFloat(document.getElementById('payAmount').max) || 0) + 0.01) return Swal.fire('Error', 'El monto bruto no puede superar el saldo pendiente', 'warning');
     if (!date) return Swal.fire('Error', 'Seleccione una fecha', 'warning');
 
     const res = await window.api.addPurchasePayment({
@@ -440,6 +453,45 @@ window.downloadPaymentReceipt = async (id) => {
     }
 };
 
+window.previewPaymentReceipt = async (id) => {
+        const res = await window.api.getPaymentReceiptPreview(id, 'purchase');
+        if (!res.success) {
+                Swal.fire('Error', res.message || 'No se pudo cargar la vista previa.', 'error');
+                return;
+        }
+        const escape = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
+        const money = value => formatCurrency(Number(value) || 0);
+        const payment = res.payment;
+        const order = res.order;
+        Swal.fire({
+                title: 'Vista previa del comprobante',
+                width: 760,
+                showConfirmButton: false,
+                showCloseButton: true,
+                html: `
+                    <div class="text-start border rounded p-4 bg-white">
+                        <div class="text-center border-bottom pb-3 mb-3">
+                            <h4 class="mb-1">${escape(res.company.company_name || 'GestorFX')}</h4>
+                            <div class="small text-muted">${escape(res.company.company_id_card_or_nit || '')}</div>
+                            <h5 class="mt-3 mb-0">COMPROBANTE DE EGRESO</h5>
+                        </div>
+                        <div class="row small mb-3">
+                            <div class="col-6"><strong>Proveedor:</strong><br>${escape(res.supplier_name)}</div>
+                            <div class="col-6"><strong>Orden:</strong><br>${escape(order.po_number || order.id)}<br><strong>Factura:</strong> ${escape(order.supplier_invoice_number || 'S/N')}</div>
+                        </div>
+                        <table class="table table-sm mb-3"><tbody>
+                            <tr><td>Total factura</td><td class="text-end fw-bold">${money(res.real_total)}</td></tr>
+                            <tr><td>Saldo anterior</td><td class="text-end">${money(res.balance_before_payment)}</td></tr>
+                            <tr><td>Retención${payment.retention_type ? ` (${escape(payment.retention_type)})` : ''}</td><td class="text-end">${money(payment.retention_amount)}</td></tr>
+                            <tr><td>Monto girado neto</td><td class="text-end fw-bold">${money(payment.amount)}</td></tr>
+                            <tr class="border-top"><td>Saldo pendiente</td><td class="text-end fw-bold">${money(res.outstanding_balance_after_payment)}</td></tr>
+                        </tbody></table>
+                        <div class="small"><strong>Método:</strong> ${escape(payment.method)} ${payment.reference ? `| <strong>Referencia:</strong> ${escape(payment.reference)}` : ''}</div>
+                        ${payment.notes ? `<div class="small mt-2"><strong>Notas:</strong> ${escape(payment.notes)}</div>` : ''}
+                    </div>`
+        });
+};
+
 let currentHistoryModal;
 async function openHistoryModal(id) {
     const payments = await window.api.getPurchasePayments(id);
@@ -458,7 +510,10 @@ async function openHistoryModal(id) {
                     <td>${p.reference || '-'}</td>
                     <td><small>${p.notes || ''}</small></td>
                     <td class="text-end pe-3 fw-bold">${formatCurrency(p.amount)}</td>
-                    <td class="text-center"><button class="btn btn-sm btn-outline-danger border-0 p-0" onclick="downloadPaymentReceipt(${p.id})"><i class="fas fa-file-pdf"></i></button></td>
+                                        <td class="text-center text-nowrap">
+                                            <button class="btn btn-sm btn-outline-primary border-0 p-0 me-2" title="Vista previa" onclick="previewPaymentReceipt(${p.id})"><i class="fas fa-eye"></i></button>
+                                            <button class="btn btn-sm btn-outline-danger border-0 p-0" title="Descargar PDF" onclick="downloadPaymentReceipt(${p.id})"><i class="fas fa-file-pdf"></i></button>
+                                        </td>
                 </tr>
             `;
         });
@@ -474,12 +529,34 @@ async function openCreateModal() {
     // Resetear estado
     editingOrderId = null;
     orderItems = [];
-    document.getElementById('createOrderForm').reset();
+        const createOrderForm = ensureCreateOrderForm();
+    if (!createOrderForm) {
+        console.error('No se encontró el formulario de nueva orden dentro de #createOrderModal.');
+        Swal.fire('Error', 'No se pudo cargar el formulario de nueva orden. Recarga el módulo.', 'error');
+        return;
+    }
+    createOrderForm.reset();
     document.getElementById('newOrderItemsBody').innerHTML = '<tr><td colspan="5" class="text-center text-muted">No hay productos agregados</td></tr>';
     document.getElementById('newOrderTotal').textContent = formatCurrency(0);
     const modalTitle = document.querySelector('#createOrderModal .modal-title');
     if(modalTitle) modalTitle.textContent = "Nueva Orden de Compra";
 
+
+    function ensureCreateOrderForm() {
+        const existingForm = document.getElementById('createOrderForm') || document.querySelector('#createOrderModal form');
+        if (existingForm) return existingForm;
+
+        const modalBody = document.querySelector('#createOrderModal .modal-body');
+        if (!modalBody) return null;
+
+        const form = document.createElement('form');
+        form.id = 'createOrderForm';
+        form.className = 'purchase-order-form';
+        while (modalBody.firstChild) form.appendChild(modalBody.firstChild);
+        modalBody.appendChild(form);
+        console.warn('Se reconstruyó createOrderForm porque la vista cargada no lo contenía.');
+        return form;
+    }
     // --- INYECCIÓN DE FECHA DE VENCIMIENTO ---
     if (!document.getElementById('newOrderDueDate')) {
         const dateHtml = `
@@ -495,7 +572,7 @@ async function openCreateModal() {
     }
 
     // --- INYECCIÓN DE CONTROL DE IVA (SI NO EXISTE) ---
-    const formContainer = document.getElementById('createOrderForm');
+    const formContainer = createOrderForm;
     // Buscamos si ya inyectamos el switch de IVA
     if (!document.getElementById('iva-control-container')) {
         const ivaHtml = `
@@ -554,7 +631,13 @@ async function editOrder(id) {
     orderItems = [];
     
     // Resetear formulario
-    document.getElementById('createOrderForm').reset();
+    const createOrderForm = ensureCreateOrderForm();
+    if (!createOrderForm) {
+        console.error('No se encontró el formulario de edición dentro de #createOrderModal.');
+        Swal.fire('Error', 'No se pudo cargar el formulario de edición. Recarga el módulo.', 'error');
+        return;
+    }
+    createOrderForm.reset();
     
     // Asegurar que el control de IVA existe (reutilizando lógica de inyección)
     if (!document.getElementById('iva-control-container')) {

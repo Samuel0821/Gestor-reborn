@@ -18,12 +18,38 @@
 </head>
 <body>
     <div class="container py-4">
-        <h1>Productos</h1>
-    
-        <div class="card p-4 mb-4">
-            <h5 class="mb-3">Registrar / Editar Producto</h5>
-            <form id="product-form" class="row g-3">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="mb-1">Productos</h1>
+                <p class="text-muted mb-0">Administra tu catálogo e inventario.</p>
+            </div>
+            <div class="d-flex gap-2">
+                <button id="expiration-alerts-btn" type="button" class="btn btn-outline-warning">
+                    <i class="fa fa-calendar-xmark me-2"></i>Vencimientos
+                </button>
+                <button id="new-product-btn" type="button" class="btn btn-primary">
+                    <i class="fa fa-plus me-2"></i>Registrar Nuevo Producto
+                </button>
+            </div>
+        </div>
+
+        <div class="modal fade" id="product-form-modal" tabindex="-1" aria-labelledby="product-form-modal-title" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable product-modal-dialog">
+                <div class="modal-content product-modal-content">
+                    <div class="modal-header product-modal-header">
+                        <div>
+                            <span class="product-modal-kicker"><i class="fa fa-cube me-2"></i>Catálogo de productos</span>
+                            <h5 class="modal-title" id="product-form-modal-title">Registrar Nuevo Producto</h5>
+                            <p class="product-modal-subtitle mb-0">Define la información comercial, operativa y específica del negocio.</p>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body product-modal-body">
+            <form id="product-form" class="row g-3 product-form-shell">
                 <input type="hidden" id="product-id">
+                <div class="col-12 product-form-section product-form-section-identity">
+                    <div class="product-section-heading"><span class="product-section-number">01</span><div><h6>Identidad del producto</h6><p>Información principal para encontrarlo y clasificarlo.</p></div></div>
+                </div>
                 <div class="col-md-4">
                     <label class="form-label">Código</label>
                     <input id="product-code" class="form-control" required>
@@ -38,10 +64,40 @@
                     <select id="product-category" class="form-select"></select>
                     <input id="product-category-new" class="form-control mt-2" placeholder="Nueva categoría (opcional)">
                 </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="product-type">Tipo de producto</label>
+                    <select id="product-type" class="form-select"></select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="product-base-unit">Unidad base</label>
+                    <select id="product-base-unit" class="form-select"></select>
+                </div>
+                <div class="col-md-4 d-none" id="hardware-sale-type-group">
+                    <label class="form-label" for="product-sale-type">Estrategia de venta</label>
+                    <select id="product-sale-type" class="form-select">
+                        <option value="SIMPLE">Producto simple</option>
+                        <option value="FRACCIONADO">Fraccionado / por medida</option>
+                    </select>
+                    <div class="form-text">Define si se vende 1:1 o por peso, longitud, volumen o empaque.</div>
+                </div>
+                <div class="col-md-4 d-none" id="fractioned-base-content-group">
+                    <label class="form-label" id="product-base-content-label" for="product-base-content">Contenido total base</label>
+                    <input id="product-base-content" type="number" min="0.000001" step="any" class="form-control" placeholder="Ej. 50 kg, 6 m o 12 piezas">
+                    <div class="form-text" id="fractioned-content-help">Contenido de la presentación principal.</div>
+                </div>
+                <div class="col-12 product-form-section product-form-section-profile" id="product-attributes-section" hidden>
+                    <div class="product-section-heading"><span class="product-section-number">02</span><div><h6 id="product-profile-title">Atributos del perfil</h6><p id="product-profile-description"></p></div></div>
+                    <div id="product-attributes" class="row g-3"></div>
+                </div>
+                <div class="col-12 product-form-section" id="product-lots-section" hidden>
+                    <div class="product-section-heading"><span class="product-section-number">03</span><div><h6>Lotes y vencimientos</h6><p>Control sanitario y trazabilidad de existencias.</p></div></div>
+                    <div id="product-lots-container" class="row g-3"></div>
+                    <button type="button" id="add-lot-btn" class="btn btn-sm btn-outline-secondary mt-3"><i class="fa fa-plus me-1"></i>Agregar lote</button>
+                </div>
 
                 <!-- Sección de Precios y Utilidad -->
-                <div class="col-12 mt-4 pt-3 border-top">
-                    <h6 class="mb-3">Precios y Utilidad</h6>
+                <div class="col-12 mt-4 pt-3 border-top product-form-section" id="product-inventory-section">
+                    <div class="product-section-heading"><span class="product-section-number">03</span><div><h6>Precios y utilidad</h6><p>Configura el costo y las listas de precios.</p></div></div>
                     <div class="row g-3">
                         <div class="col-md-3">
                             <label class="form-label">Precio Costo</label>
@@ -70,25 +126,26 @@
                 </div>
 
                 <!-- Sección de Inventario y Proveedor -->
-                <div class="col-12 mt-4 pt-3 border-top">
-                    <h6 class="mb-3">Inventario y Proveedor</h6>
+                <div class="col-12 mt-4 pt-3 border-top product-form-section">
+                    <div class="product-section-heading"><span class="product-section-number">04</span><div><h6>Inventario y proveedor</h6><p>Controla existencias y abastecimiento.</p></div></div>
                     <div class="row g-3">
-                        <div class="col-md-4"><label class="form-label">Stock Actual</label><input id="product-stock" type="number" class="form-control" value="0" required></div>
-                        <div class="col-md-4"><label class="form-label">Stock Mínimo</label><input id="product-min-stock" type="number" class="form-control" value="0" required></div>
+                        <div class="col-md-4"><label class="form-label" id="product-stock-label">Stock Actual</label><input id="product-stock" type="number" class="form-control" value="0" required></div>
+                        <div class="col-md-4"><label class="form-label" id="product-min-stock-label">Stock Mínimo</label><input id="product-min-stock" type="number" class="form-control" value="0" required></div>
                         <div class="col-md-4"><label class="form-label">Proveedor</label><select id="product-supplier" class="form-select"></select></div>
                     </div>
                 </div>
 
-                <div class="col-12 mt-4">
-                    <h6 class="mb-3">Unidades de Venta (Variantes)</h6>
+                <div class="col-12 mt-4 product-form-section product-form-section-variants" id="product-variants-section">
+                    <div class="product-section-heading"><span class="product-section-number">05</span><div><h6 id="product-variants-title">Unidades de venta y variantes</h6><p id="product-variants-help">Agrega presentaciones, factores y precios alternativos.</p></div></div>
                     <!-- NUEVOS ENCABEZADOS PARA VARIANTES -->
-                    <div class="row g-1 mb-2 d-none d-lg-flex small text-muted">
+                    <div id="generic-variants-header" class="row g-1 mb-2 d-none d-lg-flex small text-muted">
                         <div class="col-lg-2">Nombre</div>
+                        <div class="col-lg-1 pharmacy-content-heading">Contenido</div>
                         <div class="col-lg-1">Costo</div>
                         <div class="col-lg-2">P. Normal</div>
                         <div class="col-lg-2">P. Esp. 1</div>
                         <div class="col-lg-2">P. Esp. 2</div>
-                        <div class="col-lg-1">Factor</div>
+                        <div class="col-lg-1 variant-factor-heading">Factor</div>
                         <div class="col-lg-2">Acción</div>
                     </div>
                     <div id="variants-container">
@@ -97,11 +154,14 @@
                         <i class="fa fa-plus me-1"></i>Añadir Variante
                     </button>
                 </div>
-                <div class="col-12 d-flex gap-2">
-                    <button id="save-product" class="btn btn-primary px-4">Guardar</button>
-                    <button id="cancel-product" type="button" class="btn btn-secondary px-4" style="display:none">Cancelar</button>
+                <div class="col-12 d-flex justify-content-end gap-2 product-form-actions">
+                    <button id="cancel-product" type="button" class="btn btn-light px-4">Cancelar</button>
+                    <button id="save-product" class="btn btn-primary px-4"><i class="fa fa-check me-2"></i>Guardar producto</button>
                 </div>
             </form>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="card p-4">
@@ -122,16 +182,7 @@
             </div>
             <div class="table-responsive">
                 <table class="table table-striped align-middle">
-                    <thead>
-                        <tr>
-                            <th>Código</th>
-                            <th>Nombre</th>
-                            <th>Precio venta</th>
-                            <th>Stock</th>
-                            <th>Stock mínimo</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
+                    <thead id="products-table-head"></thead>
                     <tbody id="products-table"></tbody>
                 </table>
             </div>

@@ -1,7 +1,7 @@
 {
   "name": "gestorfx",
-  "version": "1.0.8",
-  "description": "GestorFX: Clientes, Productos, Proveedores, Ventas, Órdenes de compra, Cotizaciones, Servicios, Configuraciones, Gastos, Soporte técnico y Reportes.",
+  "version": "1.0.9",
+  "description": "GestorFX: Sistema Integral Para Gestionar Inventarios y Puntos De Ventas.",
   "authors": [
     "Grisalis Technologies"
   ],

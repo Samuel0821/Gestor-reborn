@@ -24,6 +24,11 @@ contextBridge.exposeInMainWorld("api", {
   deleteProduct: (id) => ipcRenderer.invoke("delete-product", id),
   getCategories: () => ipcRenderer.invoke("get-categories"),
   getInventory: () => ipcRenderer.invoke("get-inventory"),
+  getInventoryMovements: (productId, limit = 100) => ipcRenderer.invoke("get-inventory-movements", productId, limit),
+  getInventoryLots: (productId) => ipcRenderer.invoke("get-inventory-lots", productId),
+  getExpirationAlerts: (days = 30, status = 'all') => ipcRenderer.invoke("get-expiration-alerts", { days, status }),
+  getProductFormConfig: () => ipcRenderer.invoke("get-product-form-config"),
+  getBusinessModuleConfig: () => ipcRenderer.invoke("get-business-module-config"),
 
   // suppliers
   getSuppliers: () => ipcRenderer.invoke("get-suppliers"),
@@ -57,6 +62,8 @@ contextBridge.exposeInMainWorld("api", {
   addCreditPayment: (saleId, amount, method, reference) => ipcRenderer.invoke("add-credit-payment", saleId, amount, method, reference),
   getSalePayments: (saleId) => ipcRenderer.invoke("get-sale-payments", saleId),
   exportPaymentReceiptPDF: (paymentId, type) => ipcRenderer.invoke("export-payment-receipt-pdf", { paymentId, type }),
+  previewPaymentReceiptPDF: (paymentId, type) => ipcRenderer.invoke("export-payment-receipt-pdf", { paymentId, type, preview: true }),
+  getPaymentReceiptPreview: (paymentId, type) => ipcRenderer.invoke("get-payment-receipt-preview", { paymentId, type }),
   markCreditAsPaid: (saleId, method, reference) => ipcRenderer.invoke("mark-credit-as-paid", saleId, method, reference),
 
   // Purchase Orders
@@ -118,6 +125,10 @@ contextBridge.exposeInMainWorld("api", {
 
   // settings
   getCompanySettings: () => ipcRenderer.invoke("get-company-settings"),
+  getBusinessTypes: () => ipcRenderer.invoke("get-business-types"),
+  updateBusinessType: (businessTypeId) => ipcRenderer.invoke("update-business-type", businessTypeId),
+  getInstallationState: () => ipcRenderer.invoke("get-installation-state"),
+  saveInitialSetup: (data) => ipcRenderer.invoke("save-initial-setup", data),
   updateCompanySettings: (data) => ipcRenderer.invoke("update-company-settings", data),
 
   // dashboard
@@ -139,6 +150,7 @@ contextBridge.exposeInMainWorld("api", {
   exportExpensePDF: (id) => ipcRenderer.invoke('export-expense-pdf', id),
   exportExpensesReportPDF: (startDate, endDate) => ipcRenderer.invoke('export-expenses-report-pdf', { startDate, endDate }),
   saveExpense: (expense) => ipcRenderer.invoke('save-expense', expense),
+  updateExpense: (expense) => ipcRenderer.invoke('update-expense', expense),
   deleteExpense: (id) => ipcRenderer.invoke('delete-expense', id),
 
   // Auditoría

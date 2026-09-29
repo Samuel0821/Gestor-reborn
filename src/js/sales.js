@@ -3,6 +3,7 @@ console.log('sales.js cargado');
 let saleItems = [];
 let allClients = []; // Variable global para almacenar todos los clientes y facilitar la búsqueda
 let allProducts = [];
+let productFormConfig = null;
 let editingSaleId = null;
 let currentCreditOffset = 0;
 const CREDITS_LIMIT = 10;
@@ -30,6 +31,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   const saleForm = document.getElementById("sale-form");
   const saleItemsTbody = document.getElementById("sale-items");
   const totalDiv = document.getElementById("sale-total");
+  const netTotalDiv = document.getElementById("sale-net-total");
+  const ivaRow = document.getElementById("sale-iva-row");
+  const ivaTotalDiv = document.getElementById("sale-iva-total");
+  const finalTotalDiv = document.getElementById("sale-final-total");
+  const toggleSaleIvaBtn = document.getElementById("toggle-sale-iva");
   const finalizeBtn = document.getElementById("finalize-sale");
   const salesList = document.getElementById("sales-list");
   const clientSelect = document.getElementById("sale-client");
@@ -42,6 +48,32 @@ document.addEventListener("DOMContentLoaded", async () => {
   const creditSearchInput = document.getElementById("credit-search-input");
   const creditSearchBtn = document.getElementById("credit-search-btn");
   const barcodeInput = document.getElementById("barcode-input");
+  let includeSaleIva = false;
+
+  function getSaleTotals(netTotal) {
+    const roundedNetTotal = Math.round(Number(netTotal) || 0);
+    const iva = includeSaleIva ? Math.round(roundedNetTotal * 0.19) : 0;
+    return { netTotal: roundedNetTotal, iva, finalTotal: roundedNetTotal + iva };
+  }
+
+  function renderSaleTotals(netTotal) {
+    const totals = getSaleTotals(netTotal);
+    netTotalDiv.textContent = formatCOP(totals.netTotal);
+    ivaTotalDiv.textContent = formatCOP(totals.iva);
+    finalTotalDiv.textContent = formatCOP(totals.finalTotal);
+    ivaRow.classList.toggle('d-none', !includeSaleIva);
+    toggleSaleIvaBtn.classList.toggle('active', includeSaleIva);
+    toggleSaleIvaBtn.innerHTML = includeSaleIva
+      ? '<i class="fa fa-check me-2"></i>IVA incluido (19%)'
+      : '<i class="fa fa-calculator me-2"></i>Incluir IVA 19%';
+    totalDiv.textContent = `TOTAL FINAL: ${formatCOP(totals.finalTotal)}`;
+    return totals;
+  }
+
+  toggleSaleIvaBtn.addEventListener('click', () => {
+    includeSaleIva = !includeSaleIva;
+    renderSaleTotals(saleItems.reduce((sum, item) => sum + item.subtotal, 0));
+  });
 
   // --- ESTILOS PERSONALIZADOS PARA EL MENÚ DESPLEGABLE (Modo Oscuro + Efecto Flotante) ---
   const dropdownStyles = document.createElement('style');
@@ -176,6 +208,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   function cancelEdit() {
     editingSaleId = null;
+    includeSaleIva = false;
     saleItems = [];
     renderSaleItems();
     clientSelect.value = "";
@@ -215,6 +248,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   async function loadProducts() {
     allProducts = await window.api.getProducts();
+    productFormConfig = await window.api.getProductFormConfig();
 
     productDatalist.innerHTML = "";
 
@@ -226,6 +260,35 @@ document.addEventListener("DOMContentLoaded", async () => {
       opt.dataset.stock = p.stock;
       productDatalist.appendChild(opt);
     });
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+    }[character]));
+  }
+
+  function productAttributeSummary(product) {
+    const attributes = productFormConfig?.attributes || [];
+    return attributes
+      .filter(attribute => product.attributes?.[attribute.code] !== undefined && product.attributes?.[attribute.code] !== '')
+      .slice(0, 6)
+      .map(attribute => `<span class="badge bg-light text-dark border me-1 mb-1">${escapeHtml(attribute.name)}: ${escapeHtml(product.attributes[attribute.code])}</span>`)
+      .join('');
+  }
+
+  function variantLabel(variant) {
+    if (!variant) return 'Unidad base';
+    if (productFormConfig?.businessType?.code === 'ROPA') {
+      return `Talla ${variant.size || ''} - ${variant.color || ''}`.trim();
+    }
+    const unit = variant.unit_abbreviation || variant.unit_name;
+    return unit ? `${variant.name} · ${unit} · x${variant.conversion_factor}` : `${variant.name} · x${variant.conversion_factor}`;
+  }
+
+  function variantStock(product, variant) {
+    if (productFormConfig?.businessType?.code === 'ROPA') return Math.max(0, Number(variant?.variant_stock) || 0);
+    return variant ? Math.floor(Number(product.stock) / Number(variant.conversion_factor || 1)) : Number(product.stock);
   }
 
   async function loadClients() {
@@ -268,6 +331,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     saleItemsTbody.innerHTML = "";
     let total = 0;
 
+    if (saleItems.length === 0) {
+      saleItemsTbody.innerHTML = `
+        <tr class="sale-empty-row">
+          <td colspan="8">
+            <i class="fa fa-shopping-basket"></i>
+            <strong>Aún no hay productos en la venta</strong>
+            <span>Escanea un código o usa el buscador para comenzar.</span>
+          </td>
+        </tr>`;
+    }
+
     // Generador de opciones de precios
     function generatePriceOptions(item) {
       let options = '';
@@ -292,7 +366,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       const tr = document.createElement("tr");
 
       const isService = it.is_service || String(it.product_name).toLowerCase().startsWith('[servicio]');
-      const isKgVariant = String(it.product_name).toLowerCase().includes("kg");
+      const variantUnit = String(it.variant_unit_abbreviation || it.variant_unit_name || '').toLowerCase();
+      const isFractionalUnit = ['kg', 'kilogramo', 'g', 'gramo', 'lb', 'libra', 'l', 'litro', 'ml', 'mililitro', 'm', 'metro', 'cm', 'centimetro'].includes(variantUnit);
 
       tr.innerHTML = `
         <td>${i + 1}</td>
@@ -300,7 +375,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         <td>${it.product_name}</td>
         <td><input type="text" class="form-control form-control-sm serial-input" data-i="${i}" placeholder="Escribir serial..." value="${it.serial_number || ''}"></td>
         <td>
-          ${!isService && isKgVariant 
+          ${!isService && isFractionalUnit
             ? `<input type="number" min="0.1" step="0.1" value="${it.quantity}" data-i="${i}" class="form-control form-control-sm qty-input">`
             : it.quantity}
         </td>
@@ -317,7 +392,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       saleItemsTbody.appendChild(tr);
 
       // Si es variante por kilos, escuchar cambios de cantidad
-      if (isKgVariant) {
+      if (isFractionalUnit) {
         const qtyEl = tr.querySelector(".qty-input");
         if (qtyEl) {
           qtyEl.addEventListener("input", (e) => {
@@ -332,7 +407,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     });
 
-    totalDiv.textContent = `TOTAL: ${formatCOP(total)}`;
+    renderSaleTotals(total);
     saleItemsTbody
       .querySelectorAll(".remove")
       .forEach((b) =>
@@ -429,6 +504,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         const code = barcodeInput.value.trim();
         if (!code) return;
 
+        const variantMatch = allProducts.flatMap(product => (product.variants || []).map(variant => ({ product, variant })))
+          .find(entry => String(entry.variant.sku || '') === String(code));
+        if (variantMatch && productFormConfig?.businessType?.code === 'ROPA') {
+          if (variantStock(variantMatch.product, variantMatch.variant) < 1) {
+            Swal.fire('Agotado', `La combinación ${variantLabel(variantMatch.variant)} no tiene existencias.`, 'warning');
+          } else {
+            addItemToSale(variantMatch.product, 1, variantMatch.variant);
+          }
+          barcodeInput.value = '';
+          return;
+        }
         const prod = allProducts.find((p) => String(p.code) === String(code));
         if (!prod) {
           const result = await Swal.fire({
@@ -450,7 +536,11 @@ document.addEventListener("DOMContentLoaded", async () => {
           }
         }
 
-        showPreviewModal(prod);
+        if (productFormConfig?.businessType?.code === 'ROPA' && prod.variants?.length) {
+          showVariantSelectionModal(prod, 1);
+        } else {
+          showPreviewModal(prod);
+        }
         barcodeInput.value = "";
       }
     });
@@ -465,9 +555,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     const variantOptionsHtml = (prod.variants && prod.variants.length > 0) ? `
       <label class="form-label">Variante</label>
       <select id="preview-variant" class="form-select mb-2">
-        <option value="">-- Selecciona variante (si aplica) --</option>
-        <option value="base" data-price="${prod.sale_price}">Unidad base (${formatCOP(prod.sale_price)})</option>
-        ${prod.variants.map(v => `<option value="${v.id}" data-price="${v.sale_price}" data-name="${v.name}">${v.name} (${formatCOP(v.sale_price)})</option>`).join('')}
+        <option value="">-- Selecciona presentación --</option>
+        <option value="base" data-price="${prod.sale_price}">Unidad base · ${formatCOP(prod.sale_price)} · Stock ${prod.stock}</option>
+        ${prod.variants.map(v => `<option value="${v.id}" data-price="${v.sale_price}" data-name="${escapeHtml(v.name)}">${escapeHtml(variantLabel(v))} · ${formatCOP(v.sale_price)} · Stock ${variantStock(prod, v)}</option>`).join('')}
       </select>
     ` : "";
 
@@ -483,11 +573,12 @@ document.addEventListener("DOMContentLoaded", async () => {
               <div style="display:flex; gap:12px; align-items:flex-start;">
                 <div>${imageHtml}</div>
                 <div style="flex:1;">
-                  <p><strong>Código:</strong> ${prod.code}</p>
-                  <p><strong>Nombre:</strong> ${prod.name}</p>
+                  <p><strong>Código:</strong> ${escapeHtml(prod.code)}</p>
+                  <p><strong>Nombre:</strong> ${escapeHtml(prod.name)}</p>
                   <p><strong>Precio:</strong> ${formatCOP(prod.sale_price)}</p>
                   ${prod.special_price > 0 ? `<p><strong>Precio especial:</strong> ${formatCOP(prod.special_price)}</p>` : ''}
                   <p><strong>Stock:</strong> ${prod.stock}</p>
+                  <div class="mb-2">${productAttributeSummary(prod)}</div>
                   ${variantOptionsHtml}
                   <label class="form-label">Cantidad:</label>
                   <input type="number" id="preview-qty" class="form-control" value="1" min="0.1" step="0.1" max="${prod.stock}">
@@ -522,7 +613,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         selectedVariant = null;
       }
 
-      if (prod.stock < qty) {
+      if (prod.stock < qty * Number(selectedVariant?.conversion_factor || 1)) {
         Swal.fire('Error', "Stock insuficiente", 'error');
         return;
       }
@@ -537,7 +628,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   function addItemToSale(prod, qty, variant) {
     const source = variant || prod; // La fuente de precios es la variante si existe, si no, el producto.
     let itemPrice = source.sale_price;
-    let itemName = variant ? `${prod.name} (${variant.name})` : prod.name;
+    let itemName = variant ? `${prod.name} (${variantLabel(variant)})` : prod.name;
     let variantId = variant ? variant.id : null;
 
     const existingItemIndex = saleItems.findIndex(i => 
@@ -560,6 +651,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         special_price_2: source.special_price_2 || 0,
         subtotal: itemPrice * qty,
         variant_id: variantId,
+        variant_name: variant
+          ? (productFormConfig?.businessType?.code === 'ROPA' ? `${prod.name} - ${variantLabel(variant)}` : variant.name)
+          : null,
+        variant_unit_name: variant?.unit_name || null,
+        variant_unit_abbreviation: variant?.unit_abbreviation || null,
+        conversion_factor: variant?.conversion_factor || 1,
+        product_attributes: prod.attributes || {},
       });
     }
 
@@ -569,21 +667,36 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Modal de selección de variante
 
   function showVariantSelectionModal(prod, qtyDefault = 1) {
+    const clothing = productFormConfig?.businessType?.code === 'ROPA';
+    const clothingOptions = clothing ? `
+      <div class="d-grid gap-2" id="clothing-variant-options">
+        ${prod.variants.map(variant => {
+          const stock = variantStock(prod, variant);
+          const soldOut = stock <= 0;
+          return `<button type="button" class="btn btn-outline-primary text-start clothing-variant-option" data-variant-id="${variant.id}" ${soldOut ? 'disabled' : ''}>
+            <span class="d-flex justify-content-between gap-2"><strong>${escapeHtml(variantLabel(variant))}</strong><span>${formatCOP(variant.sale_price)}</span></span>
+            <small class="${soldOut ? 'text-danger' : 'text-muted'}">${soldOut ? 'Agotado' : `Stock: ${stock} disponible`}</small>
+          </button>`;
+        }).join('')}
+      </div>` : '';
+    const otherVariantOptions = !clothing ? `
+      <select id="variant-select" class="form-select mb-3">
+        <option value="">-- Selecciona una opción --</option>
+        <option value="base" data-price="${prod.sale_price}">Unidad base · ${formatCOP(prod.sale_price)} · Stock ${prod.stock}</option>
+        ${prod.variants.map(v => `<option value="${v.id}" data-name="${escapeHtml(v.name)}" data-price="${v.sale_price}">${escapeHtml(variantLabel(v))} · ${formatCOP(v.sale_price)} · Stock ${variantStock(prod, v)}</option>`).join('')}
+      </select>` : '';
     const modalHtml = `
       <div class="modal fade" id="variantModal" tabindex="-1">
         <div class="modal-dialog">
           <div class="modal-content">
             <div class="modal-header">
-              <h5 class="modal-title">Seleccionar Unidad de Venta</h5>
+              <h5 class="modal-title">${clothing ? 'Seleccionar Talla y Color' : 'Seleccionar Unidad de Venta'}</h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-              <p>El producto <strong>${prod.name}</strong> tiene múltiples unidades de venta. Por favor, selecciona una:</p>
-              <select id="variant-select" class="form-select mb-3">
-                <option value="">-- Selecciona una opción --</option>
-                <option value="base" data-price="${prod.sale_price}">Unidad base (${formatCOP(prod.sale_price)})</option>
-                ${prod.variants.map(v => `<option value="${v.id}" data-name="${v.name}" data-price="${v.sale_price}">${v.name} (${formatCOP(v.sale_price)})</option>`).join('')}
-              </select>
+              <p>Producto: <strong>${escapeHtml(prod.name)}</strong></p>
+              ${clothing ? clothingOptions : `<div class="mb-2">${productAttributeSummary(prod)}</div>${otherVariantOptions}`}
+              ${clothing ? '<input type="hidden" id="selected-clothing-variant">' : ''}
               <label class="form-label">Cantidad</label>
               <input type="number" id="variant-qty" class="form-control" value="${qtyDefault}" min="0.1" step="0.1">
             </div>
@@ -602,10 +715,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     const modal = new bootstrap.Modal(document.getElementById("variantModal"));
     modal.show();
 
+    if (clothing) {
+      document.querySelectorAll('.clothing-variant-option').forEach(button => button.addEventListener('click', () => {
+        document.querySelectorAll('.clothing-variant-option').forEach(option => option.classList.remove('active'));
+        button.classList.add('active');
+        document.getElementById('selected-clothing-variant').value = button.dataset.variantId;
+      }));
+    }
+
     document.getElementById("confirm-variant-btn").addEventListener("click", () => {
       const select = document.getElementById("variant-select");
-      const selectedOption = select.options[select.selectedIndex];
-      if (!selectedOption.value) {
+      const selectedOption = select?.options[select.selectedIndex];
+      const selectedClothingId = clothing ? document.getElementById('selected-clothing-variant').value : null;
+      if ((clothing && !selectedClothingId) || (!clothing && !selectedOption?.value)) {
         Swal.fire('Atención', "Por favor, selecciona una unidad de venta.", 'warning');
         return;
       }
@@ -613,9 +735,17 @@ document.addEventListener("DOMContentLoaded", async () => {
       const qty = Number(document.getElementById("variant-qty").value) || 1;
 
       let selectedVariant = null;
-      if (selectedOption.value !== "base") {
+      if (clothing) {
+        selectedVariant = prod.variants.find(variant => String(variant.id) === selectedClothingId);
+      } else if (selectedOption.value !== "base") {
         const variantId = Number(selectedOption.value);
         selectedVariant = prod.variants.find(v => v.id === variantId);
+      }
+
+      const available = clothing ? variantStock(prod, selectedVariant) : prod.stock;
+      if (available < qty * (clothing ? 1 : Number(selectedVariant?.conversion_factor || 1))) {
+        Swal.fire('Error', "Stock insuficiente para la presentación seleccionada", 'error');
+        return;
       }
 
       addItemToSale(prod, qty, selectedVariant);
@@ -649,11 +779,9 @@ document.addEventListener("DOMContentLoaded", async () => {
               <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-              <p><strong>Total:</strong> ${formatCOP(totalAmount)}</p>
-              ${previousPaymentsTotal > 0 ? `
-                  <p class="text-success"><strong>Abonado previamente:</strong> ${formatCOP(previousPaymentsTotal)}</p>
-                  <p class="text-danger"><strong>Restante a pagar:</strong> ${formatCOP(remainingToPay)}</p>
-              ` : ''}
+              <p><strong>Total de la venta:</strong> ${formatCOP(totalAmount)}</p>
+              <p class="text-success"><strong>Abonos previos:</strong> ${formatCOP(previousPaymentsTotal)}</p>
+              <p class="text-danger"><strong>Saldo pendiente:</strong> ${formatCOP(remainingToPay)}</p>
               <div class="mb-2">
                 <label>Efectivo recibido</label>
                 <input type="number" id="cashReceived" class="form-control" value="0" min="0">
@@ -662,6 +790,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <label>Transferencia</label>
                 <input type="number" id="transferAmount" class="form-control" value="0" min="0">
               </div>
+              <p><strong>Total recibido:</strong> <span id="totalReceived">${formatCOP(0)}</span></p>
               <div class="mb-2" id="bankReferenceContainer" style="display:none;">
                 <label>Banco / Referencia</label>
                 <input type="text" id="transferReference" class="form-control" placeholder="Ej: Bancolombia, Nequi...">
@@ -688,12 +817,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     const transferInput = document.getElementById("transferAmount");
     const transferRefInput = document.getElementById("transferReference");
     const changeInfo = document.getElementById("changeInfo");
+    const totalReceivedInfo = document.getElementById("totalReceived");
 
     function updateChange() {
       const cash = parseFloat(cashInput.value) || 0;
       const transfer = parseFloat(transferInput.value) || 0;
       const totalPaid = cash + transfer;
       const change = totalPaid - remainingToPay; // Calcular cambio sobre lo que falta
+      totalReceivedInfo.textContent = formatCOP(totalPaid);
       if (change >= 0) {
         changeInfo.textContent = `Cambio a devolver: ${formatCOP(change)}`;
       } else {
@@ -720,12 +851,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       const outstandingBalance = saleType === "credit" ? remainingToPay : Math.max(0, remainingToPay - totalPaid);
       const paidAmount = saleType === "credit" ? 0 : totalPaid;
+      const saleTotals = getSaleTotals(saleItems.reduce((sum, item) => sum + item.subtotal, 0));
       const notes = saleNotesInput.value.trim();
 
       const saleData = {
         client_id: clientId,
         items: saleItems,
         total_amount: totalAmount,
+        subtotal_amount: saleTotals.netTotal,
+        tax_amount: saleTotals.iva,
+        include_iva: includeSaleIva,
         paid_amount: paidAmount,
         outstanding_balance: outstandingBalance,
         sale_type: saleType,
@@ -780,7 +915,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
       const clientId = clientHiddenIdInput.value ? Number(clientHiddenIdInput.value) : null;
       const saleType = saleTypeSelect.value;
-      const totalAmount = saleItems.reduce((sum, item) => sum + item.subtotal, 0);
+      const totals = getSaleTotals(saleItems.reduce((sum, item) => sum + item.subtotal, 0));
+      const totalAmount = totals.finalTotal;
       const notes = saleNotesInput.value.trim();
       const dueDate = document.getElementById('sale-due-date')?.value || null;
 
@@ -819,6 +955,9 @@ document.addEventListener("DOMContentLoaded", async () => {
                   client_id: clientId,
                   items: saleItems,
                   total_amount: totalAmount,
+                  subtotal_amount: totals.netTotal,
+                  tax_amount: totals.iva,
+                  include_iva: includeSaleIva,
                   paid_amount: previousPaymentsTotal,
                   outstanding_balance: remainingToPay,
                   sale_type: saleType,
@@ -916,7 +1055,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             });
 
             if (printResult.isConfirmed) {
-                handlePrintSale(editingSaleId);
+                  handlePrintSale(editingSaleId);
             }
 
           cancelEdit();
@@ -992,16 +1131,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       await handlePrintSale(Number(target.dataset.id), false);
     } else if (target.classList.contains("export-invoice")) {
       const id = Number(target.dataset.id);
-      const result = await Swal.fire({
-          title: 'Opciones de Exportación',
-          text: "¿Incluir IVA 19% en la factura?",
-          icon: 'question',
-          showCancelButton: true,
-          confirmButtonText: 'Sí, con IVA',
-          cancelButtonText: 'No, sin IVA'
-      });
-      const withIva = result.isConfirmed;
-      const res = await window.api.exportInvoicePDF(id, withIva);
+      const res = await window.api.exportInvoicePDF(id, false);
       Swal.fire(res.success ? 'Éxito' : 'Error', res.message || JSON.stringify(res), res.success ? 'success' : 'error');
     } else if (target.classList.contains("print-sale")) {
       await handlePrintSale(Number(target.dataset.id));
@@ -1037,17 +1167,33 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   async function handlePrintSale(id, showOptions = true) {
     const sale = await window.api.getSaleById(id);
-    const items = await window.api.getSaleItems(id);
+    const rawItems = await window.api.getSaleItems(id);
     const company = await window.api.getCompanySettings();
     const logoBase64 = await window.api.getCompanyLogo();
     const client = sale.client_id ? await window.api.getClientById(sale.client_id) : null;
 
-    if (!sale || !items) {
+    if (!sale || !rawItems) {
       Swal.fire('Error', "No se encontró la información de la venta", 'error');
       return;
     }
 
+    const items = rawItems.map(item => {
+      const product = allProducts.find(candidate => candidate.id === item.product_id);
+      const variant = product?.variants?.find(candidate => candidate.id === item.variant_id);
+      const isClothing = productFormConfig?.businessType?.code === 'ROPA';
+      return {
+        ...item,
+        product_attributes: product?.attributes || {},
+        variant_name: isClothing && variant
+          ? `${product.name} - Talla ${variant.size} - ${variant.color}`
+          : item.variant_name || variant?.name || null,
+        variant_unit_name: item.variant_unit_name || variant?.unit_name || null,
+        variant_unit_abbreviation: item.variant_unit_abbreviation || variant?.unit_abbreviation || null,
+      };
+    });
+
     let printers = [];
+    let includeIva = false;
     if (showOptions) {
       printers = await window.api.getPrinters();
       if (!printers || printers.length === 0) {
@@ -1056,7 +1202,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     }
 
-    const htmlContent = generateInvoiceHtml(sale, items, company, logoBase64, client, showOptions ? printers : null);
+    const htmlContent = generateInvoiceHtml(sale, items, company, logoBase64, client, showOptions ? printers : null, includeIva);
     await window.api.previewInvoice({ content: htmlContent });
   }
 
@@ -1161,6 +1307,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         editingSaleId = saleId;
+        includeSaleIva = Boolean(sale.include_iva);
         clientSelect.value = sale.client_id || "";
         const client = allClients.find(c => c.id === sale.client_id); // Buscar el cliente por ID
         clientInput.value = client ? `${client.name} (${client.id_card_or_nit})` : "-- Sin cliente --"; // Mostrar el nombre en el input visible
@@ -1222,12 +1369,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     function generateInvoiceHtml(sale, items, company, logoBase64, client, printers) {
       const showPrintPanel = printers && printers.length > 0;
       const isAnnulled = sale.status === 'annulled';
+      const saleNetTotal = Number(sale.subtotal_amount ?? sale.total_amount ?? 0);
+      const saleTax = Number(sale.tax_amount) > 0
+        ? Number(sale.tax_amount)
+        : (sale.include_iva ? Math.round(saleNetTotal * 0.19) : 0);
+      const saleFinalTotal = Number(sale.total_amount || saleNetTotal + saleTax);
 
       const printPanelHtml = showPrintPanel ? `
             <div class="print-options-panel">
               <label>Selecciona impresora:</label>
               <select id="printerSelect">
-                ${printers.map(p => `<option value="${p.name}" ${p.isDefault ? "selected" : ""}>${p.name}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
+                ${printers.map(p => `<option value="${escapeHtml(p.name)}" data-paper-width="${p.paperWidth || ''}" ${p.isDefault ? "selected" : ""}>${escapeHtml(p.displayName || p.name)}${p.isDefault ? " (Predeterminada)" : ""}</option>`).join("")}
               </select>
               <label>Tamaño de papel:</label>
               <select id="paperSizeSelect">
@@ -1237,7 +1389,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <option value="Letter">Carta</option>
                 <option value="Legal">Oficio</option>
               </select>
-              <label><input type="checkbox" id="includeIva"> Incluir IVA 19%</label>
               <button id="printButton">Imprimir</button>
               <button id="closePreview">Cerrar</button>
             </div>
@@ -1246,24 +1397,44 @@ document.addEventListener("DOMContentLoaded", async () => {
       const scriptHtml = showPrintPanel ? `
               <script>
                 function formatCOP(value) { return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value); }
-                let totalBase = ${Number(sale.total_amount || 0)};
+                const totalFinal = ${Number(sale.total_amount || 0)};
                 const currentPago = ${Number(sale.cash_payment || 0)} + ${Number(sale.transfer_payment || 0)};
                 const totalAbonado = ${Number(sale.paid_amount || 0)};
-                function updateTotals() {
-                  const includeIvaEl = document.getElementById("includeIva");
-                  const includeIva = includeIvaEl ? includeIvaEl.checked : false;
-                  let iva = 0; let total = totalBase;
-                  const extraTotalsBody = document.getElementById("extraTotals");
-                  if (includeIva) {
-                    iva = Math.round(totalBase * 0.19); total = totalBase + iva;
-                    extraTotalsBody.innerHTML = 
-                        '<tr><td>Total bruto:</td><td>' + formatCOP(totalBase) + '</td></tr>' +
-                        '<tr><td>IVA (19%):</td><td>' + formatCOP(iva) + '</td></tr>' +
-                        '<tr class="total-row"><td>Total neto:</td><td>' + formatCOP(total) + '</td></tr>';
-                  } else {
-                    extraTotalsBody.innerHTML = '<tr class="total-row"><td>TOTAL:</td><td>' + formatCOP(totalBase) + '</td></tr>';
+                const printerSelect = document.getElementById("printerSelect");
+                const paperSizeSelect = document.getElementById("paperSizeSelect");
+                function applyTicketWidth(width) {
+                  document.body.dataset.ticketWidth = width;
+                  localStorage.setItem("paperSize", width);
+                  let pageStyle = document.getElementById("ticketPageSizeStyle");
+                  if (!pageStyle) {
+                    pageStyle = document.createElement("style");
+                    pageStyle.id = "ticketPageSizeStyle";
+                    document.head.appendChild(pageStyle);
                   }
-                  const cambio = totalAbonado - total;
+                  pageStyle.textContent = width === "57mm"
+                    ? "@page { size: 58mm auto; margin: 1.5mm; }"
+                    : width === "80mm"
+                      ? "@page { size: 80mm auto; margin: 3mm; }"
+                      : "@page { margin: 6mm; }";
+                  const printButton = document.getElementById("printButton");
+                  if (printButton) printButton.title = width === "57mm" ? "Imprimir en formato compacto de 57 mm" : "Imprimir en formato de 80 mm";
+                }
+                function suggestPrinterWidth() {
+                  const detectedWidth = printerSelect?.selectedOptions[0]?.dataset.paperWidth;
+                  const savedWidth = localStorage.getItem("paperSize");
+                  const width = detectedWidth || (savedWidth === "57mm" ? "57mm" : "80mm");
+                  paperSizeSelect.value = width;
+                  if (printerSelect?.value) localStorage.setItem("printer", printerSelect.value);
+                  applyTicketWidth(width);
+                }
+                printerSelect?.addEventListener("change", suggestPrinterWidth);
+                paperSizeSelect?.addEventListener("change", () => applyTicketWidth(paperSizeSelect.value));
+                const savedPrinter = localStorage.getItem("printer");
+                if (savedPrinter && printerSelect) printerSelect.value = savedPrinter;
+                suggestPrinterWidth();
+                function updateTotals() {
+                  const extraTotalsBody = document.getElementById("extraTotals");
+                  const cambio = totalAbonado - totalFinal;
                   const cambioContainer = document.getElementById("cambioContainer");
                   if (cambio > 0) {
                     cambioContainer.innerHTML = '<tr><td>Cambio:</td><td>' + formatCOP(cambio) + '</td></tr>';
@@ -1272,10 +1443,13 @@ document.addEventListener("DOMContentLoaded", async () => {
                   }
                 }
                 document.addEventListener("DOMContentLoaded", () => { updateTotals(); });
-                const ivaCheck = document.getElementById("includeIva");
-                if (ivaCheck) ivaCheck.addEventListener("change", updateTotals);
                 const prntBtn = document.getElementById("printButton");
-                if (prntBtn) prntBtn.addEventListener("click", () => { updateTotals(); window.print(); });
+                if (prntBtn) prntBtn.addEventListener("click", () => {
+                  updateTotals();
+                  localStorage.setItem("printer", printerSelect.value);
+                  applyTicketWidth(paperSizeSelect.value);
+                  window.print();
+                });
                 const clsBtn = document.getElementById("closePreview");
                 if (clsBtn) clsBtn.addEventListener("click", () => window.close());
               </script>
@@ -1286,7 +1460,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           <head>
             <meta charset="UTF-8">
             <style>
-              @page { margin: 6mm; } /* Margen de impresión */
+              @page { margin: 6mm; }
               html, body { margin: 0; padding: 0; }
               body { 
                 font-family: 'Arial', sans-serif; 
@@ -1401,6 +1575,28 @@ document.addEventListener("DOMContentLoaded", async () => {
                 .print-options-panel { display: none; }
                 .watermark { -webkit-print-color-adjust: exact; }
               }
+              @media print {
+                body[data-ticket-width="57mm"] { font-size: 8px; }
+                body[data-ticket-width="57mm"] .invoice-box { width: 49mm; max-width: 49mm; margin: 0 auto; overflow: visible; }
+                body[data-ticket-width="57mm"] .header, body[data-ticket-width="57mm"] .footer { margin-bottom: 2mm; }
+                body[data-ticket-width="57mm"] .header img { max-width: 32mm; max-height: 16mm !important; }
+                body[data-ticket-width="57mm"] .header h2 { font-size: 11px; margin: 1mm 0; overflow-wrap: anywhere; }
+                body[data-ticket-width="57mm"] .header p { font-size: 8px; margin: 1px 0; overflow-wrap: anywhere; }
+                body[data-ticket-width="57mm"] .info { margin-bottom: 2mm; padding: 2mm 0; border-width: 1px; }
+                body[data-ticket-width="57mm"] .info p { font-size: 8px; margin: 2px 0; overflow-wrap: anywhere; }
+                body[data-ticket-width="57mm"] .items-table { width: 100%; table-layout: fixed; margin-bottom: 2mm; }
+                body[data-ticket-width="57mm"] .items-table th:nth-child(1), body[data-ticket-width="57mm"] .items-table td:nth-child(1) { width: 46%; }
+                body[data-ticket-width="57mm"] .items-table th:nth-child(2), body[data-ticket-width="57mm"] .items-table td:nth-child(2) { width: 10%; }
+                body[data-ticket-width="57mm"] .items-table th:nth-child(3), body[data-ticket-width="57mm"] .items-table td:nth-child(3) { width: 22%; }
+                body[data-ticket-width="57mm"] .items-table th:nth-child(4), body[data-ticket-width="57mm"] .items-table td:nth-child(4) { width: 22%; }
+                body[data-ticket-width="57mm"] .items-table th { font-size: 7px; padding: 1mm 0; overflow-wrap: anywhere; }
+                body[data-ticket-width="57mm"] .items-table td { font-size: 8px; padding: 1mm 0; overflow-wrap: anywhere; word-break: break-word; }
+                body[data-ticket-width="57mm"] .totals-section, body[data-ticket-width="57mm"] .payment-info-section { margin-top: 2mm; }
+                body[data-ticket-width="57mm"] .totals-section table, body[data-ticket-width="57mm"] .payment-info-section table { width: 100% !important; font-size: 8px; table-layout: fixed; }
+                body[data-ticket-width="57mm"] .total-row td { font-size: 9px; padding-top: 1mm; }
+                body[data-ticket-width="57mm"] .footer { margin-top: 3mm; padding-top: 2mm; font-size: 8px; }
+                body[data-ticket-width="57mm"] .notes-section { font-size: 8px; overflow-wrap: anywhere; }
+              }
             </style>
           </head>
           <body>
@@ -1450,8 +1646,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                   ${items.map(it => `
                     <tr>
                       <td style="word-break: break-word;">
-                        ${it.product_name}
-                        ${it.serial_number ? `<br><small style="color: #000;">Serial: ${it.serial_number}</small>` : ''}
+                        ${escapeHtml(it.variant_name || it.product_name)}
                       </td>
                       <td class="col-align-center">${it.quantity}</td>
                       <td class="col-align-right">${formatCOP(it.price)}</td>
@@ -1464,9 +1659,10 @@ document.addEventListener("DOMContentLoaded", async () => {
               <div class="totals-section">
                 <table style="width: 95%;">
                     <tbody id="extraTotals">
+                      ${saleTax > 0 ? `<tr><td>Total neto:</td><td>${formatCOP(saleNetTotal)}</td></tr><tr><td>Valor IVA (19%):</td><td>${formatCOP(saleTax)}</td></tr>` : ''}
                         <tr class="total-row">
-                            <td>TOTAL:</td>
-                            <td>${formatCOP(sale.total_amount)}</td>
+                        <td>${saleTax > 0 ? 'TOTAL FINAL:' : 'TOTAL:'}</td>
+                        <td>${formatCOP(saleFinalTotal)}</td>
                         </tr>
                     </tbody>
                 </table>

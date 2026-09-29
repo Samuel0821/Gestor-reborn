@@ -23,7 +23,7 @@
           <h2 class="fw-bold"><i class="fas fa-file-invoice-dollar me-2"></i> Gestión de Compras</h2>
           <p class="text-muted mb-0">Administra pedidos a proveedores y pagos de facturas.</p>
         </div>
-        <button id="btn-new-order" class="btn btn-primary btn-lg shadow-sm">
+        <button id="btn-new-order" class="btn btn-primary">
           <i class="fas fa-plus me-2"></i> Nueva Orden
         </button>
       </div>
@@ -106,13 +106,14 @@
                 <span><strong>Orden:</strong> <span id="payOrderDisplay"></span></span>
                 <span class="badge bg-danger fs-6">Deuda: <span id="payCurrentBalance"></span></span>
             </div>
+            <div class="alert alert-info py-2 small">La retención se calcula sobre el subtotal antes de IVA, no sobre el total de la factura.</div>
 
             <div class="row g-3">
                 <div class="col-md-6">
-                    <label class="form-label fw-bold">Monto a Pagar</label>
+                        <label class="form-label fw-bold">Monto bruto aplicado a la deuda</label>
                     <div class="input-group">
                         <span class="input-group-text">$</span>
-                        <input type="number" class="form-control" id="payAmount" required min="1">
+                        <input type="number" class="form-control" id="payAmount" required min="0">
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -137,7 +138,6 @@
                     <textarea class="form-control" id="payNotes" rows="2" placeholder="Detalles adicionales del pago..."></textarea>
                 </div>
             </div>
-          </form>
         </div>
         <div class="modal-footer bg-light">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -291,7 +291,7 @@
   </div>
 
   <!-- Scripts -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="../../node_modules/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script defer src="../js/purchase_orders.js"></script>
 </body>

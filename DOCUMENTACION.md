@@ -1,4 +1,4 @@
-# GestorFX - Sistema ERP Profesional
+# GestorFX: Sistema Integral Para Gestionar Inventarios y Puntos De Ventas
 
 ## Descripción General
 GestorFX es una solución de software de escritorio robusta y moderna para la gestión integral de negocios (ERP). Desarrollada con **Electron** y **Node.js**, utiliza una arquitectura asíncrona para garantizar un rendimiento fluido y una experiencia de usuario ágil. El sistema está optimizado para el comercio minorista y de servicios, con un fuerte enfoque en la precisión del inventario y la trazabilidad financiera.
@@ -133,7 +133,7 @@ Recomendado usar [Electron Forge](https://www.electronforge.io/) o [Electron Bui
 - **Usuario:** admin
 - **Contraseña:** 12345
 
-## Notas de la versión (v1.0.8)
+## Notas de la versión (v1.0.9)
 
 - Se mejoró la sincronización entre proceso principal y renderer para el módulo de caja, evitando que el resumen mostrase datos desactualizados al reiniciar la app.
 - Se corrigió la lógica que mostraba facturas de crédito en la pestaña `Ventas` aun cuando ya estaban pagadas; ahora las facturas a crédito permanecen en `Abonos Créditos`.

@@ -16,13 +16,21 @@
 </head>
 <body>
   <div class="container py-4">
-    <div class="mb-3">
-      <h1>Gestión de Servicios</h1>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div><h1 class="mb-1">Gestión de Servicios</h1><p class="text-muted mb-0">Administra servicios, materiales, clientes y anticipos.</p></div>
+      <button id="new-service-btn" type="button" class="btn btn-primary"><i class="fa fa-plus me-2"></i>Crear Nuevo Servicio</button>
     </div>
 
     <!-- Formulario de Servicio -->
-    <div class="card p-4 mb-4">
-      <h5 class="mb-3">Registrar / Editar Servicio</h5>
+    <div class="modal fade" id="service-form-modal" tabindex="-1" aria-labelledby="service-form-modal-title" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content product-modal-content">
+          <div class="modal-header product-modal-header">
+            <div><span class="product-modal-kicker"><i class="fa fa-concierge-bell me-2"></i>Gestión de servicios</span><h5 class="modal-title" id="service-form-modal-title">Crear Nuevo Servicio</h5><p class="product-modal-subtitle mb-0">Define mano de obra, cliente, materiales y programación.</p></div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body product-modal-body">
+      <form id="service-form" class="product-form-shell">
       <form id="service-form">
         <input type="hidden" id="service-id">
         <div class="row g-3">
@@ -75,6 +83,9 @@
           <button type="submit" class="btn btn-success">Guardar Servicio</button>
         </div>
       </form>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Listado de Servicios -->

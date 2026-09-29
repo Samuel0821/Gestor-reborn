@@ -72,8 +72,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const cancelBtn = document.getElementById('cancel-edit');
   const table = document.getElementById('clients-table');
   const search = document.getElementById('search-client');
+  const modal = new bootstrap.Modal(document.getElementById('client-form-modal'));
+  const modalTitle = document.getElementById('client-form-modal-title');
+  const newClientButton = document.getElementById('new-client-btn');
 
   let clients = [];
+
+  function resetForm() {
+    form.reset();
+    idInput.value = '';
+  }
+
+  newClientButton.addEventListener('click', () => {
+    resetForm();
+    modalTitle.textContent = 'Registrar Cliente';
+    modal.show();
+    nameInput.focus();
+  });
 
   async function loadClients() {
     clients = await window.api.getClients();
@@ -112,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     table.querySelectorAll('.edit').forEach(b => b.addEventListener('click', async (e) => {
-      const id = Number(e.target.dataset.id);
+      const id = Number(e.currentTarget.dataset.id);
       const client = await window.api.getClientById(id);
       idInput.value = client.id;
       nameInput.value = client.name;
@@ -120,7 +135,8 @@ document.addEventListener('DOMContentLoaded', () => {
       addressInput.value = client.address || '';
       emailInput.value = client.email || '';
       phoneInput.value = client.phone || '';
-      cancelBtn.style.display = 'inline-block';
+      modalTitle.textContent = 'Editar Cliente';
+      modal.show();
     }));
     table.querySelectorAll('.del').forEach(b => b.addEventListener('click', async (e) => {
       const id = Number(e.currentTarget.dataset.id); // Capturar ID antes del await
@@ -156,9 +172,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (payload.id) {
-      await window.api.updateClient(payload);
+      const result = await window.api.updateClient(payload);
+      if (!result.success) { Swal.fire('Error', result.message, 'error'); return; }
       Swal.fire({ icon: 'success', title: 'Cliente actualizado', timer: 1500, showConfirmButton: false });
-      cancelBtn.style.display = 'none';
     } else {
       const res = await window.api.saveClient(payload);
       if (!res.success) { 
@@ -169,13 +185,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     form.reset();
     idInput.value = '';
+    modal.hide();
     await loadClients();
   });
 
   cancelBtn.addEventListener('click', () => {
-    form.reset();
-    idInput.value = '';
-    cancelBtn.style.display = 'none';
+    resetForm();
+    modal.hide();
   });
 
   search.addEventListener('input', () => {

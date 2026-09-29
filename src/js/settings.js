@@ -10,6 +10,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const logoInput = document.getElementById('company-logo');
   const logoPreview = document.getElementById('logo-preview');
   const status = document.getElementById('save-status');
+  const businessProfileName = document.getElementById('business-profile-name');
+  const businessProfileDescription = document.getElementById('business-profile-description');
+  const businessProfileCapabilities = document.getElementById('business-profile-capabilities');
+  const setupStatusBadge = document.getElementById('setup-status-badge');
+  const countryInput = document.getElementById('company-country');
+  const currencyInput = document.getElementById('company-currency');
+  const businessTypeSelect = document.getElementById('business-type-select');
+  const saveBusinessTypeButton = document.getElementById('save-business-type');
 
   // NUEVAS VARIABLES para la configuración de impresión
     const printSettingsForm = document.getElementById('print-settings-form');
@@ -25,12 +33,46 @@ document.addEventListener('DOMContentLoaded', () => {
       addressInput.value = s.company_address || '';
       emailInput.value = s.company_email || '';
       phoneInput.value = s.company_phone || '';
+      countryInput.value = s.country_code || 'CO';
+      currencyInput.value = s.currency_code || 'COP';
       if (s.logo_path) {
         logoPreview.src = s.logo_path;
         logoPreview.style.display = 'block';
       } else {
         logoPreview.style.display = 'none';
       }
+
+      const [config, installationState, businessTypeList] = await Promise.all([
+        window.api.getProductFormConfig(),
+        window.api.getInstallationState(),
+        window.api.getBusinessTypes()
+      ]);
+      businessTypeSelect.replaceChildren(...businessTypeList.map(type => {
+        const option = document.createElement('option');
+        option.value = type.id;
+        option.textContent = type.name;
+        option.selected = type.id === installationState.businessTypeId;
+        return option;
+      }));
+      const businessType = config.businessType;
+      businessProfileName.textContent = businessType ? businessType.name : 'Perfil no definido';
+      businessProfileDescription.textContent = businessType?.description || 'Configure el perfil empresarial desde la configuración inicial.';
+      businessProfileCapabilities.replaceChildren();
+      const capabilities = [
+        config.sections?.inventory ? 'Inventario' : null,
+        config.sections?.supplier ? 'Proveedores' : null,
+        config.sections?.variants ? 'Variantes' : null,
+        config.sections?.pricing ? 'Precios' : null,
+        config.attributes?.length ? `${config.attributes.length} atributos específicos` : null
+      ].filter(Boolean);
+      capabilities.forEach(capability => {
+        const badge = document.createElement('span');
+        badge.className = 'badge bg-light text-primary border';
+        badge.textContent = capability;
+        businessProfileCapabilities.appendChild(badge);
+      });
+      setupStatusBadge.textContent = installationState.completed ? 'Configuración completa' : 'Configuración pendiente';
+      setupStatusBadge.className = `badge ${installationState.completed ? 'bg-success' : 'bg-warning text-dark'} align-self-start`;
     } catch (err) {
       console.error(err);
     }
@@ -41,6 +83,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!f) { logoPreview.style.display = 'none'; return; }
     logoPreview.src = f.path;
     logoPreview.style.display = 'block';
+  });
+
+  saveBusinessTypeButton.addEventListener('click', async () => {
+    const result = await window.api.updateBusinessType(Number(businessTypeSelect.value));
+    status.textContent = result.message || (result.success ? 'Perfil actualizado' : 'Error');
+    status.className = result.success ? 'text-success' : 'text-danger';
+    if (result.success) await loadSettings();
   });
 
   form.addEventListener('submit', async (e) => {

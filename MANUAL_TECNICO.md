@@ -1,12 +1,12 @@
 # Manual Técnico - GestorFX
 
-**Versión del Sistema:** 1.0.8
+**Versión del Sistema:** 1.0.9
 **Desarrollado por:** Grisalis Technologies
 
 ---
 
 ## 1. Información General del Sistema
-**Nombre del Software:** GestorFX
+**Nombre del Software:** GestorFX: Sistema Integral Para Gestionar Inventarios y Puntos De Ventas
 **Tipo de Aplicación:** Sistema ERP de Escritorio (Desktop).
 **Arquitectura:** Monolítica modular basada en Electron (Chromium + Node.js).
 **Base de Datos:** SQLite3 (Local, embebida).

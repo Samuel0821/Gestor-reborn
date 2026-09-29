@@ -18,27 +18,19 @@
   <!-- El contenido será inyectado dentro del layout por expenses.js -->
   <div class="container">
     <div class="d-flex justify-content-between align-items-center mb-4 mt-4">
-      <h2><i class="fa fa-money-bill-wave text-danger me-2"></i>Control de Gastos</h2>
+      <div><h2 class="mb-1"><i class="fa fa-money-bill-wave text-danger me-2"></i>Control de Gastos</h2><p class="text-muted mb-0">Registra y controla los egresos del negocio.</p></div>
+      <button id="new-expense-btn" type="button" class="btn btn-primary"><i class="fa fa-plus me-2"></i>Registrar Gasto</button>
     </div>
 
-    <!-- Navegación por Pestañas -->
-    <ul class="nav nav-tabs mb-4" id="expensesTabs" role="tablist">
-      <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="register-tab" data-bs-toggle="tab" data-bs-target="#register-pane" type="button" role="tab" aria-controls="register-pane" aria-selected="true"><i class="fa fa-plus-circle me-2"></i>Registrar nuevos Egresos</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history-pane" type="button" role="tab" aria-controls="history-pane" aria-selected="false"><i class="fa fa-history me-2"></i>Historial de Egresos</button>
-      </li>
-    </ul>
-
-    <div class="tab-content" id="expensesTabsContent">
-      <!-- Tab 1: Registrar nuevos Egresos -->
-      <div class="tab-pane fade show active" id="register-pane" role="tabpanel" aria-labelledby="register-tab">
-        <div class="card shadow-sm">
-          <div class="card-header bg-danger text-white">
-            <h5 class="mb-0">Registrar Nuevo Egreso</h5>
-          </div>
-          <div class="card-body">
+    <div>
+        <div class="modal fade" id="expense-form-modal" tabindex="-1" aria-labelledby="expense-form-modal-title" aria-hidden="true">
+          <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content product-modal-content">
+              <div class="modal-header product-modal-header">
+                <div><span class="product-modal-kicker"><i class="fa fa-money-bill-wave me-2"></i>Control financiero</span><h5 class="modal-title" id="expense-form-modal-title">Registrar Gasto</h5><p class="product-modal-subtitle mb-0">Registra el egreso y su impacto en caja.</p></div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+              </div>
+              <div class="modal-body product-modal-body">
             <form id="expense-form">
               <div class="mb-3">
                 <label class="form-label">Descripción</label>
@@ -78,12 +70,10 @@
               </div>
               <button type="submit" class="btn btn-danger w-100"><i class="fa fa-save me-2"></i>Guardar Gasto</button>
             </form>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-
-      <!-- Tab 2: Historial de Egresos -->
-      <div class="tab-pane fade" id="history-pane" role="tabpanel" aria-labelledby="history-tab">
         <div class="card shadow-sm">
           <div class="card-body">
             <div class="d-flex justify-content-between mb-3">
@@ -113,7 +103,6 @@
             </div>
           </div>
         </div>
-      </div>
     </div>
   </div>
   <script src="../js/expenses.js"></script>

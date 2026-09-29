@@ -1,32 +1,54 @@
 const Database = require("better-sqlite3");
 const path = require("node:path");
+const os = require("node:os");
 const fs = require("fs");
 const crypto = require("crypto");
-let dbPath;
+const { runMigrations } = require("./migrations");
 
-// Detectar si la app está empaquetada
-let isPackaged = false;
-try {
-  isPackaged = require('electron').app.isPackaged;
-} catch (e) {
-  // Manejo de error si no se está en un entorno de Electron (por ejemplo, en un script de prueba)
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const derivedKey = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 });
+  return `scrypt$16384$8$1$${salt.toString('base64')}$${derivedKey.toString('base64')}`;
 }
 
-if (isPackaged) {
-  // Ruta de la base de datos en la carpeta de datos del usuario
-  const userData = require('electron').app.getPath('userData');
-  dbPath = path.join(userData, "database.sqlite");
-  // Si no existe, copiar desde el paquete empaquetado
-  if (!fs.existsSync(dbPath)) {
-    // La base de datos empaquetada se encuentra en process.resourcesPath en la raíz del paquete
-    const packagedDb = path.join(process.resourcesPath, "database.sqlite");
-    // Si la base de datos empaquetada existe, la copiamos.
-    if (fs.existsSync(packagedDb)) {
-      fs.copyFileSync(packagedDb, dbPath);
+function verifyPassword(password, storedHash) {
+  if (!storedHash) return { valid: false, needsUpgrade: false };
+  if (storedHash.startsWith('scrypt$')) {
+    const [, n, r, p, saltBase64, hashBase64] = storedHash.split('$');
+    try {
+      const salt = Buffer.from(saltBase64, 'base64');
+      const expected = Buffer.from(hashBase64, 'base64');
+      const actual = crypto.scryptSync(password, salt, expected.length, { N: Number(n), r: Number(r), p: Number(p) });
+      return { valid: crypto.timingSafeEqual(actual, expected), needsUpgrade: false };
+    } catch (error) {
+      return { valid: false, needsUpgrade: false };
     }
   }
+
+  const legacyHash = crypto.createHash('sha256').update(password).digest('hex');
+  return { valid: legacyHash === storedHash, needsUpgrade: legacyHash === storedHash };
+}
+let dbPath;
+
+// Development uses only the database shipped with the project.
+// Packaged builds use an isolated database in Electron userData.
+let electronApp = null;
+try {
+  electronApp = require('electron').app;
+} catch (e) {
+  electronApp = null;
+}
+
+if (electronApp && electronApp.isPackaged) {
+  const userData = electronApp.getPath('userData');
+  dbPath = path.join(userData, "database.sqlite");
+  if (!fs.existsSync(dbPath)) {
+    const packagedDb = path.join(process.resourcesPath || '', "database.sqlite");
+    const developmentTemplate = path.join(__dirname, "../database.sqlite");
+    const sourceDb = fs.existsSync(packagedDb) ? packagedDb : developmentTemplate;
+    if (fs.existsSync(sourceDb)) fs.copyFileSync(sourceDb, dbPath);
+  }
 } else {
-  // Modo de desarrollo
   dbPath = path.join(__dirname, "../database.sqlite");
 }
 
@@ -204,6 +226,25 @@ CREATE TABLE IF NOT EXISTS product_variants (
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 )`).run();
 
+try {
+  const variantColumns = db.prepare("PRAGMA table_info(product_variants)").all();
+  const addVariantColumn = (name, definition) => {
+    if (!variantColumns.some(column => column.name === name)) {
+      db.prepare(`ALTER TABLE product_variants ADD COLUMN ${name} ${definition}`).run();
+    }
+  };
+  addVariantColumn('sku', 'TEXT');
+  addVariantColumn('size', 'TEXT');
+  addVariantColumn('color', 'TEXT');
+  addVariantColumn('stock', 'REAL NOT NULL DEFAULT 0');
+  addVariantColumn('min_stock', 'REAL NOT NULL DEFAULT 0');
+  addVariantColumn('active', 'INTEGER NOT NULL DEFAULT 1');
+  db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_product_variants_sku ON product_variants(sku) WHERE sku IS NOT NULL AND sku != ''").run();
+} catch (e) {
+  console.error("Error migración de variantes matriciales:", e);
+  throw e;
+}
+
 // 2. Añadir columna para relacionar producto con proveedor
 try {
   const productCols = db.prepare("PRAGMA table_info(products)").all();
@@ -280,6 +321,21 @@ try {
     try { db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_receipt_number ON sales(receipt_number)").run(); } catch(e) {}
   }
 } catch (e) { console.error("Error migración receipt_number:", e); }
+
+// MIGRACIÓN: Desglose fiscal de ventas
+try {
+  const salesColumns = db.prepare("PRAGMA table_info(sales)").all();
+  if (!salesColumns.some(c => c.name === "subtotal_amount")) {
+    db.prepare("ALTER TABLE sales ADD COLUMN subtotal_amount REAL NOT NULL DEFAULT 0").run();
+  }
+  if (!salesColumns.some(c => c.name === "tax_amount")) {
+    db.prepare("ALTER TABLE sales ADD COLUMN tax_amount REAL NOT NULL DEFAULT 0").run();
+  }
+  if (!salesColumns.some(c => c.name === "include_iva")) {
+    db.prepare("ALTER TABLE sales ADD COLUMN include_iva INTEGER NOT NULL DEFAULT 0").run();
+  }
+  db.prepare("UPDATE sales SET subtotal_amount = total_amount WHERE subtotal_amount = 0 AND tax_amount = 0").run();
+} catch (e) { console.error("Error migración fiscal de ventas:", e); }
 
 // MIGRACIÓN: Agregar notes a sales para observaciones en recibos
 try {
@@ -688,13 +744,23 @@ db.prepare(`
 // Crear usuario admin por defecto si no existe
 const adminExist = db.prepare("SELECT COUNT(*) as c FROM users").get();
 if (adminExist.c === 0) {
-  const hash = crypto.createHash('sha256').update('12345').digest('hex');
+  const hash = hashPassword('12345');
   db.prepare("INSERT INTO users (username, password_hash, role, name) VALUES (?, ?, ?, ?)").run('admin', hash, 'admin', 'Administrador');
 }
 
 // asegurarse fila settings
 const countRow = db.prepare("SELECT COUNT(*) as c FROM company_settings").get();
 if (countRow.c === 0) db.prepare("INSERT INTO company_settings (id) VALUES (1)").run();
+
+let backupDirectory;
+try {
+  const electronApp = require('electron').app;
+  backupDirectory = path.join(electronApp.getPath('userData'), 'database-backups');
+} catch (e) {
+  backupDirectory = path.join(os.homedir(), '.gestorfx', 'database-backups');
+}
+
+runMigrations(db, dbPath, backupDirectory);
 
 // HELPERS GENERICOS
 function padNumber(n, len = 3) {
@@ -821,21 +887,133 @@ function deleteCategory(id) {
 // PRODUCTOS
 function getProducts() {
   const products = db.prepare(`
-    SELECT p.*, c.name as category_name, s.name as supplier_name
+    SELECT p.*, c.name as category_name, s.name as supplier_name,
+           pt.name as product_type_name, u.name as base_unit_name, u.abbreviation as base_unit_abbreviation,
+           p.base_content_units, p.sale_type
     FROM products p
     LEFT JOIN categories c ON p.category_id = c.id LEFT JOIN suppliers s ON p.supplier_id = s.id
+    LEFT JOIN product_types pt ON p.product_type_id = pt.id
+    LEFT JOIN units_of_measure u ON p.base_unit_id = u.id
+    WHERE COALESCE(p.active, 1) = 1
     ORDER BY p.name
   `).all();
   // Obtener variantes para cada producto
-  const getVariants = db.prepare("SELECT id, product_id, name, sale_price, special_price, special_price_2, conversion_factor, purchase_price FROM product_variants WHERE product_id = ? ORDER BY name");
+  const getVariants = db.prepare(`
+    SELECT pv.id, pv.product_id, pv.name, pv.sale_price, pv.special_price, pv.special_price_2,
+          pv.conversion_factor, pv.purchase_price, pv.unit_id, pv.content_units,
+          pv.sku, pv.size, pv.color, pv.stock AS variant_stock, pv.min_stock AS variant_min_stock,
+          u.name as unit_name, u.abbreviation as unit_abbreviation
+    FROM product_variants pv
+    LEFT JOIN units_of_measure u ON u.id = pv.unit_id
+    WHERE pv.product_id = ? AND COALESCE(pv.active, 1) = 1 ORDER BY pv.name
+  `);
+  const getAttributes = db.prepare(`SELECT pav.attribute_id, ad.code, pav.value FROM product_attribute_values pav JOIN attribute_definitions ad ON ad.id = pav.attribute_id WHERE pav.product_id = ? ORDER BY ad.name`);
   for (const p of products) {
       p.variants = getVariants.all(p.id);
+      p.attributes = Object.fromEntries(getAttributes.all(p.id).map(attribute => [attribute.code, attribute.value]));
   }
   return products;
 }
 
 function getProductById(id) {
-  return db.prepare("SELECT * FROM products WHERE id = ?").get(id);
+  const product = db.prepare("SELECT p.*, pt.name as product_type_name, u.name as base_unit_name FROM products p LEFT JOIN product_types pt ON p.product_type_id = pt.id LEFT JOIN units_of_measure u ON p.base_unit_id = u.id WHERE p.id = ?").get(id);
+  if (product) {
+    const attributes = db.prepare("SELECT ad.code, pav.value FROM product_attribute_values pav JOIN attribute_definitions ad ON ad.id = pav.attribute_id WHERE pav.product_id = ?").all(id);
+    product.attributes = Object.fromEntries(attributes.map(attribute => [attribute.code, attribute.value]));
+  }
+  return product;
+}
+
+function saveProductAttributes(productId, attributes = {}) {
+  const getAttribute = db.prepare("SELECT id FROM attribute_definitions WHERE code = ? AND active = 1");
+  const deleteAttributes = db.prepare("DELETE FROM product_attribute_values WHERE product_id = ?");
+  const insertAttribute = db.prepare("INSERT INTO product_attribute_values (product_id, attribute_id, value) VALUES (?, ?, ?)");
+  deleteAttributes.run(productId);
+  for (const [code, value] of Object.entries(attributes)) {
+    if (value === undefined || value === null || String(value).trim() === "") continue;
+    const attribute = getAttribute.get(code);
+    if (attribute) insertAttribute.run(productId, attribute.id, String(value).trim());
+  }
+}
+
+function saveProductLots(productId, lots = []) {
+  const insertLot = db.prepare(`
+    INSERT INTO inventory_lots (product_id, variant_id, lot_number, expiration_date, quantity)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  for (const lot of lots) {
+    const lotNumber = String(lot.lot_number || '').trim();
+    const quantity = Number(lot.quantity);
+    if (!lotNumber || !Number.isFinite(quantity) || quantity < 0) continue;
+    insertLot.run(productId, lot.variant_id || null, lotNumber, lot.expiration_date || null, quantity);
+  }
+}
+
+function normalizeProductVariants(product, variants = []) {
+  const settings = getCompanySettings();
+  const businessType = settings?.business_type_id
+    ? db.prepare("SELECT code FROM business_types WHERE id = ?").get(settings.business_type_id)
+    : null;
+  const isPharmacy = businessType?.code === 'FARMACIA';
+  const isClothing = businessType?.code === 'ROPA';
+  if (isClothing) {
+    if (!variants.length) throw new Error("Agrega al menos una combinación de talla y color para este producto.");
+    const normalized = variants.map((variant, index) => {
+      const size = String(variant.size || '').trim();
+      const color = String(variant.color || '').trim();
+      const stock = Number(variant.stock);
+      const minStock = Number(variant.min_stock || 0);
+      if (!size || !color) throw new Error(`La variante ${index + 1} requiere talla y color.`);
+      if (!Number.isInteger(stock) || stock < 0 || !Number.isInteger(minStock) || minStock < 0) {
+        throw new Error(`La variante ${size} / ${color} requiere existencias y mínimo válidos.`);
+      }
+      const sku = String(variant.sku || `${product.code}-${size}-${color}`).trim().toUpperCase();
+      return {
+        ...variant,
+        name: `${size} - ${color}`,
+        sku,
+        size,
+        color,
+        stock,
+        min_stock: minStock,
+        conversion_factor: 1,
+        purchase_price: Number(variant.purchase_price ?? product.purchase_price ?? 0),
+        sale_price: Number(variant.sale_price ?? product.sale_price ?? 0),
+      };
+    });
+    const uniqueSkus = new Set();
+    const uniqueCombinations = new Set();
+    for (const variant of normalized) {
+      if (uniqueSkus.has(variant.sku)) throw new Error(`El SKU '${variant.sku}' está repetido en las variantes.`);
+      const combination = `${variant.size.toLocaleLowerCase()}|${variant.color.toLocaleLowerCase()}`;
+      if (uniqueCombinations.has(combination)) throw new Error(`La combinación '${variant.size} / ${variant.color}' está repetida.`);
+      uniqueSkus.add(variant.sku);
+      uniqueCombinations.add(combination);
+    }
+    return normalized;
+  }
+  const fractionedIndustries = ['FARMACIA', 'FERRETERIA', 'VETERINARIA', 'NATURISTA', 'MINIMERCADO', 'PAPELERIA_MISCELANEA', 'GENERAL', 'PERSONALIZADO'];
+  const isFractioned = fractionedIndustries.includes(businessType?.code) && ['FRACCIONADO', 'FRACCTIONED'].includes(product.sale_type);
+  if (!isFractioned) return variants;
+
+  const baseContent = Number(product.base_content_units);
+  if (isPharmacy ? (!Number.isInteger(baseContent) || baseContent < 1) : (!Number.isFinite(baseContent) || baseContent <= 0)) {
+    throw new Error(isPharmacy ? "Farmacia requiere un contenido base entero mayor o igual a 1." : "Ferretería requiere un contenido base mayor que 0.");
+  }
+
+  return variants.map(variant => {
+    const contentUnits = Number(variant.content_units);
+    if (isPharmacy ? (!Number.isInteger(contentUnits) || contentUnits < 1) : (!Number.isFinite(contentUnits) || contentUnits <= 0)) {
+      throw new Error(`La variante '${variant.name || 'sin nombre'}' requiere un contenido válido mayor que 0.`);
+    }
+    const factor = contentUnits / baseContent;
+    return {
+      ...variant,
+      content_units: contentUnits,
+      conversion_factor: factor,
+      purchase_price: Number(product.purchase_price || 0) * factor,
+    };
+  });
 }
 
 // Helper: asegura que exista la categoría y devuelve su id
@@ -847,14 +1025,55 @@ function ensureCategoryId(categoryName) {
   return res.lastInsertRowid;
 }
 
+function adjustProductStock(productId, quantityDelta, options = {}) {
+  const product = db.prepare("SELECT stock FROM products WHERE id = ?").get(productId);
+  if (!product) throw new Error(`Producto con id=${productId} no existe`);
+  const clothing = db.prepare(`
+    SELECT 1 FROM company_settings cs JOIN business_types bt ON bt.id = cs.business_type_id
+    WHERE cs.id = 1 AND bt.code = 'ROPA'
+  `).get();
+  if (clothing && options.variantId) {
+    const variant = db.prepare("SELECT stock, name FROM product_variants WHERE id = ? AND product_id = ?").get(options.variantId, productId);
+    if (!variant) throw new Error("Variante de ropa no encontrada.");
+    const variantStockAfter = Number(variant.stock || 0) + Number(quantityDelta);
+    if (variantStockAfter < 0) throw new Error(`Stock insuficiente para la variante ${variant.name}.`);
+    db.prepare("UPDATE product_variants SET stock = ?, active = CASE WHEN ? > 0 THEN 1 ELSE active END WHERE id = ?").run(variantStockAfter, quantityDelta, options.variantId);
+  }
+  const stockBefore = Number(product.stock) || 0;
+  const stockAfter = stockBefore + Number(quantityDelta);
+  if (stockAfter < 0) throw new Error("El stock no puede quedar negativo");
+
+  db.prepare("UPDATE products SET stock = ? WHERE id = ?").run(stockAfter, productId);
+  db.prepare(`
+    INSERT INTO inventory_movements
+      (product_id, variant_id, movement_type, quantity, stock_before, stock_after, reference_type, reference_id, reason, user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    productId,
+    options.variantId || null,
+    options.movementType || "CORRECTION",
+    quantityDelta,
+    stockBefore,
+    stockAfter,
+    options.referenceType || null,
+    options.referenceId || null,
+    options.reason || null,
+    options.userId || null
+  );
+  return { stockBefore, stockAfter };
+}
+
 function addProduct(p) {
   try {
     const catId = ensureCategoryId(p.category);
+    const variants = normalizeProductVariants(p, p.variants || []);
+    const isClothing = db.prepare(`SELECT 1 FROM company_settings cs JOIN business_types bt ON bt.id = cs.business_type_id WHERE cs.id = 1 AND bt.code = 'ROPA'`).get();
+    const parentStock = isClothing ? variants.reduce((sum, variant) => sum + variant.stock, 0) : (p.stock || 0);
     const result = db.transaction(() => {
         const productRes = db.prepare(`
-            INSERT INTO products (code, name, category, category_id, purchase_price, sale_price, special_price, special_price_2, stock, min_stock, supplier_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+            INSERT INTO products (code, name, category, category_id, purchase_price, sale_price, special_price, special_price_2, stock, min_stock, supplier_id, product_type_id, base_unit_id, base_content_units, sale_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
             p.code,
             p.name,
             p.category || null,
@@ -863,18 +1082,24 @@ function addProduct(p) {
             p.sale_price || 0,
             p.special_price || 0,
             p.special_price_2 || 0,
-            p.stock || 0,
+            parentStock,
             p.min_stock || 0,
-            p.supplier_id || null
+            p.supplier_id || null,
+            p.product_type_id || null,
+            p.base_unit_id || null,
+            p.base_content_units || null,
+            p.sale_type || 'SIMPLE'
         );
         const productId = productRes.lastInsertRowid;
-        if (p.variants && p.variants.length > 0) {
+          saveProductAttributes(productId, p.attributes);
+        saveProductLots(productId, p.lots);
+        if (variants.length > 0) {
             const insertVariant = db.prepare(`
-                INSERT INTO product_variants (product_id, name, sale_price, special_price, special_price_2, conversion_factor, purchase_price)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+              INSERT INTO product_variants (product_id, name, sale_price, special_price, special_price_2, conversion_factor, purchase_price, unit_id, content_units, sku, size, color, stock, min_stock)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
-            for (const v of p.variants) {
-                insertVariant.run(productId, v.name, v.sale_price, v.special_price || 0, v.special_price_2 || 0, v.conversion_factor, v.purchase_price || 0);
+            for (const v of variants) {
+              insertVariant.run(productId, v.name, v.sale_price, v.special_price || 0, v.special_price_2 || 0, v.conversion_factor || 1, v.purchase_price || 0, v.unit_id || null, v.content_units || null, v.sku || null, v.size || null, v.color || null, v.stock || 0, v.min_stock || 0);
             }
         }
         return productId;
@@ -888,10 +1113,13 @@ function addProduct(p) {
 function updateProduct(p) {
   try {
     const catId = ensureCategoryId(p.category);
+    const variants = normalizeProductVariants(p, p.variants || []);
+    const isClothing = db.prepare(`SELECT 1 FROM company_settings cs JOIN business_types bt ON bt.id = cs.business_type_id WHERE cs.id = 1 AND bt.code = 'ROPA'`).get();
+    const parentStock = isClothing ? variants.reduce((sum, variant) => sum + variant.stock, 0) : (p.stock || 0);
     db.transaction(() => {
         db.prepare(`
             UPDATE products 
-            SET code=?, name=?, category=?, category_id=?, purchase_price=?, sale_price=?, special_price=?, special_price_2=?, stock=?, min_stock=?, supplier_id=?
+            SET code=?, name=?, category=?, category_id=?, purchase_price=?, sale_price=?, special_price=?, special_price_2=?, stock=?, min_stock=?, supplier_id=?, product_type_id=?, base_unit_id=?, base_content_units=?, sale_type=?
             WHERE id=?
         `).run(
             p.code,
@@ -902,20 +1130,56 @@ function updateProduct(p) {
             p.sale_price || 0,
             p.special_price || 0,
             p.special_price_2 || 0,
-            p.stock || 0,
+            parentStock,
             p.min_stock || 0,
             p.supplier_id || null,
+            p.product_type_id || null,
+            p.base_unit_id || null,
+            p.base_content_units || null,
+            p.sale_type || 'SIMPLE',
             p.id
         );
-        // Borrar variantes antiguas e insertar nuevas
-        db.prepare("DELETE FROM product_variants WHERE product_id=?").run(p.id);
-        if (p.variants && p.variants.length > 0) {
+          saveProductAttributes(p.id, p.attributes);
+        db.prepare("DELETE FROM inventory_lots WHERE product_id = ?").run(p.id);
+        saveProductLots(p.id, p.lots);
+        if (isClothing) {
+          const existingVariants = db.prepare("SELECT id, stock FROM product_variants WHERE product_id = ? AND active = 1").all(p.id);
+          const retainedIds = new Set(variants.map(variant => Number(variant.id)).filter(Boolean));
+          for (const oldVariant of existingVariants) {
+            if (!retainedIds.has(oldVariant.id) && Number(oldVariant.stock) > 0) {
+              throw new Error("No se puede retirar una combinación con existencias. Ajusta primero su stock a cero.");
+            }
+          }
+          const updateVariant = db.prepare(`
+            UPDATE product_variants SET name = ?, sale_price = ?, special_price = ?, special_price_2 = ?,
+            conversion_factor = 1, purchase_price = ?, unit_id = NULL, content_units = NULL,
+            sku = ?, size = ?, color = ?, stock = ?, min_stock = ?, active = 1
+            WHERE id = ? AND product_id = ?
+          `);
+          const insertVariant = db.prepare(`
+            INSERT INTO product_variants (product_id, name, sale_price, special_price, special_price_2, conversion_factor, purchase_price, unit_id, content_units, sku, size, color, stock, min_stock)
+            VALUES (?, ?, ?, ?, ?, 1, ?, NULL, NULL, ?, ?, ?, ?, ?)
+          `);
+          for (const variant of variants) {
+            if (variant.id && existingVariants.some(existing => existing.id === Number(variant.id))) {
+              updateVariant.run(variant.name, variant.sale_price, variant.special_price || 0, variant.special_price_2 || 0, variant.purchase_price || 0, variant.sku, variant.size, variant.color, variant.stock, variant.min_stock, variant.id, p.id);
+            } else {
+              insertVariant.run(p.id, variant.name, variant.sale_price, variant.special_price || 0, variant.special_price_2 || 0, variant.purchase_price || 0, variant.sku, variant.size, variant.color, variant.stock, variant.min_stock);
+            }
+          }
+          for (const oldVariant of existingVariants) {
+            if (!retainedIds.has(oldVariant.id)) db.prepare("UPDATE product_variants SET active = 0 WHERE id = ?").run(oldVariant.id);
+          }
+        } else {
+          db.prepare("DELETE FROM product_variants WHERE product_id=?").run(p.id);
+        }
+        if (!isClothing && variants.length > 0) {
             const insertVariant = db.prepare(`
-                INSERT INTO product_variants (product_id, name, sale_price, special_price, special_price_2, conversion_factor, purchase_price)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+              INSERT INTO product_variants (product_id, name, sale_price, special_price, special_price_2, conversion_factor, purchase_price, unit_id, content_units, sku, size, color, stock, min_stock)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
-            for (const v of p.variants) {
-                insertVariant.run(p.id, v.name, v.sale_price, v.special_price || 0, v.special_price_2 || 0, v.conversion_factor, v.purchase_price || 0);
+            for (const v of variants) {
+              insertVariant.run(p.id, v.name, v.sale_price, v.special_price || 0, v.special_price_2 || 0, v.conversion_factor || 1, v.purchase_price || 0, v.unit_id || null, v.content_units || null, v.sku || null, v.size || null, v.color || null, v.stock || 0, v.min_stock || 0);
             }
         }
     })();
@@ -927,8 +1191,9 @@ function updateProduct(p) {
 
 function deleteProduct(id) {
   try {
-    db.prepare("DELETE FROM products WHERE id=?").run(id);
-    return { success: true, message: "Producto eliminado" };
+    const result = db.prepare("UPDATE products SET active = 0 WHERE id = ? AND active = 1").run(id);
+    if (result.changes === 0) return { success: false, message: "Producto no encontrado o ya archivado" };
+    return { success: true, message: "Producto archivado" };
   } catch (err) {
     return { success: false, message: String(err) };
   }
@@ -944,6 +1209,9 @@ function createSale({
   cash_payment = 0, 
   transfer_payment = 0,
   transfer_reference = null,
+  subtotal_amount = null,
+  tax_amount = null,
+  include_iva = false,
   service_id = null,
   due_date = null,
   status = 'active',
@@ -961,8 +1229,11 @@ function createSale({
       transfer_payment, 
       due_date, 
       status,
-      notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      notes,
+      subtotal_amount,
+      tax_amount,
+      include_iva
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertPayment = db.prepare(`
@@ -975,9 +1246,9 @@ function createSale({
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
   const getProduct = db.prepare("SELECT id, code, name, stock FROM products WHERE id = ?");
   const getVariant = db.prepare("SELECT * FROM product_variants WHERE id = ?");
+  const clothingInventory = db.prepare(`SELECT 1 FROM company_settings cs JOIN business_types bt ON bt.id = cs.business_type_id WHERE cs.id = 1 AND bt.code = 'ROPA'`).get();
 
   const trx = db.transaction((client_id, items, cash_payment, transfer_payment, transfer_reference, service_id, notes) => {
     const formattedDate = new Date().toLocaleString('sv-SE'); // Genera YYYY-MM-DD HH:mm:ss local para compatibilidad
@@ -996,9 +1267,13 @@ function createSale({
           const variant = getVariant.get(it.variant_id);
           if (!variant) throw new Error(`Variante con id=${it.variant_id} no existe`);
           price = it.price ?? variant.sale_price;
-          conversionFactor = variant.conversion_factor;
+          conversionFactor = clothingInventory ? 1 : variant.conversion_factor;
           stockToDecrement = it.quantity * conversionFactor;
+          if (clothingInventory && Number(variant.stock || 0) < stockToDecrement) {
+            throw new Error(`Stock insuficiente para ${prod.name} (${variant.size} - ${variant.color}).`);
+          }
         } else {
+          if (clothingInventory) throw new Error(`Selecciona una talla y color para ${prod.name}.`);
           price = it.price ?? prod.sale_price;
           stockToDecrement = it.quantity;
         }
@@ -1011,25 +1286,50 @@ function createSale({
       total += price * it.quantity;
     }
 
-    // Calcular el cambio y el valor neto en efectivo antes de registrar la venta
-    const change = Math.max(0, (cash_payment + transfer_payment) - total);
+    const netTotal = Math.round(total);
+    const shouldIncludeIva = Boolean(include_iva) || Number(tax_amount) > 0;
+    const finalTax = shouldIncludeIva ? Math.round(netTotal * 0.19) : 0;
+    total = netTotal + finalTax;
+
+    // Los abonos de servicios ya entraron a caja antes de cerrar la venta.
+    // Se recalculan aquí para que el backend sea la fuente de verdad.
+    const serviceIds = new Set(items.map(it => it.service_id).filter(Boolean));
+    if (service_id) serviceIds.add(service_id);
+    let previousPaymentsTotal = 0;
+    if (serviceIds.size > 0) {
+      const getServicePaymentsTotal = db.prepare("SELECT COALESCE(SUM(amount), 0) AS total FROM service_payments WHERE service_id = ?");
+      for (const serviceId of serviceIds) {
+        previousPaymentsTotal += Number(getServicePaymentsTotal.get(serviceId).total) || 0;
+      }
+    }
+
+    const amountDue = Math.max(0, total - previousPaymentsTotal);
+    const totalReceived = Math.max(0, cash_payment) + Math.max(0, transfer_payment);
+    const change = Math.max(0, totalReceived - amountDue);
+    if (change > cash_payment + 0.01) {
+      throw new Error("El cambio no puede superar el efectivo recibido. Ajusta efectivo y transferencia.");
+    }
     const netCashValue = Math.max(0, cash_payment - change);
 
-    const finalPaid = (sale_type === 'credit') ? paid_amount : total;
-    const finalOutstanding = (sale_type === 'credit') ? outstanding_balance : 0;
+    const appliedPayment = Math.min(amountDue, totalReceived);
+    const finalPaid = Math.min(total, previousPaymentsTotal + appliedPayment);
+    const finalOutstanding = sale_type === 'credit' ? amountDue : Math.max(0, amountDue - totalReceived);
 
     const saleRes = insertSale.run(
       client_id || null,
       total,
       formattedDate,
       sale_type,
-      finalPaid, // Establecer el total pagado al costo total de la venta
+      finalPaid,
       finalOutstanding,
       netCashValue, // Registrar el valor neto en la tabla sales
       transfer_payment,
       due_date,
       status,
-      notes
+      notes,
+      netTotal,
+      finalTax,
+      shouldIncludeIva ? 1 : 0
     );
     const saleId = saleRes.lastInsertRowid;
 
@@ -1044,7 +1344,7 @@ function createSale({
         if (it.variant_id) {
           const variant = getVariant.get(it.variant_id);
           if (variant) {
-            conversionFactor = variant.conversion_factor;
+            conversionFactor = clothingInventory ? 1 : variant.conversion_factor;
           }
         }
       }
@@ -1055,7 +1355,13 @@ function createSale({
       );
 
       if (it.product_id && !it.skip_stock) {
-        updateStock.run(it.quantity * conversionFactor, it.product_id);
+        adjustProductStock(it.product_id, -(it.quantity * conversionFactor), {
+          variantId: it.variant_id,
+          movementType: "SALE",
+          referenceType: "sale",
+          referenceId: saleId,
+          reason: "Salida por venta"
+        });
       }
     }
 
@@ -1148,16 +1454,23 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName, due_
         if (!originalSale) throw new Error("Venta no encontrada para editar.");
 
         const originalItems = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(saleId);
+        const clothingInventory = db.prepare(`SELECT 1 FROM company_settings cs JOIN business_types bt ON bt.id = cs.business_type_id WHERE cs.id = 1 AND bt.code = 'ROPA'`).get();
 
         // 2. Calculate and apply stock adjustments
         const stockAdjustments = new Map();
+        const variantStockAdjustments = new Map();
         const returns = []; // Para el punto 4: Detalle de devoluciones
 
         // Add back original stock
         for (const item of originalItems) {
             if (item.product_id && !item.skip_stock) { // ⚠️ Solo devolver si se descontó
-                const quantityToReturn = item.quantity * (item.conversion_factor || 1);
-                stockAdjustments.set(item.product_id, (stockAdjustments.get(item.product_id) || 0) + quantityToReturn);
+            const quantityToReturn = item.quantity * (clothingInventory ? 1 : (item.conversion_factor || 1));
+            if (clothingInventory && item.variant_id) {
+              const key = `${item.product_id}:${item.variant_id}`;
+              variantStockAdjustments.set(key, { productId: item.product_id, variantId: item.variant_id, quantity: (variantStockAdjustments.get(key)?.quantity || 0) + quantityToReturn });
+            } else {
+              stockAdjustments.set(item.product_id, (stockAdjustments.get(item.product_id) || 0) + quantityToReturn);
+            }
             }
         }
 
@@ -1167,10 +1480,15 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName, due_
             newTotalAmount += item.subtotal;
             if (item.product_id && !item.skip_stock) { // ⚠️ Solo descontar si no es skip_stock
                 const conversionFactor = item.variant_id 
-                    ? (db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?").get(item.variant_id)?.conversion_factor || 1)
+                  ? (clothingInventory ? 1 : (db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?").get(item.variant_id)?.conversion_factor || 1))
                     : 1;
                 const quantityToDecrement = item.quantity * conversionFactor;
-                stockAdjustments.set(item.product_id, (stockAdjustments.get(item.product_id) || 0) - quantityToDecrement);
+                if (clothingInventory && item.variant_id) {
+                  const key = `${item.product_id}:${item.variant_id}`;
+                  variantStockAdjustments.set(key, { productId: item.product_id, variantId: item.variant_id, quantity: (variantStockAdjustments.get(key)?.quantity || 0) - quantityToDecrement });
+                } else {
+                  stockAdjustments.set(item.product_id, (stockAdjustments.get(item.product_id) || 0) - quantityToDecrement);
+                }
             }
         }
 
@@ -1191,7 +1509,6 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName, due_
             }
         }
 
-        const updateStockStmt = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
         for (const [productId, quantityChange] of stockAdjustments.entries()) {
             if (quantityChange < 0) {
                 const product = db.prepare("SELECT name, stock FROM products WHERE id = ?").get(productId);
@@ -1199,7 +1516,21 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName, due_
                     throw new Error(`Stock insuficiente para '${product.name}' al editar la venta.`);
                 }
             }
-            updateStockStmt.run(quantityChange, productId);
+            adjustProductStock(productId, quantityChange, {
+              movementType: quantityChange >= 0 ? "SALE_RETURN" : "SALE",
+              referenceType: "sale",
+              referenceId: saleId,
+              reason: "Ajuste por edición de venta"
+            });
+        }
+        for (const adjustment of variantStockAdjustments.values()) {
+            adjustProductStock(adjustment.productId, adjustment.quantity, {
+              variantId: adjustment.variantId,
+              movementType: adjustment.quantity >= 0 ? "SALE_RETURN" : "SALE",
+              referenceType: "sale",
+              referenceId: saleId,
+              reason: "Ajuste de combinación por edición de venta"
+            });
         }
 
         // 3. Update sale items
@@ -1332,7 +1663,17 @@ function getSaleById(id) {
 }
 
 function getSaleItems(saleId) {
-  return db.prepare("SELECT id, sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, variant_id, conversion_factor, skip_stock FROM sale_items WHERE sale_id = ?").all(saleId);
+  return db.prepare(`
+    SELECT si.id, si.sale_id, si.product_id, si.product_name, si.product_code, si.serial_number,
+           si.quantity, si.price, si.subtotal, si.variant_id, si.conversion_factor, si.skip_stock,
+           pv.name as variant_name, pv.size as variant_size, pv.color as variant_color,
+           p.name as parent_product_name, u.name as variant_unit_name, u.abbreviation as variant_unit_abbreviation
+    FROM sale_items si
+    LEFT JOIN product_variants pv ON pv.id = si.variant_id
+    LEFT JOIN products p ON p.id = si.product_id
+    LEFT JOIN units_of_measure u ON u.id = pv.unit_id
+    WHERE si.sale_id = ?
+  `).all(saleId);
 }
 
 function getSalePaymentById(id) {
@@ -1527,7 +1868,13 @@ function deleteSaleItem(id) {
   const trx = db.transaction((itemId) => {
     if (item.product_id && !item.skip_stock) { // ⚠️ Solo restaurar si no era skip_stock
       const factor = item.conversion_factor || 1;
-      db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(item.quantity * factor, item.product_id);
+      adjustProductStock(item.product_id, item.quantity * factor, {
+        variantId: item.variant_id,
+        movementType: "SALE_RETURN",
+        referenceType: "sale_item",
+        referenceId: item.sale_id,
+        reason: "Devolución de artículo de venta"
+      });
     }
     db.prepare("DELETE FROM sale_items WHERE id = ?").run(itemId);
     const newTotalRow = db.prepare("SELECT SUM(subtotal) as total FROM sale_items WHERE sale_id = ?").get(item.sale_id);
@@ -1549,7 +1896,6 @@ function annulSale(id) {
       if (sale.status === 'annulled') throw new Error("La venta ya está anulada.");
 
       const items = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(id);
-      const updateStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
       const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
 
       for (const it of items) {
@@ -1559,7 +1905,13 @@ function annulSale(id) {
             const v = getVariant.get(it.variant_id);
             if (v) factor = v.conversion_factor;
           }
-          updateStock.run(it.quantity * factor, it.product_id);
+          adjustProductStock(it.product_id, it.quantity * factor, {
+            variantId: it.variant_id,
+            movementType: "SALE_RETURN",
+            referenceType: "sale",
+            referenceId: id,
+            reason: "Reverso por anulación de venta"
+          });
         }
       }
 
@@ -1872,6 +2224,186 @@ function getCompanySettings() {
   return db.prepare("SELECT * FROM company_settings WHERE id = 1").get();
 }
 
+function getBusinessTypes() {
+  return db.prepare("SELECT id, code, name, description, active FROM business_types WHERE active = 1 ORDER BY sort_order, name").all();
+}
+
+function updateBusinessType(businessTypeId) {
+  const businessType = db.prepare("SELECT id FROM business_types WHERE id = ? AND active = 1").get(businessTypeId);
+  if (!businessType) return { success: false, message: "Tipo de negocio no válido." };
+  db.prepare("UPDATE company_settings SET business_type_id = ?, updated_at = DATETIME('now', 'localtime') WHERE id = 1").run(businessTypeId);
+  return { success: true, message: "Tipo de negocio actualizado." };
+}
+
+function getProductFormConfig() {
+  const settings = getCompanySettings();
+  const businessTypeId = settings && settings.business_type_id;
+  const businessType = businessTypeId
+    ? db.prepare("SELECT id, code, name, description FROM business_types WHERE id = ? AND active = 1").get(businessTypeId)
+    : null;
+  const productTypes = businessTypeId
+    ? db.prepare(`SELECT pt.id, pt.code, pt.name, pt.description, bpt.required FROM product_types pt JOIN business_type_product_types bpt ON bpt.product_type_id = pt.id WHERE bpt.business_type_id = ? AND pt.active = 1 ORDER BY pt.name`).all(businessTypeId)
+    : db.prepare("SELECT id, code, name, description, 0 AS required FROM product_types WHERE active = 1 ORDER BY name").all();
+  const units = db.prepare("SELECT id, code, name, abbreviation FROM units_of_measure WHERE active = 1 ORDER BY name").all();
+  const attributes = businessTypeId
+    ? db.prepare(`SELECT a.id, a.code, a.name, a.value_type, bta.required, bta.sort_order FROM attribute_definitions a JOIN business_type_attributes bta ON bta.attribute_id = a.id WHERE bta.business_type_id = ? AND a.active = 1 ORDER BY bta.sort_order, a.name`).all(businessTypeId)
+    : [];
+  const strategies = {
+    FERRETERIA: { saleTypes: ['SIMPLE', 'FRACCIONADO'], defaultSaleType: 'SIMPLE', contentLabel: 'Contenido total base', contentHelp: 'Kg, metros, litros, piezas o unidades de la presentación.' },
+    FARMACIA: { saleTypes: ['SIMPLE', 'FRACCIONADO'], defaultSaleType: 'SIMPLE', contentLabel: 'Contenido de la caja (unidades mínimas)', contentHelp: 'Usa SIMPLE para vender la caja completa o FRACCIONADO para vender unidades o medidas internas.' },
+    VETERINARIA: { saleTypes: ['SIMPLE', 'FRACCIONADO'], defaultSaleType: 'SIMPLE', contentLabel: 'Contenido total del empaque', contentHelp: 'Kg, gramos, dosis o unidades por empaque.' },
+    ROPA: { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE' },
+    CALZADO: { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE' },
+    TALLER_MOTOS: { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE' },
+    TALLER_AUTOMOTRIZ: { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE' },
+    REPUESTOS: { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE' },
+    AIRES_ACONDICIONADOS: { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE' },
+    CALEFACCION: { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE' },
+    NATURISTA: { saleTypes: ['SIMPLE', 'FRACCIONADO'], defaultSaleType: 'SIMPLE', contentLabel: 'Contenido total del empaque', contentHelp: 'Gotas, frascos, cápsulas o gramos por presentación.' },
+    TECNOLOGIA: { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE' },
+    MINIMERCADO: { saleTypes: ['SIMPLE', 'FRACCIONADO'], defaultSaleType: 'SIMPLE', contentLabel: 'Contenido total del empaque', contentHelp: 'Kg, libras, litros o unidades por empaque.' },
+    PAPELERIA_MISCELANEA: { saleTypes: ['SIMPLE', 'FRACCIONADO'], defaultSaleType: 'SIMPLE', contentLabel: 'Contenido total de la presentación', contentHelp: 'Hojas, metros o unidades por empaque.' },
+    SERVICIOS: { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE', inventory: false, supplier: false, variants: false },
+    GENERAL: { saleTypes: ['SIMPLE', 'FRACCIONADO'], defaultSaleType: 'SIMPLE', contentLabel: 'Contenido total base', contentHelp: 'Cantidad, peso, longitud o volumen de la presentación.' },
+    PERSONALIZADO: { saleTypes: ['SIMPLE', 'FRACCIONADO'], defaultSaleType: 'SIMPLE', contentLabel: 'Contenido total base', contentHelp: 'Cantidad o medida de la presentación.' },
+  };
+  const strategy = strategies[businessType?.code] || { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE' };
+
+  return {
+    businessType,
+    inventoryModel: businessType?.code === 'ROPA' ? 'ATTRIBUTE_MATRIX' : 'CONVERSION_VARIANTS',
+    productTypes,
+    units,
+    attributes,
+    strategy,
+    workflows: {
+      lotsAndExpiration: ['FARMACIA', 'VETERINARIA', 'NATURISTA', 'MINIMERCADO'].includes(businessType?.code),
+      serialTracking: ['TECNOLOGIA', 'REPUESTOS', 'TALLER_MOTOS', 'TALLER_AUTOMOTRIZ'].includes(businessType?.code),
+    },
+    sections: {
+      identity: true,
+      pricing: true,
+      inventory: strategy.inventory !== false && businessType?.code !== 'SERVICIOS',
+      supplier: strategy.supplier !== false && businessType?.code !== 'SERVICIOS',
+      variants: strategy.variants !== false && !['SERVICIOS', 'GENERAL'].includes(businessType?.code),
+      pharmacyPackaging: businessType?.code === 'FARMACIA',
+    }
+  };
+}
+
+function getBusinessModuleConfig() {
+  const settings = getCompanySettings();
+  const businessType = settings?.business_type_id
+    ? db.prepare("SELECT code, name, description FROM business_types WHERE id = ? AND active = 1").get(settings.business_type_id)
+    : null;
+  const code = businessType?.code || 'GENERAL';
+  let servicesEnabled = false;
+  try {
+    servicesEnabled = Boolean(JSON.parse(settings?.services_config || '{}').enabled);
+  } catch (error) {
+    servicesEnabled = false;
+  }
+  const serviceBusinesses = ['TALLER_MOTOS', 'TALLER_AUTOMOTRIZ', 'AIRES_ACONDICIONADOS', 'CALEFACCION', 'SERVICIOS'];
+  const inventoryBusinesses = code !== 'SERVICIOS';
+  return {
+    businessType,
+    modules: {
+      clients: true,
+      suppliers: inventoryBusinesses,
+      products: inventoryBusinesses,
+      sales: true,
+      purchases: inventoryBusinesses,
+      quotes: true,
+      services: serviceBusinesses.includes(code) || servicesEnabled,
+      expenses: true,
+      cashRegister: true,
+      reports: true,
+      support: true,
+    },
+    workflows: {
+      inventory: inventoryBusinesses,
+      serviceMaterials: serviceBusinesses.includes(code),
+      serialTracking: ['TECNOLOGIA', 'REPUESTOS', 'TALLER_MOTOS', 'TALLER_AUTOMOTRIZ'].includes(code),
+      lotsAndExpiration: ['FARMACIA', 'VETERINARIA', 'NATURISTA', 'MINIMERCADO'].includes(code),
+    }
+  };
+}
+
+function getInstallationState() {
+  const settings = getCompanySettings();
+  const userCount = db.prepare("SELECT COUNT(*) AS count FROM users").get().count;
+  return {
+    completed: Boolean(settings && settings.initial_setup_completed),
+    hasUsers: userCount > 0,
+    businessTypeId: settings ? settings.business_type_id : null,
+  };
+}
+
+function saveInitialSetup(data) {
+  try {
+    const setup = data || {};
+    const settings = getCompanySettings();
+    if (!settings || settings.initial_setup_completed) {
+      return { success: false, message: "La configuración inicial ya fue completada." };
+    }
+
+    const businessType = db.prepare("SELECT id FROM business_types WHERE id = ? AND active = 1").get(setup.business_type_id);
+    if (!businessType) return { success: false, message: "Seleccione un tipo de negocio válido." };
+    if (!setup.company_name || !setup.company_name.trim()) return { success: false, message: "El nombre de la empresa es obligatorio." };
+    if (!setup.username || !setup.username.trim()) return { success: false, message: "El usuario administrador es obligatorio." };
+    if (!setup.password || setup.password.length < 5) return { success: false, message: "La contraseña debe tener al menos 5 caracteres." };
+
+    const hash = hashPassword(setup.password);
+    const save = db.transaction(() => {
+      const existingAdmin = db.prepare("SELECT id FROM users WHERE username = 'admin' AND role = 'admin' ORDER BY id LIMIT 1").get();
+      if (existingAdmin && db.prepare("SELECT COUNT(*) AS count FROM users").get().count === 1) {
+        db.prepare("UPDATE users SET username = ?, password_hash = ?, name = ?, role = 'admin' WHERE id = ?")
+          .run(setup.username.trim(), hash, setup.admin_name?.trim() || setup.username.trim(), existingAdmin.id);
+      } else {
+        db.prepare("INSERT INTO users (username, password_hash, role, name) VALUES (?, ?, 'admin', ?)")
+          .run(setup.username.trim(), hash, setup.admin_name?.trim() || setup.username.trim());
+      }
+
+      db.prepare(`
+        UPDATE company_settings SET
+          business_type_id = ?,
+          company_name = ?,
+          company_id_card_or_nit = ?,
+          company_address = ?,
+          company_email = ?,
+          company_phone = ?,
+          currency_code = ?,
+          country_code = ?,
+          inventory_config = ?,
+          sales_config = ?,
+          services_config = ?,
+          printing_config = ?,
+          initial_setup_completed = 1,
+          updated_at = DATETIME('now', 'localtime')
+        WHERE id = 1
+      `).run(
+        setup.business_type_id,
+        setup.company_name.trim(),
+        setup.company_id_card_or_nit?.trim() || null,
+        setup.company_address?.trim() || null,
+        setup.company_email?.trim() || null,
+        setup.company_phone?.trim() || null,
+        setup.currency_code || 'COP',
+        setup.country_code || 'CO',
+        JSON.stringify(setup.inventory_config || {}),
+        JSON.stringify(setup.sales_config || {}),
+        JSON.stringify(setup.services_config || {}),
+        JSON.stringify(setup.printing_config || {})
+      );
+    });
+
+    save();
+    return { success: true, message: "Configuración inicial guardada correctamente." };
+  } catch (error) {
+    return { success: false, message: String(error.message || error) };
+  }
+}
+
 function updateCompanySettings(s) {
   try {
     db.prepare(`
@@ -1881,7 +2413,8 @@ function updateCompanySettings(s) {
         company_address = ?,
         company_email = ?,
         company_phone = ?,
-        logo_path = ?
+        logo_path = ?,
+        updated_at = DATETIME('now', 'localtime')
       WHERE id = 1
     `).run(
       s.company_name || null,
@@ -1941,6 +2474,24 @@ function saveExpense(expense) {
   return { success: true, id: info.lastInsertRowid };
 }
 
+function updateExpense(expense) {
+  const current = getExpenseById(expense.id);
+  if (!current) return { success: false, message: "Gasto no encontrado" };
+  const update = db.prepare(`UPDATE expenses SET description = ?, amount = ?, category = ?, date = ?, method = ?, reference = ? WHERE id = ?`);
+  const transaction = db.transaction(() => {
+    db.prepare("DELETE FROM cash_movements WHERE related_id = ?").run(expense.id);
+    update.run(expense.description, expense.amount, expense.category, expense.date, expense.method || 'cash', expense.reference || null, expense.id);
+    const cashRegister = require("./cashRegister");
+    const activeSession = cashRegister.getActiveSession();
+    if (activeSession) {
+      const subtype = expense.method === 'transfer' ? 'expense_transfer' : 'expense_cash';
+      cashRegister.addCashMovement(activeSession.id, "out", subtype, expense.amount, expense.description, expense.id);
+    }
+  });
+  try { transaction(); return { success: true, message: "Gasto actualizado" }; }
+  catch (error) { return { success: false, message: error.message }; }
+}
+
 function deleteExpense(id) {
   // Eliminar el gasto y cualquier movimiento de caja relacionado
   db.prepare("DELETE FROM expenses WHERE id = ?").run(id);
@@ -1978,6 +2529,49 @@ function getInventory() {
   const products = db.prepare("SELECT * FROM products ORDER BY name").all();
   const totalValue = getInventoryTotalValue();
   return { products, totalValue };
+}
+
+function getInventoryMovements(productId, limit = 100) {
+  return db.prepare(`
+    SELECT im.*, p.name as product_name, p.code as product_code,
+           pv.name as variant_name, u.abbreviation as unit_abbreviation
+    FROM inventory_movements im
+    JOIN products p ON p.id = im.product_id
+    LEFT JOIN product_variants pv ON pv.id = im.variant_id
+    LEFT JOIN units_of_measure u ON u.id = pv.unit_id
+    WHERE im.product_id = ?
+    ORDER BY im.created_at DESC, im.id DESC
+    LIMIT ?
+  `).all(productId, limit);
+}
+
+function getInventoryLots(productId) {
+  return db.prepare(`
+    SELECT il.*, p.name as product_name, pv.name as variant_name
+    FROM inventory_lots il
+    JOIN products p ON p.id = il.product_id
+    LEFT JOIN product_variants pv ON pv.id = il.variant_id
+    WHERE il.product_id = ?
+    ORDER BY il.expiration_date IS NULL, il.expiration_date, il.lot_number
+  `).all(productId);
+}
+
+function getExpirationAlerts(days = 30, status = 'all') {
+  const safeDays = Math.max(0, Math.min(Number(days) || 30, 3650));
+  let condition = "il.expiration_date IS NOT NULL AND il.quantity > 0";
+  if (status === 'expired') condition += " AND il.expiration_date < date('now', 'localtime')";
+  if (status === 'expiring') condition += " AND il.expiration_date >= date('now', 'localtime') AND il.expiration_date <= date('now', 'localtime', '+' || ? || ' days')";
+  const params = status === 'expiring' ? [safeDays] : [];
+  return db.prepare(`
+    SELECT il.id, il.product_id, il.variant_id, il.lot_number, il.expiration_date, il.quantity,
+           p.name AS product_name, p.code AS product_code, pv.name AS variant_name,
+           CAST(julianday(il.expiration_date) - julianday(date('now', 'localtime')) AS INTEGER) AS days_remaining
+    FROM inventory_lots il
+    JOIN products p ON p.id = il.product_id
+    LEFT JOIN product_variants pv ON pv.id = il.variant_id
+    WHERE ${condition}
+    ORDER BY il.expiration_date ASC, p.name ASC, il.lot_number ASC
+  `).all(...params);
 }
 
 // generar reportes de ventas (diario, semanal, mensual)
@@ -2192,7 +2786,6 @@ function getPurchaseOrderById(id) {
 function receivePurchaseOrder(orderId) {
   const getOrder = db.prepare("SELECT * FROM purchase_orders WHERE id = ?");
   const getOrderItems = db.prepare("SELECT * FROM purchase_order_items WHERE purchase_order_id = ?");
-  const updateProductStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
   
   // Actualizamos estado y establecemos la deuda inicial igual al total de la orden
   const updateOrderStatus = db.prepare(`
@@ -2212,7 +2805,12 @@ function receivePurchaseOrder(orderId) {
 
     const items = getOrderItems.all(id);
     for (const item of items) {
-      updateProductStock.run(item.quantity, item.product_id);
+      adjustProductStock(item.product_id, item.quantity, {
+        movementType: "PURCHASE",
+        referenceType: "purchase_order",
+        referenceId: id,
+        reason: "Entrada por recepción de compra"
+      });
     }
 
     updateOrderStatus.run(order.total_amount, id);
@@ -2321,14 +2919,17 @@ function addPurchasePayment({ orderId, amount, method, reference, date, notes, r
     const order = getPurchaseOrderById(orderId);
     if (!order) return { success: false, message: "Orden de compra no encontrada" };
 
-    if (amount <= 0) return { success: false, message: "El monto debe ser mayor a 0" };
+    const netAmount = Number(amount) || 0;
+    const withheldAmount = Number(retentionAmount) || 0;
+    if (netAmount < 0 || withheldAmount < 0) return { success: false, message: "Los valores del pago no pueden ser negativos" };
+    if (netAmount === 0 && withheldAmount === 0) return { success: false, message: "El pago o la retención debe ser mayor a 0" };
 
     const transaction = db.transaction(() => {
       // A. Insertar el pago
       db.prepare(`
         INSERT INTO purchase_payments (purchase_order_id, date, amount, method, reference, notes, retention_amount, retention_type, created_at) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', 'localtime'))
-      `).run(orderId, date, amount, method, reference, notes, retentionAmount, retentionType);
+      `).run(orderId, date, netAmount, method, reference, notes, withheldAmount, retentionType);
 
       // B. Actualizar la Orden de Compra
       // Registrar movimiento de caja: efectivo o transferencia
@@ -2336,24 +2937,32 @@ function addPurchasePayment({ orderId, amount, method, reference, date, notes, r
       const activeSession = cashRegister.getActiveSession();
       if (activeSession) {
         if (method === 'cash') {
-          cashRegister.addCashMovement(activeSession.id, "out", "purchase_payment", amount, `Pago Proveedor OC #${order.po_number || orderId}`, orderId);
+          if (netAmount > 0) cashRegister.addCashMovement(activeSession.id, "out", "purchase_payment", netAmount, `Pago Proveedor OC #${order.po_number || orderId}`, orderId);
         } else if (method === 'transfer' || method === 'bank' || method === 'transferencia') {
           // registrar como salida por transferencia
-          cashRegister.addCashMovement(activeSession.id, "out", "purchase_payment_transfer", amount, `Pago Proveedor OC #${order.po_number || orderId}`, orderId);
+          if (netAmount > 0) cashRegister.addCashMovement(activeSession.id, "out", "purchase_payment_transfer", netAmount, `Pago Proveedor OC #${order.po_number || orderId}`, orderId);
         }
       }
-      const totalDebtReduction = amount + (retentionAmount || 0); // La deuda baja por lo pagado + lo retenido
+      const totalDebtReduction = netAmount + withheldAmount;
+      const taxableBase = order.include_iva ? totalDebtReduction / 1.19 : totalDebtReduction;
+      if (withheldAmount > taxableBase + 0.01) {
+        throw new Error("La retención no puede superar el subtotal antes de IVA.");
+      }
       const newPaid = (order.paid_amount || 0) + totalDebtReduction;
       
       // Si el saldo era 0 y el estado pendiente (migración de datos viejos), asumimos saldo inicial = total
       let currentBalance = order.outstanding_balance;
       // Corrección para órdenes antiguas que ya estaban recibidas pero sin saldo calculado
       if ((currentBalance === 0 || currentBalance === null) && order.status === 'completed' && (!order.payment_status || order.payment_status === 'pending')) {
-          currentBalance = order.total_amount;
+          currentBalance = order.total_amount - (order.discount_amount || 0);
+      }
+
+      if (totalDebtReduction > currentBalance + 0.01) {
+        throw new Error("El pago neto más la retención no puede superar el saldo pendiente.");
       }
       
       const newBalance = currentBalance - totalDebtReduction;
-      const newStatus = newBalance <= 50 ? 'paid' : 'partial'; // Margen de error pequeño por decimales
+      const newStatus = newBalance <= 0.01 ? 'paid' : 'partial';
 
       db.prepare(`
         UPDATE purchase_orders 
@@ -2372,19 +2981,20 @@ function addPurchasePayment({ orderId, amount, method, reference, date, notes, r
         supplier_name: order.supplier_name,
         total_po_amount: realTotal,
         balance_before_payment: currentBalance,
-        payment_amount: amount,
+        payment_amount: netAmount,
+        gross_payment_amount: totalDebtReduction,
         outstanding_balance_after_payment: Math.max(0, newBalance), // Saldo después de este pago
         payment_notes: notes,
         payment_method: method,
         payment_reference: reference,
-        retention_amount: retentionAmount,
+        retention_amount: withheldAmount,
         retention_type: retentionType
       };
 
       db.prepare(`
         INSERT INTO expenses (description, amount, category, date, details, created_at, method, reference)
         VALUES (?, ?, 'Pago Proveedores', ?, ?, DATETIME('now', 'localtime'), ?, ?)
-      `).run(expenseDesc, amount, date, JSON.stringify(expenseDetails), method, reference);
+      `).run(expenseDesc, netAmount, date, JSON.stringify(expenseDetails), method, reference);
     });
 
     transaction();
@@ -2511,7 +3121,6 @@ function getServiceById(id) {
 function createService(data) {
   const insert = db.prepare("INSERT INTO services (name, description, price, client_id, status, scheduled_date) VALUES (?, ?, ?, ?, 'Abierto', ?)");
   const insertItem = db.prepare("INSERT INTO service_products (service_id, product_id, quantity, variant_id, price) VALUES (?, ?, ?, ?, ?)");
-  const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
   const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
   
   const trx = db.transaction((data) => {
@@ -2527,7 +3136,13 @@ function createService(data) {
             if (v) factor = v.conversion_factor;
         }
         // Descontar del inventario (Reserva)
-        updateStock.run(p.quantity * factor, p.product_id);
+        adjustProductStock(p.product_id, -(p.quantity * factor), {
+          variantId: p.variant_id,
+          movementType: "SERVICE_CONSUMPTION",
+          referenceType: "service",
+          referenceId: serviceId,
+          reason: "Consumo de material en servicio"
+        });
       }
     }
     return serviceId;
@@ -2553,7 +3168,6 @@ function updateService(data) {
   
   // Preparar consultas para manejo de stock
   const getOldItems = db.prepare("SELECT product_id, quantity, variant_id FROM service_products WHERE service_id = ?");
-  const updateStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?"); // + para restaurar, - para descontar
   const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
 
   const trx = db.transaction((data) => {
@@ -2567,7 +3181,13 @@ function updateService(data) {
             const v = getVariant.get(item.variant_id);
             if (v) factor = v.conversion_factor;
         }
-        updateStock.run(item.quantity * factor, item.product_id);
+        adjustProductStock(item.product_id, item.quantity * factor, {
+          variantId: item.variant_id,
+          movementType: "CORRECTION",
+          referenceType: "service",
+          referenceId: data.id,
+          reason: "Restitución al editar servicio"
+        });
     }
 
     deleteItems.run(data.id);
@@ -2581,7 +3201,13 @@ function updateService(data) {
             if (v) factor = v.conversion_factor;
         }
         // Descontar nuevo stock (usamos negativo en la query que suma)
-        updateStock.run(-(p.quantity * factor), p.product_id);
+        adjustProductStock(p.product_id, -(p.quantity * factor), {
+          variantId: p.variant_id,
+          movementType: "SERVICE_CONSUMPTION",
+          referenceType: "service",
+          referenceId: data.id,
+          reason: "Consumo actualizado de material en servicio"
+        });
       }
     }
   });
@@ -2602,7 +3228,6 @@ function deleteService(id) {
 
   const getItems = db.prepare("SELECT product_id, quantity FROM service_products WHERE service_id = ?");
   const getItemsWithVariant = db.prepare("SELECT product_id, quantity, variant_id FROM service_products WHERE service_id = ?");
-  const updateStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
   const delService = db.prepare("DELETE FROM services WHERE id = ?");
   const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
 
@@ -2616,7 +3241,13 @@ function deleteService(id) {
                 const v = getVariant.get(item.variant_id);
                 if (v) factor = v.conversion_factor;
             }
-            updateStock.run(item.quantity * factor, item.product_id);
+            adjustProductStock(item.product_id, item.quantity * factor, {
+              variantId: item.variant_id,
+              movementType: "CORRECTION",
+              referenceType: "service",
+              referenceId: id,
+              reason: "Restitución al eliminar servicio"
+            });
         }
     }
     delService.run(id);
@@ -2679,7 +3310,6 @@ function cancelService(id) {
   if (current.status === 'Anulado') throw new Error("El servicio ya está anulado.");
 
   const getItems = db.prepare("SELECT product_id, quantity, variant_id FROM service_products WHERE service_id = ?");
-  const updateStock = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
   const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
 
   const trx = db.transaction(() => {
@@ -2690,7 +3320,13 @@ function cancelService(id) {
             const v = getVariant.get(item.variant_id);
             if (v) factor = v.conversion_factor;
         }
-        updateStock.run(item.quantity * factor, item.product_id);
+        adjustProductStock(item.product_id, item.quantity * factor, {
+          variantId: item.variant_id,
+          movementType: "CORRECTION",
+          referenceType: "service",
+          referenceId: id,
+          reason: "Restitución por cancelación de servicio"
+        });
     }
     db.prepare("UPDATE services SET status = 'Anulado' WHERE id = ?").run(id);
   });
@@ -2742,9 +3378,12 @@ function getServicePayments(serviceId) {
 function login(username, password) {
   const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
   if (!user) return { success: false, message: "Usuario no encontrado" };
-  
-  const hash = crypto.createHash('sha256').update(password).digest('hex');
-  if (hash !== user.password_hash) return { success: false, message: "Contraseña incorrecta" };
+
+  const verification = verifyPassword(password, user.password_hash);
+  if (!verification.valid) return { success: false, message: "Contraseña incorrecta" };
+  if (verification.needsUpgrade) {
+    db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(password), user.id);
+  }
   
   return { success: true, user: { id: user.id, username: user.username, role: user.role, name: user.name } };
 }
@@ -2755,7 +3394,7 @@ function getUsers() {
 
 function createUser(u) {
   try {
-    const hash = crypto.createHash('sha256').update(u.password).digest('hex');
+    const hash = hashPassword(u.password);
     db.prepare("INSERT INTO users (username, password_hash, role, name) VALUES (?, ?, ?, ?)").run(u.username, hash, u.role, u.name);
     return { success: true, message: "Usuario creado" };
   } catch (e) { return { success: false, message: String(e) }; }
@@ -2764,7 +3403,7 @@ function createUser(u) {
 function updateUser(u) {
   try {
     if (u.password && u.password.trim() !== "") {
-      const hash = crypto.createHash('sha256').update(u.password).digest('hex');
+      const hash = hashPassword(u.password);
       db.prepare("UPDATE users SET username=?, password_hash=?, role=?, name=? WHERE id=?").run(u.username, hash, u.role, u.name, u.id);
     } else {
       db.prepare("UPDATE users SET username=?, role=?, name=? WHERE id=?").run(u.username, u.role, u.name, u.id);
@@ -2807,11 +3446,11 @@ module.exports = {
   // dashboard
   getDashboardData,
   // company
-  getCompanySettings, updateCompanySettings, saveCompanySettings,
+  getCompanySettings, updateCompanySettings, saveCompanySettings, getBusinessTypes, updateBusinessType, getInstallationState, saveInitialSetup, getProductFormConfig, getBusinessModuleConfig,
   // inventario
-  getInventory, getInventoryTotalValue,
+  getInventory, getInventoryTotalValue, getInventoryMovements, getInventoryLots, getExpirationAlerts,
   // gastos
-  getExpenses, getExpenseById, saveExpense, deleteExpense,
+  getExpenses, getExpenseById, saveExpense, updateExpense, deleteExpense,
   // reportes
   getSalesReport,
   // Ordenes de compra,

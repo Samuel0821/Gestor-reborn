@@ -82,8 +82,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const cancelBtn = document.getElementById('cancel-edit');
   const table = document.getElementById('suppliers-table');
   const search = document.getElementById('search-supplier');
+  const modal = new bootstrap.Modal(document.getElementById('supplier-form-modal'));
+  const modalTitle = document.getElementById('supplier-form-modal-title');
+  const newSupplierButton = document.getElementById('new-supplier-btn');
 
   let suppliers = [];
+
+  function resetForm() {
+    form.reset();
+    idInput.value = '';
+  }
+
+  newSupplierButton.addEventListener('click', () => {
+    resetForm();
+    modalTitle.textContent = 'Registrar Proveedor';
+    modal.show();
+    nameInput.focus();
+  });
 
   async function loadSuppliers() {
     suppliers = await window.api.getSuppliers();
@@ -130,8 +145,8 @@ document.addEventListener('DOMContentLoaded', () => {
       addressInput.value = supplier.address || '';
       emailInput.value = supplier.email || '';
       phoneInput.value = supplier.phone || '';
-      cancelBtn.style.display = 'inline-block';
-      window.scrollTo(0, 0);
+      modalTitle.textContent = 'Editar Proveedor';
+      modal.show();
     }));
     table.querySelectorAll('.del').forEach(b => b.addEventListener('click', async (e) => {
       const id = Number(e.currentTarget.dataset.id); // Capturar el ID antes del await
@@ -168,22 +183,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (payload.id) {
-      await window.api.updateSupplier(payload);
+      const result = await window.api.updateSupplier(payload);
+      if (!result.success) { Swal.fire('Error', result.message, 'error'); return; }
       Swal.fire({ icon: 'success', title: 'Proveedor actualizado', timer: 1500, showConfirmButton: false });
     } else {
-      await window.api.saveSupplier(payload);
+      const result = await window.api.saveSupplier(payload);
+      if (!result.success) { Swal.fire('Error', result.message, 'error'); return; }
       Swal.fire({ icon: 'success', title: 'Proveedor creado', timer: 1500, showConfirmButton: false });
     }
     form.reset();
     idInput.value = '';
-    cancelBtn.style.display = 'none';
+    modal.hide();
     await loadSuppliers();
   });
 
   cancelBtn.addEventListener('click', () => {
-    form.reset();
-    idInput.value = '';
-    cancelBtn.style.display = 'none';
+    resetForm();
+    modal.hide();
   });
 
   search.addEventListener('input', () => {

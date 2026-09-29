@@ -1,6 +1,7 @@
   // ---------- DEPENDENCIAS PRINCIPALES ----------
   const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
   const path = require("node:path");
+  const appIcon = path.join(__dirname, "logo", "gestorfx_logof.ico");
   
   // Handle creating/removing shortcuts on Windows when installing/uninstalling.
   if (require('electron-squirrel-startup')) app.quit();
@@ -22,25 +23,28 @@
 
       width: 1300, // Aumentar un poco el ancho para el nuevo módulo
       height: 800,
-      icon: path.join(__dirname, "logo", "gestorfx_logof.ico"), // <-- El ícono va aquí
+      icon: appIcon,
       webPreferences: {
         preload: path.join(__dirname, "preload.js"),
         contextIsolation: true,
         nodeIntegration: false,
       },
     });
+    const rendererId = mainWindow.webContents.id;
 
     // Eliminar la barra de menú por defecto (Archivo, Vista, etc.)
     mainWindow.setMenu(null);
 
-    // Siempre iniciar en login.html
-    mainWindow.loadFile(path.join(__dirname, "views", "login.html"));
+    const initialView = db.getInstallationState().completed ? "login.html" : "setup.html";
+    mainWindow.loadFile(path.join(__dirname, "views", initialView));
 
     // Push current cash session to renderer once the page finishes loading
     mainWindow.webContents.on('did-finish-load', () => {
       try {
         const s = cashRegister.getActiveSession();
-        if (s && mainWindow) mainWindow.webContents.send('cash-data-updated', { sessionId: s.id });
+        if (s && mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('cash-data-updated', { sessionId: s.id });
+        }
       } catch (e) { /* ignore */ }
     });
 
@@ -51,14 +55,14 @@
     });
 
     mainWindow.on("closed", () => {
+      authenticatedRenderers.delete(rendererId);
       mainWindow = null;
     });
   }
 
   app.whenReady().then(() => {
-
-      createWindow();
       registerIpcHandlers();
+      createWindow();
   });
 
   app.on("window-all-closed", () => {
@@ -191,6 +195,16 @@
   }
 
   const loginAttempts = new Map();
+  const authenticatedRenderers = new Map();
+
+  function requireAuthenticated(event, allowedRoles = []) {
+    const auth = authenticatedRenderers.get(event.sender.id);
+    if (!auth) throw new Error("Sesión no autenticada.");
+    if (allowedRoles.length > 0 && !allowedRoles.includes(auth.role)) {
+      throw new Error("No tiene permisos para realizar esta operación.");
+    }
+    return auth;
+  }
 
   function registerIpcHandlers() {
       // Autenticación
@@ -210,6 +224,7 @@
 
         if (res.success) {
           loginAttempts.delete(username); // Resetear intentos al entrar
+          authenticatedRenderers.set(event.sender.id, res.user);
         } else {
           attempt.count++;
           if (attempt.count >= 3) {
@@ -223,39 +238,43 @@
         return res;
       });
       // Clientes
-      ipcMain.handle("get-clients", () => db.getClients());
-      ipcMain.handle("get-client-by-id", (event, id) => db.getClientById(id));
-      ipcMain.handle("save-client", (event, data) => db.saveClient(data));
-      ipcMain.handle("update-client", (event, data) => db.updateClient(data));
-      ipcMain.handle("delete-client", (event, id) => db.deleteClient(id));
+      ipcMain.handle("get-clients", (event) => { requireAuthenticated(event); return db.getClients(); });
+      ipcMain.handle("get-client-by-id", (event, id) => { requireAuthenticated(event); return db.getClientById(id); });
+      ipcMain.handle("save-client", (event, data) => { requireAuthenticated(event); return db.saveClient(data); });
+      ipcMain.handle("update-client", (event, data) => { requireAuthenticated(event); return db.updateClient(data); });
+      ipcMain.handle("delete-client", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteClient(id); });
 
       // Productos
-      ipcMain.handle("get-products", () => db.getProducts());
-      ipcMain.handle("get-product-by-id", (event, id) => db.getProductById(id));
+      ipcMain.handle("get-products", (event) => { requireAuthenticated(event); return db.getProducts(); });
+      ipcMain.handle("get-product-by-id", (event, id) => { requireAuthenticated(event); return db.getProductById(id); });
 
-      ipcMain.handle("add-product", (event, data) => db.addProduct(data));
-      ipcMain.handle("update-product", (event, data) => db.updateProduct(data));
-      ipcMain.handle("delete-product", (event, id) => db.deleteProduct(id));
+      ipcMain.handle("add-product", (event, data) => { requireAuthenticated(event); return db.addProduct(data); });
+      ipcMain.handle("update-product", (event, data) => { requireAuthenticated(event); return db.updateProduct(data); });
+      ipcMain.handle("delete-product", (event, id) => {
+        requireAuthenticated(event, ['admin']);
+        return db.deleteProduct(id);
+      });
       ipcMain.handle("get-categories", () => db.getCategories());
-      ipcMain.handle("add-category", (event, name) => db.addCategory(name));
-      ipcMain.handle("update-category", (event, id, name) => db.updateCategory(id, name));
-      ipcMain.handle("delete-category", (event, id) => db.deleteCategory(id));
+      ipcMain.handle("add-category", (event, name) => { requireAuthenticated(event); return db.addCategory(name); });
+      ipcMain.handle("update-category", (event, id, name) => { requireAuthenticated(event); return db.updateCategory(id, name); });
+      ipcMain.handle("delete-category", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteCategory(id); });
 
       // Proveedores
-      ipcMain.handle("get-suppliers", () => db.getSuppliers());
-      ipcMain.handle("get-supplier-by-id", (event, id) => db.getSupplierById(id));
-      ipcMain.handle("save-supplier", (event, data) => db.saveSupplier(data));
-      ipcMain.handle("update-supplier", (event, data) => db.updateSupplier(data));
-      ipcMain.handle("delete-supplier", (event, id) => db.deleteSupplier(id));
+      ipcMain.handle("get-suppliers", (event) => { requireAuthenticated(event); return db.getSuppliers(); });
+      ipcMain.handle("get-supplier-by-id", (event, id) => { requireAuthenticated(event); return db.getSupplierById(id); });
+      ipcMain.handle("save-supplier", (event, data) => { requireAuthenticated(event); return db.saveSupplier(data); });
+      ipcMain.handle("update-supplier", (event, data) => { requireAuthenticated(event); return db.updateSupplier(data); });
+      ipcMain.handle("delete-supplier", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteSupplier(id); });
 
       ipcMain.handle("get-suppliers-count", () => db.getSuppliersCount());
 
       // Ventas
-      ipcMain.handle("create-sale", (event, data) => db.createSale(data));
+      ipcMain.handle("create-sale", (event, data) => { requireAuthenticated(event); return db.createSale(data); });
       ipcMain.handle("get-sales", (event, limit, offset, clientId, searchTerm, statusFilter) => db.getSales(limit, offset, clientId, searchTerm, statusFilter));
       ipcMain.handle("get-sale-by-id", (event, id) => db.getSaleById(id));
       ipcMain.handle("get-sale-items", (event, id) => db.getSaleItems(id));
       ipcMain.handle("annul-sale", (event, id) => {
+        requireAuthenticated(event, ['admin']);
         const res = db.annulSale(id);
         try { if (mainWindow) {
           const s = cashRegister.getActiveSession();
@@ -264,6 +283,7 @@
         return res;
       }); // Registrar manejador para anular
       ipcMain.handle("delete-sale", (event, id) => {
+        requireAuthenticated(event, ['admin']);
         const res = db.deleteSale(id);
         try { if (mainWindow) {
           const s = cashRegister.getActiveSession();
@@ -271,17 +291,29 @@
         } } catch(e){}
         return res;
       });
-      ipcMain.handle("update-sale", (event, data) => db.updateSale(data));
+      ipcMain.handle("update-sale", (event, data) => { requireAuthenticated(event, ['admin']); return db.updateSale(data); });
 
-      ipcMain.handle("delete-sale-item", (event, id) => db.deleteSaleItem(id));
+      ipcMain.handle("delete-sale-item", (event, id) => {
+        requireAuthenticated(event, ['admin']);
+        return db.deleteSaleItem(id);
+      });
       ipcMain.handle("get-last-invoice-number", () => db.getLastInvoiceNumber());
       ipcMain.handle("set-invoice-number", (event, { id, invoiceNumber }) => db.setInvoiceNumber(id, invoiceNumber));
 
       // Caja registradora
-      ipcMain.handle("open-cash-register", (event, { openingBalance, userId, userName, openingNotes }) => cashRegister.openCashRegister(openingBalance, userId, userName, openingNotes));
+      ipcMain.handle("open-cash-register", (event, { openingBalance, userId, userName, openingNotes }) => {
+        const auth = requireAuthenticated(event);
+        return cashRegister.openCashRegister(openingBalance, auth.id, auth.name || auth.username, openingNotes);
+      });
       ipcMain.handle("get-active-cash-session", () => cashRegister.getActiveSession());
-      ipcMain.handle("add-cash-movement-manual", (event, { sessionId, type, sub_type, amount, description }) => cashRegister.addCashMovement(sessionId, type, sub_type, amount, description));
-      ipcMain.handle("close-cash-register", (event, { realClosingBalance, closedByUserId, closedByUserName, closingNotes }) => cashRegister.closeCashRegister(realClosingBalance, closedByUserId, closedByUserName, closingNotes));
+      ipcMain.handle("add-cash-movement-manual", (event, { sessionId, type, sub_type, amount, description }) => {
+        requireAuthenticated(event);
+        return cashRegister.addCashMovement(sessionId, type, sub_type, amount, description);
+      });
+      ipcMain.handle("close-cash-register", (event, { realClosingBalance, closingNotes }) => {
+        const auth = requireAuthenticated(event);
+        return cashRegister.closeCashRegister(realClosingBalance, auth.id, auth.name || auth.username, closingNotes);
+      });
       ipcMain.handle("get-cash-register-sessions", () => cashRegister.getCashRegisterSessions());
       ipcMain.handle("get-cash-movements", (event, sessionId) => cashRegister.getCashMovements(sessionId));
       ipcMain.handle("get-cash-movements-detailed", (event, sessionId) => cashRegister.getCashMovementsDetailed(sessionId));
@@ -290,14 +322,21 @@
       ipcMain.handle("get-purchase-payments-for-session", (event, sessionId) => cashRegister.getPurchasePaymentsForSession(sessionId));
       ipcMain.handle("get-service-payments-for-session", (event, sessionId) => cashRegister.getServicePaymentsForSession(sessionId));
       ipcMain.handle("get-credit-payments-for-session", (event, sessionId) => cashRegister.getCreditPaymentsForSession(sessionId));
-      ipcMain.handle("save-reconciliation-details", (event, { sessionId, denominations }) => cashRegister.saveReconciliationDetails(sessionId, denominations));
-      ipcMain.handle("get-reconciliation-details", (event, sessionId) => cashRegister.getReconciliationDetails(sessionId));
+      ipcMain.handle("save-reconciliation-details", (event, { sessionId, denominations }) => {
+        requireAuthenticated(event);
+        return cashRegister.saveReconciliationDetails(sessionId, denominations);
+      });
+      ipcMain.handle("get-reconciliation-details", (event, sessionId) => {
+        requireAuthenticated(event);
+        return cashRegister.getReconciliationDetails(sessionId);
+      });
       ipcMain.handle("export-cash-register-report-pdf", async (event, sessionId) => exportCashRegisterReportPDF(sessionId));
       
       // Gestión de Créditos
 
       ipcMain.handle("get-credits", async (event, searchTerm, onlyPending, limit, offset) => db.getCredits(searchTerm, onlyPending, limit, offset));
       ipcMain.handle("add-credit-payment", async (event, saleId, amount, method, reference) => {
+        requireAuthenticated(event);
         const res = db.addCreditPayment(saleId, amount, method, reference);
         try { if (mainWindow) {
           const s = cashRegister.getActiveSession();
@@ -306,6 +345,7 @@
         return res;
       });
       ipcMain.handle("mark-credit-as-paid", async (event, saleId, method, reference) => {
+        requireAuthenticated(event);
         const res = db.markCreditAsPaid(saleId, method, reference);
         try { if (mainWindow) {
           const s = cashRegister.getActiveSession();
@@ -315,8 +355,9 @@
       });
       ipcMain.handle("get-sale-payments", (event, saleId) => db.getSalePayments(saleId));
       
-      ipcMain.handle("export-payment-receipt-pdf", async (event, { paymentId, type }) => {
+      ipcMain.handle("export-payment-receipt-pdf", async (event, { paymentId, type, preview = false }) => {
         try {
+          requireAuthenticated(event);
           const company = db.getCompanySettings() || {};
           let payment, parentData, client, headerTitle, conceptLabel, conceptText, additionalDetails = {};
 
@@ -374,12 +415,18 @@
             conceptText = `Pago a Factura Prov. No. ${parentData.supplier_invoice_number || 'S/N'} - OC #${parentData.po_number || parentData.id}`;
           }
 
-          const { filePath, canceled } = await dialog.showSaveDialog({
-            title: type === 'purchase' ? "Guardar Comprobante de Egreso" : "Guardar Recibo de Caja",
-            defaultPath: `${type === 'purchase' ? 'Egreso' : 'Recibo'}-${type}-${paymentId}.pdf`,
-            filters: [{ name: "PDF", extensions: ["pdf"] }],
-          });
-          if (canceled || !filePath) return { success: false };
+          let filePath;
+          if (preview) {
+            filePath = path.join(app.getPath('temp'), `gestorfx-preview-${type}-${paymentId}.pdf`);
+          } else {
+            const saveResult = await dialog.showSaveDialog({
+              title: type === 'purchase' ? "Guardar Comprobante de Egreso" : "Guardar Recibo de Caja",
+              defaultPath: `${type === 'purchase' ? 'Egreso' : 'Recibo'}-${type}-${paymentId}.pdf`,
+              filters: [{ name: "PDF", extensions: ["pdf"] }],
+            });
+            if (saveResult.canceled || !saveResult.filePath) return { success: false };
+            filePath = saveResult.filePath;
+          }
 
           const doc = new PDFDocument({ margin: 50, size: "A4" });
           const stream = fs.createWriteStream(filePath);
@@ -504,26 +551,64 @@
           }
 
           doc.end();
+          await new Promise((resolve, reject) => {
+            stream.once('finish', resolve);
+            stream.once('error', reject);
+          });
+          if (preview) {
+            const previewWindow = new BrowserWindow({
+              width: 900,
+              height: 800,
+              icon: appIcon,
+              webPreferences: { contextIsolation: true, nodeIntegration: false }
+            });
+            await previewWindow.loadFile(filePath);
+            previewWindow.show();
+          }
           return { success: true, filePath };
         } catch (err) {
           return { success: false, message: err.message };
         }
       });
 
+      ipcMain.handle("get-payment-receipt-preview", (event, { paymentId, type }) => {
+        requireAuthenticated(event);
+        if (type !== 'purchase') return { success: false, message: "Tipo de comprobante no soportado." };
+        const details = db.getPurchasePaymentDetailsForPdf(paymentId);
+        if (!details) return { success: false, message: "Detalles de pago no encontrados." };
+        return {
+          success: true,
+          company: db.getCompanySettings() || {},
+          payment: details.payment,
+          order: details.order,
+          supplier_name: details.supplier_name,
+          real_total: details.real_total,
+          balance_before_payment: details.balance_before_payment,
+          outstanding_balance_after_payment: details.outstanding_balance_after_payment
+        };
+      });
+
       // Ordenes de Compra
-      ipcMain.handle("create-purchase-order", (event, data) => db.createPurchaseOrder(data));
+      ipcMain.handle("create-purchase-order", (event, data) => { requireAuthenticated(event); return db.createPurchaseOrder(data); });
       ipcMain.handle("get-purchase-orders", () => db.getPurchaseOrders());
       ipcMain.handle("get-purchase-order-by-id", (event, id) => db.getPurchaseOrderById(id));
-      ipcMain.handle("update-purchase-order", (event, data) => db.updatePurchaseOrder(data));
-      ipcMain.handle("delete-purchase-order", (event, id) => db.deletePurchaseOrder(id));
+      ipcMain.handle("update-purchase-order", (event, data) => { requireAuthenticated(event); return db.updatePurchaseOrder(data); });
+      ipcMain.handle("delete-purchase-order", (event, id) => { requireAuthenticated(event, ['admin']); return db.deletePurchaseOrder(id); });
 
       ipcMain.handle("export-purchase-order-pdf", (event, id) => exportPurchaseOrderPDF(id));
       ipcMain.handle("get-purchase-orders-count", () => db.getPurchaseOrders().length);
-      ipcMain.handle("receive-purchase-order", (event, id) => db.receivePurchaseOrder(id));
+      ipcMain.handle("receive-purchase-order", (event, id) => {
+        requireAuthenticated(event);
+        return db.receivePurchaseOrder(id);
+      });
       
       // --- GESTIÓN DE PAGOS A PROVEEDORES ---
-      ipcMain.handle("update-purchase-invoice-number", (event, { id, invoiceNumber, discountAmount }) => db.updatePurchaseInvoiceNumber(id, invoiceNumber, discountAmount)); // No cambia
+      ipcMain.handle("update-purchase-invoice-number", (event, { id, invoiceNumber, discountAmount }) => {
+        requireAuthenticated(event);
+        return db.updatePurchaseInvoiceNumber(id, invoiceNumber, discountAmount);
+      });
       ipcMain.handle("add-purchase-payment", (event, data) => {
+        requireAuthenticated(event);
         const res = db.addPurchasePayment(data);
         try { if (mainWindow) {
           const s = cashRegister.getActiveSession();
@@ -536,25 +621,26 @@
       ipcMain.handle("get-due-purchase-orders", () => db.getDuePurchaseOrders());
 
       // Cotizaciones
-      ipcMain.handle("create-quote", (event, data) => db.createQuote(data));
+      ipcMain.handle("create-quote", (event, data) => { requireAuthenticated(event); return db.createQuote(data); });
       ipcMain.handle("get-quotes", (event, clientId, searchTerm) => db.getQuotes(clientId, searchTerm));
       ipcMain.handle("get-quote-by-id", (event, id) => db.getQuoteById(id));
       ipcMain.handle("get-quote-items", (event, id) => db.getQuoteItems(id));
-      ipcMain.handle("delete-quote", (event, id) => db.deleteQuote(id));
+      ipcMain.handle("delete-quote", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteQuote(id); });
       ipcMain.handle("get-last-quote-number", () => db.getLastQuoteNumber());
       ipcMain.handle("set-quote-number", (event, { id, quoteNumber }) => db.setQuoteNumber(id, quoteNumber));
-      ipcMain.handle("create-sale-from-quote", (event, data) => db.createSaleFromQuote(data));
-      ipcMain.handle("update-quote-details", (event, data) => db.updateQuoteDetails(data));
+      ipcMain.handle("create-sale-from-quote", (event, data) => { requireAuthenticated(event); return db.createSaleFromQuote(data); });
+      ipcMain.handle("update-quote-details", (event, data) => { requireAuthenticated(event); return db.updateQuoteDetails(data); });
 
       // Servicios
       ipcMain.handle("get-services", (event, limit, offset, status, executionStatus, searchTerm) => db.getServices(limit, offset, status, executionStatus, searchTerm));
       ipcMain.handle("get-service-by-id", (event, id) => db.getServiceById(id));
-      ipcMain.handle("create-service", (event, data) => db.createService(data));
-      ipcMain.handle("update-service", (event, data) => db.updateService(data));
-      ipcMain.handle("delete-service", (event, id) => db.deleteService(id));
-      ipcMain.handle("update-service-status", (event, { id, status }) => db.updateServiceStatus(id, status));
-      ipcMain.handle("cancel-service", (event, id) => db.cancelService(id));
+      ipcMain.handle("create-service", (event, data) => { requireAuthenticated(event); return db.createService(data); });
+      ipcMain.handle("update-service", (event, data) => { requireAuthenticated(event); return db.updateService(data); });
+      ipcMain.handle("delete-service", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteService(id); });
+      ipcMain.handle("update-service-status", (event, { id, status }) => { requireAuthenticated(event); return db.updateServiceStatus(id, status); });
+      ipcMain.handle("cancel-service", (event, id) => { requireAuthenticated(event); return db.cancelService(id); });
       ipcMain.handle("add-service-payment", (event, { serviceId, amount, method, reference }) => {
+        requireAuthenticated(event);
         const res = db.addServicePayment(serviceId, amount, method, reference);
         try { if (mainWindow) {
           const s = cashRegister.getActiveSession();
@@ -563,15 +649,24 @@
         return res;
       });
       ipcMain.handle("get-service-payments", (event, serviceId) => db.getServicePayments(serviceId));
-      ipcMain.handle("mark-service-performed", (event, id) => db.markServicePerformed(id));
+      ipcMain.handle("mark-service-performed", (event, id) => { requireAuthenticated(event); return db.markServicePerformed(id); });
       ipcMain.handle("get-pending-scheduled-services", () => db.getPendingScheduledServices());
       ipcMain.handle("get-open-services-list", () => db.getOpenServicesList());
 
       // Usuarios
-      ipcMain.handle("get-users", () => db.getUsers());
-      ipcMain.handle("create-user", (event, data) => db.createUser(data));
-      ipcMain.handle("update-user", (event, data) => db.updateUser(data));
-      ipcMain.handle("delete-user", (event, id) => db.deleteUser(id));
+      ipcMain.handle("get-users", (event) => { requireAuthenticated(event, ['admin']); return db.getUsers(); });
+      ipcMain.handle("create-user", (event, data) => {
+        requireAuthenticated(event, ['admin']);
+        return db.createUser(data);
+      });
+      ipcMain.handle("update-user", (event, data) => {
+        requireAuthenticated(event, ['admin']);
+        return db.updateUser(data);
+      });
+      ipcMain.handle("delete-user", (event, id) => {
+        requireAuthenticated(event, ['admin']);
+        return db.deleteUser(id);
+      });
 
       // Soporte Técnico
       ipcMain.handle("send-support-ticket", async (event, { subject, message }) => {
@@ -592,6 +687,7 @@
       ipcMain.handle('get-expenses', async (event, startDate, endDate) => db.getExpenses(startDate, endDate));
       ipcMain.handle('get-expense-by-id', async (event, id) => db.getExpenseById(id));
       ipcMain.handle('save-expense', async (event, expense) => {
+        requireAuthenticated(event);
         const res = db.saveExpense(expense);
         try { if (mainWindow) {
           const s = cashRegister.getActiveSession();
@@ -599,7 +695,12 @@
         } } catch(e){}
         return res;
       });
+      ipcMain.handle('update-expense', async (event, expense) => {
+        requireAuthenticated(event, ['admin']);
+        return db.updateExpense(expense);
+      });
       ipcMain.handle('delete-expense', async (event, id) => {
+        requireAuthenticated(event, ['admin']);
         const res = db.deleteExpense(id);
         try { if (mainWindow) {
           const s = cashRegister.getActiveSession();
@@ -810,11 +911,18 @@
       });
 
       // Auditoría
-      ipcMain.handle("get-audit-logs", (event, { startDate, endDate }) => db.getAuditLogs(startDate, endDate));
-      ipcMain.handle("log-action", (event, { userName, action, details }) => db.logAction(userName, action, details));
+      ipcMain.handle("get-audit-logs", (event, { startDate, endDate }) => {
+        requireAuthenticated(event, ['admin']);
+        return db.getAuditLogs(startDate, endDate);
+      });
+      ipcMain.handle("log-action", (event, { action, details }) => {
+        const auth = requireAuthenticated(event);
+        return db.logAction(auth.name || auth.username, action, details);
+      });
 
       // --- Aprobar cotización y convertir en venta ---
       ipcMain.handle("approve-quote", async (event, quoteId) => {
+        requireAuthenticated(event);
 
         try {
           // 1. Obtener la cotización
@@ -850,12 +958,27 @@
       });
       
       // Configuración y Dashboard
-      ipcMain.handle("get-company-settings", () => db.getCompanySettings());
+      ipcMain.handle("get-company-settings", (event) => { requireAuthenticated(event); return db.getCompanySettings(); });
+      ipcMain.handle("get-business-types", () => db.getBusinessTypes());
+      ipcMain.handle("get-installation-state", () => db.getInstallationState());
+      ipcMain.handle("get-product-form-config", () => db.getProductFormConfig());
+      ipcMain.handle("get-business-module-config", (event) => { requireAuthenticated(event); return db.getBusinessModuleConfig(); });
+      ipcMain.handle("save-initial-setup", (event, data) => db.saveInitialSetup(data));
 
-      ipcMain.handle("update-company-settings", (event, settings) => db.updateCompanySettings(settings));
-      ipcMain.handle("get-dashboard-data", () => db.getDashboardData());
+      ipcMain.handle("update-company-settings", (event, settings) => {
+        requireAuthenticated(event, ['admin']);
+        return db.updateCompanySettings(settings);
+      });
+      ipcMain.handle("update-business-type", (event, businessTypeId) => {
+        requireAuthenticated(event, ['admin']);
+        return db.updateBusinessType(businessTypeId);
+      });
+      ipcMain.handle("get-dashboard-data", (event) => { requireAuthenticated(event); return db.getDashboardData(); });
       ipcMain.handle("get-sales-last-days", (event, days) => db.getSalesLastDays(days));
-      ipcMain.handle("reset-database", () => db.resetDatabase());
+      ipcMain.handle("reset-database", (event) => {
+        requireAuthenticated(event, ['admin']);
+        return db.resetDatabase();
+      });
       
       // --- DASHBOARD AVANZADO (NUEVO) ---
       ipcMain.handle("get-advanced-dashboard-stats", async (event, { startDate, endDate } = {}) => {
@@ -933,6 +1056,11 @@
             AND due_date IS NOT NULL 
             AND due_date <= date('now', '+7 days')
           `).get().count;
+          const expirationAlertsCount = db.db.prepare(`
+            SELECT COUNT(*) as count FROM inventory_lots
+            WHERE expiration_date IS NOT NULL AND quantity > 0
+            AND expiration_date <= date('now', 'localtime', '+30 days')
+          `).get().count;
 
           // 7. NUEVAS TARJETAS (SNAPSHOTS)
           const totalProducts = db.db.prepare("SELECT COUNT(*) as c FROM products").get().c;
@@ -964,6 +1092,7 @@
               pendingOrders: pendingOrdersCount,
               debtors: debtorsCount,
               payable: payableAlertsCount
+              ,expiration: expirationAlertsCount
             },
             general: {
               totalProducts,
@@ -979,6 +1108,11 @@
           console.error("Error en dashboard avanzado:", err);
           return null;
         }
+      });
+
+      ipcMain.handle("get-expiration-alerts", (event, { days = 30, status = 'all' } = {}) => {
+        requireAuthenticated(event);
+        return db.getExpirationAlerts(days, status);
       });
 
       ipcMain.handle("get-recent-activity", async () => {
@@ -1004,10 +1138,11 @@
       });
 
       // Reportes e Inventario
-        ipcMain.handle("get-sales-report", (event, params) => db.getSalesReport(params));
+        ipcMain.handle("get-sales-report", (event, params) => { requireAuthenticated(event); return db.getSalesReport(params); });
 
         
-        ipcMain.handle("get-inventory", async () => {
+          ipcMain.handle("get-inventory", async (event) => {
+            requireAuthenticated(event);
                 try {
                     const products = db.getProducts();
                     const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.purchase_price || 0)), 0);
@@ -1018,8 +1153,18 @@
                 }
             });
 
+        ipcMain.handle("get-inventory-movements", (event, productId, limit = 100) => {
+          requireAuthenticated(event);
+          return db.getInventoryMovements(productId, limit);
+        });
+        ipcMain.handle("get-inventory-lots", (event, productId) => {
+          requireAuthenticated(event);
+          return db.getInventoryLots(productId);
+        });
 
-        ipcMain.handle("get-low-stock-products", async () => {
+
+        ipcMain.handle("get-low-stock-products", async (event) => {
+          requireAuthenticated(event);
             try {
                 const products = db.getProducts();
                 const lowStock = products.filter(p => p.min_stock >= 0 && p.stock <= p.min_stock);
@@ -1349,6 +1494,7 @@
                 width: 800, 
                 height: 800,
                 show: false,
+                icon: appIcon,
                 webPreferences: {
                     preload: path.join(__dirname, "preload.js"),
                     contextIsolation: true,
@@ -1371,10 +1517,21 @@
                 const win = BrowserWindow.getAllWindows()[0];
                 if (!win) return [];
                 const printers = await win.webContents.getPrintersAsync();
-                return printers.map((p) => ({
-                  name: p.name,
-                  isDefault: p.isDefault,
-                }));
+                return printers.map((p) => {
+                  const metadata = `${p.name || ''} ${p.displayName || ''} ${p.description || ''} ${JSON.stringify(p.options || {})}`;
+                  const paperWidth = /(?:57|58)\s*mm|58\s*mm/i.test(metadata)
+                    ? '57mm'
+                    : /80\s*mm/i.test(metadata)
+                      ? '80mm'
+                      : null;
+                  return {
+                    name: p.name,
+                    displayName: p.displayName || p.name,
+                    description: p.description || '',
+                    isDefault: p.isDefault,
+                    paperWidth
+                  };
+                });
               } catch (err) {
                 console.error("Error al obtener impresoras:", err);
                 return [];
@@ -1405,7 +1562,8 @@
                 const printWin = new BrowserWindow({
                   width: 800,
                   height: 600,
-                  show: true, // 👈 ahora también se muestra la vista previa
+                  show: true,
+                  icon: appIcon,
                   webPreferences: {
                     preload: path.join(__dirname, "preload.js"),
                     contextIsolation: true,
@@ -1417,7 +1575,7 @@
 
                 printWin.webContents.on("did-finish-load", () => {
                   const options = {
-                    silent: false, // 👈 false = muestra diálogo de impresora
+                    silent: false,
                     printBackground: true,
                     deviceName: printer || undefined,
                   };
@@ -1439,6 +1597,7 @@
                     if (!success) {
                       console.error("Falló la impresión:", failureReason);
                     }
+                    if (!printWin.isDestroyed()) printWin.close();
                   });
                 });
 
@@ -1453,6 +1612,7 @@
       // Exportación de PDF descarga factura
 
       ipcMain.handle("export-invoice-pdf", async (event, { id, includeIva = false } = {}) => {
+          requireAuthenticated(event);
         try {
           const sale = db.getSaleById(id);
           if (!sale) return { success: false, message: "Venta no encontrada" };
@@ -1500,7 +1660,12 @@
           doc.font("Helvetica").fontSize(10);
           let idx = 1;
           for (const it of items) {
-            const nextY = y + doc.heightOfString(it.product_name || "-", { width: 245 }) + 5;
+            const itemLabel = it.variant_size || it.variant_color
+              ? `${it.parent_product_name || it.product_name || "-"} - Talla ${it.variant_size || "-"} - ${it.variant_color || "-"}`
+              : it.variant_name || it.product_name || "-";
+            const itemLabelHeight = doc.heightOfString(itemLabel, { width: 240 });
+            const itemTextHeight = itemLabelHeight;
+            const nextY = y + itemTextHeight + 5;
             if (nextY > 700) {
               doc.addPage();
               y = 40;
@@ -1514,13 +1679,9 @@
               doc.font("Helvetica").fontSize(10);
             }
 
-            const productHeight = doc.heightOfString(it.product_name || "-", { width: 245 });
+            const productHeight = itemTextHeight;
             doc.text(String(idx), 50, y, { width: 25 });
-            doc.text(it.product_name || "-", 80, y, { width: 240 });
-            if (it.serial_number) { // Aseguramos que el serial se imprima en negro fuerte
-                doc.fontSize(8).fillColor("#000000").text(`Serial: ${it.serial_number}`, 80, doc.y);
-                doc.fontSize(10).fillColor("#000000"); // Restaurar formato
-            }
+            doc.text(itemLabel, 80, y, { width: 240 });
             doc.text(formatCOP(it.price), 330, y, { width: 80, align: "right" });
             doc.text(String(it.quantity), 420, y, { width: 50, align: "right" });
             doc.text(formatCOP(it.subtotal), 480, y, { width: 70, align: "right" });
@@ -1528,13 +1689,15 @@
             idx++;
           }
 
-          const subtotal = items.reduce((acc, it) => acc + (Number(it.subtotal) || Number(it.price) * Number(it.quantity) || 0), 0);
-          const iva = includeIva ? Math.round(subtotal * 0.19) : 0;
-          const total = subtotal + iva;
+          const subtotal = Number(sale.subtotal_amount ?? items.reduce((acc, it) => acc + (Number(it.subtotal) || Number(it.price) * Number(it.quantity) || 0), 0));
+          const iva = Number(sale.tax_amount) > 0
+            ? Number(sale.tax_amount)
+            : (sale.include_iva ? Math.round(subtotal * 0.19) : 0);
+          const total = Number(sale.total_amount || subtotal + iva);
 
           doc.moveDown(1);
-          if (includeIva) {
-            doc.fontSize(10).text(`Subtotal: ${formatCOP(subtotal)}`, 400, y + 6, { align: "right", width: 150 });
+          if (iva > 0) {
+            doc.fontSize(10).text(`Total neto: ${formatCOP(subtotal)}`, 400, y + 6, { align: "right", width: 150 });
             doc.text(`IVA (19%): ${formatCOP(iva)}`, 400, y + 22, { align: "right", width: 150 });
             doc.font("Helvetica-Bold").fontSize(12).text(`TOTAL: ${formatCOP(total)}`, 400, y + 42, { align: "right", width: 150 });
           } else {
@@ -1960,10 +2123,22 @@
     });
 
 
-      ipcMain.handle("export-inventory-pdf", async () => {
+        ipcMain.handle("export-inventory-pdf", async (event) => {
                 try {
+              requireAuthenticated(event);
                     const products = db.getProducts() || [];
                     const company = db.getCompanySettings() || {};
+              const formConfig = db.getProductFormConfig();
+              const attributes = formConfig.attributes || [];
+              const lotsByProduct = new Map(products.map(product => [product.id, db.getInventoryLots(product.id)]));
+              const detailsFor = product => [
+                product.product_type_name ? `Tipo: ${product.product_type_name}` : null,
+                product.base_unit_name ? `Unidad: ${product.base_unit_name}` : null,
+                product.sale_type ? `Venta: ${product.sale_type}` : null,
+                ...attributes.filter(attribute => product.attributes?.[attribute.code]).map(attribute => `${attribute.name}: ${product.attributes[attribute.code]}`),
+                product.variants?.length ? `Variantes: ${product.variants.map(variant => `${variant.name}${variant.unit_name ? ` (${variant.unit_name})` : ''}`).join(', ')}` : null,
+                lotsByProduct.get(product.id)?.length ? `Lotes: ${lotsByProduct.get(product.id).map(lot => `${lot.lot_number}${lot.expiration_date ? ` vence ${lot.expiration_date}` : ''}`).join(', ')}` : null,
+              ].filter(Boolean).join(' | ');
                     const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.purchase_price || 0)), 0);
 
                     const { filePath, canceled } = await dialog.showSaveDialog({
@@ -1982,21 +2157,27 @@
                     let y = doc.y + 10;
                     y = drawTableHeaders(doc, y, [
                         { text: "Código", x: 50, width: 60 },
-                        { text: "Nombre", x: 120, width: 160 },
-                        { text: "Categoría", x: 290, width: 100 },
-                        { text: "Venta", x: 400, width: 80, align: "right" },
-                        { text: "Stock", x: 490, width: 60, align: "right" }
+                      { text: "Producto / Detalles", x: 120, width: 220 },
+                      { text: "Categoría", x: 350, width: 75 },
+                      { text: "Venta", x: 430, width: 65, align: "right" },
+                      { text: "Stock", x: 500, width: 50, align: "right" }
                     ]);
 
                     doc.font("Helvetica").fontSize(10);
                     for (const p of products) {
+                      const details = detailsFor(p);
+                      const rowHeight = Math.max(28, doc.heightOfString(`${p.name || ''}\n${details}`, { width: 220 }) + 6);
+                      if (y + rowHeight > 700) { doc.addPage(); y = 40; y = drawTableHeaders(doc, y, [
+                        { text: "Código", x: 50, width: 60 }, { text: "Producto / Detalles", x: 120, width: 220 },
+                        { text: "Categoría", x: 350, width: 75 }, { text: "Venta", x: 430, width: 65, align: "right" }, { text: "Stock", x: 500, width: 50, align: "right" }
+                      ]); }
                         doc.text(p.code || "", 50, y, { width: 60 });
-                        doc.text(p.name || "", 120, y, { width: 160 });
-                        doc.text(p.category || "", 290, y, { width: 100 });
-                        doc.text(formatCOP(p.sale_price || 0), 400, y, { width: 80, align: "right" });
-                        doc.text(String(p.stock || 0), 490, y, { width: 60, align: "right" });
-                        y += 28;
-                        if (y > 700) { doc.addPage(); y = 40; }
+                      doc.font("Helvetica-Bold").text(p.name || "", 120, y, { width: 220 });
+                      doc.font("Helvetica").fontSize(7).fillColor("#444444").text(details, 120, y + 13, { width: 220 });
+                      doc.fontSize(10).fillColor("#000000").text(p.category || "", 350, y, { width: 75 });
+                      doc.text(formatCOP(p.sale_price || 0), 430, y, { width: 65, align: "right" });
+                      doc.text(String(p.stock || 0), 500, y, { width: 50, align: "right" });
+                      y += rowHeight;
                     }
 
                     // --- Agregar el valor total del inventario al PDF ---
@@ -2017,10 +2198,13 @@
                 }
             });
 
-      ipcMain.handle("export-inventory-excel", async () => {
+      ipcMain.handle("export-inventory-excel", async (event) => {
 
         try {
+        requireAuthenticated(event);
             const products = db.getProducts() || [];
+        const formConfig = db.getProductFormConfig();
+        const attributes = formConfig.attributes || [];
             const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.stock) * Number(p.purchase_price || 0)), 0);
 
             const { filePath, canceled } = await dialog.showSaveDialog({
@@ -2036,19 +2220,34 @@
                 { header: "Código", key: "code", width: 15 },
                 { header: "Nombre", key: "name", width: 30 },
                 { header: "Categoría", key: "category", width: 20 },
+              { header: "Tipo", key: "product_type", width: 18 },
+              { header: "Unidad", key: "unit", width: 15 },
+              { header: "Estrategia", key: "sale_type", width: 15 },
                 { header: "Precio costo", key: "purchase_price", width: 15 },
                 { header: "Precio venta", key: "sale_price", width: 15 },
-                { header: "Stock", key: "stock", width: 10 },
+              { header: "Stock", key: "stock", width: 10 },
+              { header: "Stock mínimo", key: "min_stock", width: 12 },
+              ...attributes.map(attribute => ({ header: attribute.name, key: `attribute_${attribute.code}`, width: 22 })),
+              { header: "Variantes", key: "variants", width: 35 },
+              { header: "Lotes / Vencimientos", key: "lots", width: 35 },
             ];
 
             products.forEach(p => {
+              const lots = db.getInventoryLots(p.id);
                 worksheet.addRow({
                     code: p.code || "",
                     name: p.name || "",
                     category: p.category || "",
+                    product_type: p.product_type_name || "",
+                    unit: p.base_unit_name || "",
+                    sale_type: p.sale_type || "SIMPLE",
                     purchase_price: p.purchase_price || 0,
                     sale_price: p.sale_price || 0,
                     stock: p.stock || 0,
+                    min_stock: p.min_stock || 0,
+                    ...Object.fromEntries(attributes.map(attribute => [`attribute_${attribute.code}`, p.attributes?.[attribute.code] || ""])),
+                    variants: (p.variants || []).map(variant => `${variant.name}${variant.unit_name ? ` (${variant.unit_name})` : ''} x${variant.conversion_factor}`).join(' | '),
+                    lots: lots.map(lot => `${lot.lot_number}${lot.expiration_date ? ` vence ${lot.expiration_date}` : ''} (${lot.quantity})`).join(' | '),
                 });
             });
 

@@ -117,6 +117,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const form = document.getElementById('expense-form');
     const tableBody = document.getElementById('expenses-table-body');
     const totalDisplay = document.getElementById('total-expenses');
+    const expenseModal = new bootstrap.Modal(document.getElementById('expense-form-modal'));
+    const newExpenseButton = document.getElementById('new-expense-btn');
+    const expenseModalTitle = document.getElementById('expense-form-modal-title');
+
+    newExpenseButton.addEventListener('click', () => {
+        form.reset();
+        delete form.dataset.editingId;
+        expenseModalTitle.textContent = 'Registrar Gasto';
+        document.getElementById('expense-date').valueAsDate = new Date();
+        expenseModal.show();
+        document.getElementById('expense-desc').focus();
+    });
     
      // Establecer fecha de hoy por defecto
     document.getElementById('expense-date').valueAsDate = new Date();
@@ -236,6 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <ul class="dropdown-menu">
                             <li><button class="dropdown-item view-expense" data-id="${exp.id}"><i class="fa fa-eye me-2 text-info"></i> Ver Detalle</button></li>
                             <li><button class="dropdown-item export-expense" data-id="${exp.id}"><i class="fa fa-file-pdf me-2 text-secondary"></i> Exportar PDF</button></li>
+                            <li><button class="dropdown-item edit-expense" data-id="${exp.id}"><i class="fa fa-edit me-2 text-warning"></i> Editar</button></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><button class="dropdown-item delete-expense" data-id="${exp.id}"><i class="fa fa-trash me-2 text-danger"></i> Eliminar</button></li>
                         </ul>
@@ -252,7 +265,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 const li = btn.closest('li');
                 if (li) li.remove();
             });
+            document.querySelectorAll('.edit-expense').forEach(btn => btn.closest('li')?.remove());
         }
+
+        document.querySelectorAll('.edit-expense').forEach(btn => {
+            btn.addEventListener('click', async event => {
+                const expense = await window.api.getExpenseById(event.currentTarget.dataset.id);
+                if (!expense) return;
+                document.getElementById('expense-desc').value = expense.description || '';
+                document.getElementById('expense-amount').value = expense.amount || 0;
+                document.getElementById('expense-method').value = expense.method || 'cash';
+                document.getElementById('expense-category').value = expense.category || 'Otros';
+                document.getElementById('expense-date').value = expense.date || '';
+                document.getElementById('expense-reference').value = expense.reference || '';
+                form.dataset.editingId = expense.id;
+                expenseModalTitle.textContent = 'Editar Gasto';
+                expenseModal.show();
+            });
+        });
 
         document.querySelectorAll('.view-expense').forEach(btn => {
             btn.addEventListener('click', async (e) => {
@@ -370,17 +400,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const expense = { description, amount, category, date, method: method, reference: reference };
-
-        const res = await window.api.saveExpense(expense);
+        const editingId = form.dataset.editingId;
+        const res = editingId
+            ? await window.api.updateExpense({ ...expense, id: Number(editingId) })
+            : await window.api.saveExpense(expense);
         if(res.success) {
             Swal.fire({
                 icon: 'success',
-                title: 'Gasto registrado',
+                title: editingId ? 'Gasto actualizado' : 'Gasto registrado',
                 timer: 1500,
                 showConfirmButton: false
             });
             form.reset();
+            delete form.dataset.editingId;
+            expenseModalTitle.textContent = 'Registrar Gasto';
             document.getElementById('expense-date').valueAsDate = new Date();
+            expenseModal.hide();
             loadExpenses();
         } else {
             Swal.fire('Error', res.message || 'No se pudo guardar el gasto.', 'error');

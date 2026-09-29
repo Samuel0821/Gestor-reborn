@@ -76,6 +76,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const servicesTable = document.getElementById('services-table');
   const cancelBtn = document.getElementById('cancel-edit');
   const searchInput = document.getElementById('search-service');
+  const serviceModal = new bootstrap.Modal(document.getElementById('service-form-modal'));
+  const serviceModalTitle = document.getElementById('service-form-modal-title');
+  const newServiceButton = document.getElementById('new-service-btn');
 
   let allProducts = [];
   let currentServiceProducts = []; // { product_id, name, price, quantity }
@@ -83,6 +86,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentOffset = 0;
   let currentSearchTerm = '';
   const SERVICES_LIMIT = 10;
+
+  function resetServiceForm() {
+    form.reset();
+    idInput.value = '';
+    clientHiddenIdInput.value = '';
+    clientInput.value = '';
+    scheduledDateInput.value = '';
+    currentServiceProducts = [];
+    renderServiceProducts();
+    clearDraft();
+  }
+
+  newServiceButton.addEventListener('click', () => {
+    resetServiceForm();
+    serviceModalTitle.textContent = 'Crear Nuevo Servicio';
+    serviceModal.show();
+    nameInput.focus();
+  });
 
   // --- INYECTAR SELECTOR DE CLIENTE ---
   const clientContainer = document.createElement('div');
@@ -472,6 +493,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     Swal.fire({ icon: 'success', title: 'Servicio guardado', timer: 1500, showConfirmButton: false });
     clearDraft(); // Limpiar borrador al guardar exitosamente
     resetForm();
+    serviceModal.hide();
     loadServices();
     window.scrollTo(0, document.body.scrollHeight); // Ir abajo para ver la lista
     loadProducts(); // Recargar lista de productos para actualizar stock en memoria
@@ -489,7 +511,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     clearDraft(); // Asegurar limpieza
   }
 
-  cancelBtn.addEventListener("click", resetForm);
+  cancelBtn.addEventListener("click", () => {
+    resetForm();
+    serviceModal.hide();
+  });
 
   // Cargar Servicios
   // Botón Cargar Más
@@ -745,7 +770,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }));
       renderServiceProducts();
       cancelBtn.style.display = "inline-block";
-      window.scrollTo(0,0);
+      serviceModalTitle.textContent = 'Editar Servicio';
+      serviceModal.show();
+      nameInput.focus();
     }));
 
     servicesTable.querySelectorAll(".to-sale").forEach(b => b.addEventListener("click", async (e) => {

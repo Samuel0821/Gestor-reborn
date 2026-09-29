@@ -1,0 +1,1819 @@
+# PROMPT MAESTRO — EVOLUCIÓN ARQUITECTÓNICA DE GESTORFX
+
+Actúa como **Arquitecto de Software Senior + Desarrollador Senior Electron/Node.js/SQLite**, especializado en aplicaciones ERP de escritorio, sistemas de inventario, diseño de bases de datos relacionales, migraciones de SQLite, seguridad IPC y aplicaciones comerciales multiindustria.
+
+Vas a trabajar directamente sobre el proyecto existente **GestorFX**, desarrollado por **Grisalis Technologies**.
+
+Tu objetivo es evolucionar la aplicación actual hasta convertirla en una plataforma ERP de escritorio preparada para diferentes tipos de negocios e industrias, **sin destruir ni romper las funcionalidades existentes y sin perder información de las bases de datos actuales**.
+
+---
+
+# 1. REGLA PRINCIPAL
+
+## NO CREES GESTORFX DESDE CERO
+
+Debes trabajar sobre la arquitectura existente.
+
+No reemplaces indiscriminadamente:
+
+* `database.js`
+* `index.js`
+* `preload.js`
+* `products.js`
+* `products.html`
+* `settings.js`
+* `settings.html`
+* módulos existentes
+* tablas existentes
+* funcionalidades existentes.
+
+Primero debes estudiar el código real.
+
+No asumas que la documentación refleja exactamente el estado actual del código.
+
+La documentación proporcionada es una guía inicial, pero **el código fuente real tiene prioridad** cuando exista una diferencia.
+
+---
+
+# 2. ESTADO ACTUAL CONOCIDO
+
+GestorFX actualmente es:
+
+* Aplicación ERP Desktop.
+* Electron.
+* Node.js.
+* SQLite.
+* `better-sqlite3`.
+* HTML5.
+* CSS3.
+* JavaScript Vanilla ES6+.
+* Bootstrap 5.
+* FontAwesome 6.
+* Chart.js.
+* PDFKit.
+* ExcelJS.
+* Electron Forge.
+
+La estructura principal actual es aproximadamente:
+
+```text
+GESTOR-REBORN/
+│
+├── database.sqlite
+├── package.json
+├── package-lock.json
+├── forge.config.js
+├── .gitignore
+├── DOCUMENTACION.md
+├── MANUAL_TECNICO.md
+├── MANUAL_USUARIO.md
+│
+└── src/
+    ├── index.js
+    ├── database.js
+    ├── preload.js
+    ├── cashRegister.js
+    ├── styles.css
+    │
+    ├── js/
+    │   ├── cash_register.js
+    │   ├── clients.js
+    │   ├── dashboard.js
+    │   ├── expenses.js
+    │   ├── layout.js
+    │   ├── login.js
+    │   ├── price_lookup.js
+    │   ├── products.js
+    │   ├── purchase_orders.js
+    │   ├── quotes.js
+    │   ├── report.js
+    │   ├── sales.js
+    │   ├── services.js
+    │   ├── settings.js
+    │   ├── suppliers.js
+    │   └── support.js
+    │
+    ├── views/
+    │   ├── cash_register.html
+    │   ├── clients.html
+    │   ├── expenses.html
+    │   ├── index.html
+    │   ├── login.html
+    │   ├── products.html
+    │   ├── purchase_orders.html
+    │   ├── quotes.html
+    │   ├── reports.html
+    │   ├── sales.html
+    │   ├── services.html
+    │   ├── settings.html
+    │   ├── suppliers.html
+    │   └── support.html
+    │
+    └── logo/
+        ├── gestorfx_logo.png
+        └── gestorfx_logof.ico
+```
+
+La base de datos utiliza actualmente SQLite mediante `better-sqlite3`.
+
+---
+
+# 3. FUNCIONALIDADES EXISTENTES QUE DEBES PRESERVAR
+
+GestorFX actualmente tiene, entre otras, las siguientes áreas:
+
+* Usuarios.
+* Clientes.
+* Proveedores.
+* Productos.
+* Inventario.
+* Variantes de productos.
+* Ventas.
+* Crédito de ventas.
+* Pagos.
+* Caja.
+* Compras.
+* Órdenes de compra.
+* Pagos a proveedores.
+* Cotizaciones.
+* Servicios.
+* Productos utilizados en servicios.
+* Pagos de servicios.
+* Gastos.
+* Reportes.
+* Auditoría.
+* Configuración empresarial.
+* Dashboard.
+* Exportación Excel.
+* Generación PDF.
+
+No elimines ni inutilices estas funciones.
+
+Todas las modificaciones futuras deben mantener compatibilidad con ellas.
+
+---
+
+# 4. MODELO ACTUAL DE DATOS
+
+Actualmente existen, como mínimo, estructuras equivalentes a:
+
+```text
+users
+products
+product_variants
+categories
+clients
+suppliers
+sales
+sale_items
+sale_payments
+cash_register_sessions
+cash_movements
+quotes
+quote_items
+purchase_orders
+purchase_order_items
+purchase_payments
+services
+service_products
+service_payments
+company_settings
+audit_logs
+```
+
+Antes de diseñar nuevas tablas debes comprobar si realmente existen, qué columnas tienen, qué restricciones utilizan y cómo son utilizadas por el código.
+
+NO crees una tabla duplicada si la estructura actual ya puede ampliarse correctamente.
+
+---
+
+# 5. OBJETIVO MULTIINDUSTRIA
+
+GestorFX debe poder configurarse para diferentes tipos de negocios.
+
+Como mínimo debe quedar preparado para:
+
+1. Ferreterías y materiales de construcción.
+2. Veterinarias y tiendas de mascotas.
+3. Farmacias y droguerías.
+4. Tiendas de ropa.
+5. Tiendas de calzado.
+6. Talleres de motos.
+7. Talleres automotrices.
+8. Venta de repuestos.
+9. Venta de accesorios automotrices.
+10. Venta e instalación de aires acondicionados.
+11. Mantenimiento de aires acondicionados.
+12. Venta e instalación de calefactores.
+13. Mantenimiento de equipos.
+14. Tiendas naturistas.
+15. Tiendas de tecnología.
+16. Tiendas de celulares y accesorios.
+17. Minimercados.
+18. Tiendas de víveres.
+19. Papelerías.
+20. Misceláneas.
+21. Empresas de servicios.
+22. Comercio general.
+23. Perfil personalizado.
+
+La arquitectura debe permitir agregar nuevos sectores posteriormente sin rediseñar toda la aplicación.
+
+---
+
+# 6. PRINCIPIO FUNDAMENTAL DEL DISEÑO
+
+NO debes crear:
+
+```text
+products_ferreteria
+products_farmacia
+products_ropa
+products_taller
+products_veterinaria
+```
+
+Debe existir una estructura común.
+
+Conceptualmente:
+
+```text
+                 TIPO DE NEGOCIO
+                       │
+                       ▼
+                TIPO DE PRODUCTO
+                       │
+                       ▼
+                   PRODUCTO
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+      ATRIBUTOS     VARIANTES     UNIDADES
+```
+
+Esto permitirá que GestorFX evolucione sin duplicar estructuras.
+
+---
+
+# 7. PRIMERA EJECUCIÓN
+
+Actualmente la aplicación inicia mediante Electron.
+
+Debes estudiar el flujo real de `src/index.js`.
+
+El objetivo es implementar un verdadero flujo de configuración inicial.
+
+Debe funcionar conceptualmente así:
+
+```text
+Abrir GestorFX
+      ↓
+Inicializar SQLite
+      ↓
+Comprobar configuración inicial
+      ↓
+¿Configuración completada?
+      │
+      ├── NO
+      │    ↓
+      │  Asistente inicial
+      │
+      └── SÍ
+           ↓
+          Login
+```
+
+El asistente inicial deberá permitir:
+
+### Paso 1
+
+Bienvenida.
+
+### Paso 2
+
+Seleccionar tipo de negocio.
+
+### Paso 3
+
+Registrar empresa.
+
+### Paso 4
+
+Configurar información general.
+
+### Paso 5
+
+Crear usuario administrador.
+
+### Paso 6
+
+Confirmar configuración.
+
+### Paso 7
+
+Finalizar.
+
+### Paso 8
+
+Ingresar al login.
+
+No utilices solamente `localStorage` para determinar si la instalación ya fue configurada.
+
+Debe existir un indicador persistente en SQLite.
+
+---
+
+# 8. TIPO DE NEGOCIO
+
+Debe existir una estructura centralizada para los perfiles de negocio.
+
+Puede utilizarse una tabla como:
+
+```text
+business_types
+```
+
+pero primero verifica si existe una estructura equivalente.
+
+Debe permitir almacenar, como mínimo:
+
+```text
+id
+code
+name
+description
+active
+created_at
+updated_at
+```
+
+Ejemplos:
+
+```text
+FERRETERIA
+VETERINARIA
+FARMACIA
+ROPA
+CALZADO
+TALLER
+REPUESTOS
+AIRES_ACONDICIONADOS
+CALEFACTORES
+NATURISTA
+TECNOLOGIA
+MINIMERCADO
+PAPELERIA
+SERVICIOS
+GENERAL
+```
+
+No debes asumir que todos los negocios utilizan exactamente los mismos campos.
+
+---
+
+# 9. CONFIGURACIÓN DE LA EMPRESA
+
+Actualmente existe:
+
+```text
+company_settings
+```
+
+Debes estudiar su estructura real y ampliarla cuando sea necesario.
+
+No crees otra tabla paralela para la misma finalidad.
+
+Debe poder relacionarse con:
+
+```text
+business_type_id
+```
+
+Además de los datos empresariales actuales.
+
+La configuración deberá poder determinar:
+
+* Tipo de negocio.
+* Nombre comercial.
+* Identificación.
+* Dirección.
+* Teléfono.
+* Correo.
+* Logo.
+* Moneda.
+* País.
+* Configuración de inventario.
+* Configuración de ventas.
+* Configuración de servicios.
+* Preferencias de impresión.
+* Estado de configuración inicial.
+
+---
+
+# 10. PRODUCTOS
+
+La tabla `products` debe continuar siendo la tabla principal de productos.
+
+Actualmente soporta, entre otros:
+
+* Código.
+* Costo.
+* `sale_price`.
+* `special_price`.
+* `special_price_2`.
+* Stock.
+* Stock mínimo.
+
+Debes estudiar exactamente todas sus columnas actuales antes de modificarla.
+
+No elimines columnas existentes sin una estrategia de migración.
+
+---
+
+# 11. ATRIBUTOS DINÁMICOS
+
+Los atributos específicos de una industria NO deben convertirse indiscriminadamente en columnas permanentes de `products`.
+
+Debes evaluar una estructura como:
+
+```text
+product_attributes
+```
+
+y una relación como:
+
+```text
+product_attribute_values
+```
+
+o una solución equivalente compatible con la arquitectura existente.
+
+Ejemplo:
+
+```text
+PRODUCTO:
+Martillo Stanley
+
+TIPO:
+Herramienta
+
+ATRIBUTOS:
+material = acero
+longitud = 35 cm
+peso = 500 g
+marca = Stanley
+```
+
+Otro producto podría tener:
+
+```text
+PRODUCTO:
+Camisa
+
+ATRIBUTOS:
+talla = M
+color = azul
+material = algodón
+género = masculino
+```
+
+Otro:
+
+```text
+PRODUCTO:
+Aire acondicionado
+
+ATRIBUTOS:
+marca = LG
+modelo = XYZ
+BTU = 12000
+voltaje = 220V
+refrigerante = R32
+```
+
+La misma tabla `products` debe soportar los tres casos.
+
+---
+
+# 12. ATRIBUTOS POR INDUSTRIA
+
+Debes crear una arquitectura que permita definir qué atributos corresponden a cada tipo de negocio.
+
+## FERRETERÍA
+
+Preparar soporte para:
+
+* Material.
+* Marca.
+* Medida.
+* Diámetro.
+* Longitud.
+* Ancho.
+* Alto.
+* Peso.
+* Color.
+* Tipo de rosca.
+* Presentación.
+* Referencia.
+
+## VETERINARIA
+
+Preparar soporte para:
+
+* Especie.
+* Marca.
+* Presentación.
+* Peso.
+* Edad recomendada.
+* Lote.
+* Vencimiento.
+* Condiciones de almacenamiento.
+
+## FARMACIA / DROGUERÍA
+
+Preparar soporte para:
+
+* Principio activo.
+* Concentración.
+* Presentación.
+* Laboratorio.
+* Lote.
+* Fecha de vencimiento.
+* Registro sanitario.
+* Requiere fórmula.
+* Condiciones de almacenamiento.
+
+IMPORTANTE:
+
+No inventes requisitos legales específicos.
+
+Si un campo tiene implicaciones regulatorias, debe tratarse como información configurable y no como certificación automática de cumplimiento.
+
+## ROPA
+
+Preparar soporte para:
+
+* Talla.
+* Color.
+* Género.
+* Material.
+* Marca.
+* Referencia.
+* Temporada.
+
+## CALZADO
+
+Preparar soporte para:
+
+* Talla.
+* Color.
+* Material.
+* Marca.
+* Referencia.
+* Género.
+
+## TALLER
+
+Preparar soporte para:
+
+* Marca compatible.
+* Modelo compatible.
+* Año.
+* Cilindraje.
+* Código OEM.
+* Referencia.
+* Ubicación.
+* Garantía.
+
+## AIRES ACONDICIONADOS
+
+Preparar soporte para:
+
+* Marca.
+* Modelo.
+* BTU.
+* Voltaje.
+* Tipo de equipo.
+* Refrigerante.
+* Eficiencia.
+* Garantía.
+* Requiere instalación.
+* Incluye instalación.
+
+## NATURISTA
+
+Preparar soporte para:
+
+* Ingredientes.
+* Presentación.
+* Peso.
+* Contenido.
+* Marca.
+* Lote.
+* Vencimiento.
+* Advertencias.
+
+## TECNOLOGÍA
+
+Preparar soporte para:
+
+* Marca.
+* Modelo.
+* Capacidad.
+* Memoria.
+* Almacenamiento.
+* Color.
+* IMEI/serial cuando corresponda.
+* Garantía.
+
+Los atributos deben ser configurables.
+
+---
+
+# 13. VARIANTES
+
+Actualmente GestorFX ya posee:
+
+```text
+product_variants
+```
+
+y las variantes soportan:
+
+* Unidad de medida.
+* `purchase_price`.
+* `sale_price`.
+* `special_price`.
+* `special_price_2`.
+
+Debes aprovechar esta funcionalidad.
+
+NO reemplaces `product_variants` sin estudiar primero su uso en:
+
+* ventas.
+* cotizaciones.
+* inventario.
+* compras.
+
+Especialmente porque `sale_items` y `quote_items` ya utilizan:
+
+```text
+variant_id
+conversion_factor
+```
+
+Debes determinar si la estructura actual puede evolucionar para representar variantes como:
+
+```text
+Camisa
+ ├── Talla S / Rojo
+ ├── Talla M / Rojo
+ ├── Talla L / Rojo
+ ├── Talla S / Azul
+ └── Talla M / Azul
+```
+
+sin romper el sistema existente.
+
+---
+
+# 14. UNIDADES DE MEDIDA
+
+GestorFX debe poder manejar:
+
+* Unidad.
+* Pieza.
+* Caja.
+* Paquete.
+* Docena.
+* Par.
+* Metro.
+* Centímetro.
+* Kilogramo.
+* Gramo.
+* Libra.
+* Litro.
+* Mililitro.
+* Galón.
+* Metro cuadrado.
+* Metro cúbico.
+* Hora.
+* Servicio.
+
+La arquitectura debe permitir ampliar la lista.
+
+No todos los negocios deben mostrar todas las unidades.
+
+Ejemplo:
+
+```text
+FERRETERIA
+Unidad
+Metro
+Kilogramo
+Caja
+Paquete
+
+ROPA
+Unidad
+Par
+
+TALLER
+Unidad
+Hora
+Servicio
+
+NATURISTA
+Unidad
+Gramo
+Kilogramo
+Mililitro
+Litro
+```
+
+---
+
+# 15. INVENTARIO
+
+Debes estudiar cómo se modifica actualmente:
+
+```text
+products.stock
+```
+
+No cambies inmediatamente la lógica existente.
+
+Primero identifica todos los lugares donde se actualiza.
+
+El objetivo arquitectónico es avanzar hacia movimientos de inventario:
+
+```text
+inventory_movements
+```
+
+con información como:
+
+```text
+product_id
+variant_id
+movement_type
+quantity
+stock_before
+stock_after
+reference_type
+reference_id
+reason
+user_id
+created_at
+```
+
+Tipos de movimiento:
+
+```text
+INITIAL
+PURCHASE
+SALE
+SALE_RETURN
+PURCHASE_RETURN
+ADJUSTMENT_IN
+ADJUSTMENT_OUT
+SERVICE_CONSUMPTION
+CORRECTION
+```
+
+La implementación debe ser compatible con el funcionamiento actual.
+
+No rompas:
+
+* ventas.
+* compras.
+* devoluciones.
+* servicios.
+* variantes.
+
+---
+
+# 16. LOTES Y VENCIMIENTOS
+
+Algunos sectores requieren información adicional.
+
+Por ejemplo:
+
+* Farmacia.
+* Veterinaria.
+* Naturista.
+* Alimentos.
+
+No agregues simplemente:
+
+```text
+lot
+expiration_date
+```
+
+a `products` si eso no representa correctamente productos con múltiples lotes.
+
+Evalúa una estructura como:
+
+```text
+inventory_lots
+```
+
+donde un producto pueda tener varios lotes:
+
+```text
+Producto X
+
+Lote A → vence 2027
+Lote B → vence 2028
+Lote C → vence 2029
+```
+
+La implementación debe ser proporcional al alcance actual.
+
+No agregues complejidad innecesaria si el sistema todavía no necesita trazabilidad avanzada.
+
+---
+
+# 17. CATEGORÍAS
+
+Revisa cómo funciona actualmente:
+
+```text
+categories
+```
+
+y cómo `products` referencia las categorías.
+
+Si actualmente se utilizan nombres directamente, analiza una migración progresiva hacia:
+
+```text
+category_id
+```
+
+sin perder los datos actuales.
+
+Debe poder:
+
+* Crear categorías.
+* Editar categorías.
+* Desactivar categorías.
+* Evitar duplicados.
+* Evitar eliminar categorías utilizadas históricamente.
+
+---
+
+# 18. FORMULARIO DE PRODUCTOS
+
+El actual:
+
+```text
+products.html
+products.js
+```
+
+debe evolucionar a un formulario dinámico.
+
+No crees:
+
+```text
+products_ferreteria.html
+products_farmacia.html
+products_ropa.html
+```
+
+Debe existir un formulario común.
+
+El sistema debe consultar una configuración y determinar:
+
+```text
+¿Tipo de negocio?
+       ↓
+¿Qué campos mostrar?
+       ↓
+¿Qué campos son obligatorios?
+       ↓
+¿Qué atributos cargar?
+       ↓
+¿Qué unidades mostrar?
+       ↓
+¿Qué validaciones ejecutar?
+```
+
+Debe poder cambiar dinámicamente.
+
+---
+
+# 19. TABLA DE INVENTARIO
+
+La tabla actual de productos debe ser dinámica.
+
+Columnas comunes:
+
+```text
+Código
+Producto
+Categoría
+Marca
+Precio
+Stock
+Unidad
+Estado
+```
+
+Ferretería podría mostrar:
+
+```text
+Medida
+Material
+Marca
+```
+
+Ropa:
+
+```text
+Talla
+Color
+Marca
+```
+
+Farmacia:
+
+```text
+Principio activo
+Concentración
+Lote
+Vencimiento
+```
+
+Taller:
+
+```text
+Referencia
+Marca compatible
+Modelo
+Ubicación
+```
+
+No dupliques las tablas HTML.
+
+Utiliza configuración dinámica de columnas.
+
+---
+
+# 20. SERVICIOS
+
+Actualmente existen:
+
+```text
+services
+service_products
+service_payments
+```
+
+y el sistema ya contempla servicios.
+
+Debes estudiar su implementación real.
+
+Debe quedar preparado para negocios como:
+
+* Talleres.
+* Aires acondicionados.
+* Calefactores.
+* Reparaciones.
+* Mantenimiento.
+* Servicios técnicos.
+
+Debe poder relacionar:
+
+```text
+Cliente
+Servicio
+Equipo
+Técnico
+Diagnóstico
+Repuestos
+Mano de obra
+Estado
+Pago
+Garantía
+Observaciones
+```
+
+No dupliques módulos por industria.
+
+---
+
+# 21. SEGURIDAD
+
+La documentación actual indica:
+
+```text
+password_hash SHA-256
+```
+
+Esto debe revisarse.
+
+No asumas que SHA-256 es suficiente para almacenar contraseñas.
+
+Primero verifica exactamente cómo se implementa.
+
+Si se requiere migrar a un algoritmo específico para contraseñas:
+
+* bcrypt.
+* scrypt.
+* Argon2.
+
+debes diseñar una migración compatible.
+
+NO rompas el login actual de los usuarios existentes.
+
+Debes diseñar una estrategia progresiva.
+
+---
+
+# 22. IPC
+
+La aplicación utiliza:
+
+```text
+ipcMain
+ipcRenderer
+contextBridge
+```
+
+y:
+
+```text
+contextIsolation: true
+nodeIntegration: false
+```
+
+Estas condiciones deben mantenerse.
+
+Antes de crear un nuevo handler IPC:
+
+1. Buscar si ya existe.
+2. Revisar cómo está expuesto desde `preload.js`.
+3. Revisar quién lo consume.
+4. Mantener nombres coherentes.
+
+Ejemplos de operaciones potenciales:
+
+```text
+is-initial-setup-completed
+get-business-types
+get-business-profile
+save-initial-setup
+update-business-profile
+get-product-form-config
+get-product-table-config
+get-product-attributes
+save-product-attributes
+get-units-of-measure
+get-product-types
+```
+
+No crees handlers duplicados.
+
+---
+
+# 23. INDEX.JS
+
+Debes estudiar especialmente:
+
+```text
+src/index.js
+```
+
+Actualmente es el proceso principal.
+
+Debe continuar gestionando:
+
+* ciclo de vida Electron.
+* ventanas.
+* IPC.
+* base de datos.
+* PDF.
+* Excel.
+* caja.
+* operaciones existentes.
+
+El flujo inicial deberá integrarse sin romper lo anterior.
+
+Evalúa correctamente el orden:
+
+```text
+Inicializar DB
+↓
+Registrar IPC
+↓
+Crear ventana
+↓
+Determinar estado de instalación
+↓
+Cargar setup o login
+```
+
+No copies esta secuencia automáticamente.
+
+Adáptala a la arquitectura real.
+
+---
+
+# 24. VERSIONES
+
+La documentación proporcionada indica:
+
+```text
+Versión del sistema: 1.0.8
+```
+
+pero también aparecen cambios técnicos identificados como:
+
+```text
+v1.0.10
+```
+
+Debes verificar:
+
+* `package.json`
+* archivos de versión.
+* documentación.
+* cualquier constante de versión.
+
+Determina cuál es realmente la versión actual.
+
+NO incrementes la versión arbitrariamente.
+
+Cuando se finalice una fase estable, actualiza la versión siguiendo el esquema utilizado actualmente por el proyecto.
+
+---
+
+# 25. CAMBIOS RECIENTES QUE DEBES PRESERVAR
+
+El sistema actualmente tiene lógica relacionada con caja y servicios que NO debe romperse.
+
+Entre ellas:
+
+* Evento IPC `cash-data-updated`.
+* Recuperación de sesión activa al iniciar.
+* Recuperación al recuperar foco/visibilidad.
+* Exclusión de determinados tipos de venta de los cálculos de sesión.
+* Cálculo específico de `session_amount`.
+* Prevención de duplicados en pagos de crédito.
+* Registro de pagos restantes.
+* Actualización de servicios a estado `Finalizado` al facturarlos.
+
+Antes de tocar estas áreas, debes estudiar sus dependencias.
+
+---
+
+# 26. SEGURIDAD DE OPERACIONES SENSIBLES
+
+No confíes únicamente en ocultar botones del frontend.
+
+Las operaciones sensibles deben ser verificadas en backend/Main Process.
+
+Revisa:
+
+```text
+delete-user
+reset-database
+delete-sale
+delete-product
+update-company-settings
+ajustes de inventario
+operaciones de caja
+anulaciones
+```
+
+Debes identificar cuáles requieren:
+
+* autenticación.
+* rol.
+* permiso.
+* confirmación.
+* auditoría.
+
+No ejecutes `resetDatabase()` durante migraciones.
+
+---
+
+# 27. PRODUCTOS: ELIMINACIÓN
+
+Revisa la eliminación física de productos.
+
+Preferiblemente utiliza:
+
+```text
+active = 0
+```
+
+o:
+
+```text
+is_archived = 1
+```
+
+o equivalente.
+
+Un producto relacionado con:
+
+* ventas.
+* compras.
+* movimientos.
+* servicios.
+
+debe conservarse para garantizar el historial.
+
+Los productos archivados no deberían aparecer para nuevas operaciones cuando no corresponda, pero deben permanecer disponibles para reportes históricos.
+
+---
+
+# 28. XSS Y RENDERIZADO
+
+Revisa especialmente el uso de:
+
+```text
+innerHTML
+```
+
+en:
+
+```text
+products.js
+```
+
+y otros módulos.
+
+Identifica cualquier lugar donde información proveniente de SQLite termine directamente en HTML.
+
+Cuando corresponda utiliza:
+
+* `textContent`.
+* creación segura de elementos.
+* escape HTML.
+* APIs DOM seguras.
+
+No introduzcas nuevas vulnerabilidades.
+
+---
+
+# 29. BASE DE DATOS EXISTENTE
+
+Este punto es CRÍTICO.
+
+GestorFX ya puede tener bases de datos con:
+
+* productos.
+* clientes.
+* proveedores.
+* ventas.
+* compras.
+* cotizaciones.
+* servicios.
+* pagos.
+* caja.
+* usuarios.
+* auditoría.
+
+NO puedes asumir que una instalación nueva es el único escenario.
+
+La solución debe funcionar en:
+
+### ESCENARIO A
+
+Instalación completamente nueva.
+
+### ESCENARIO B
+
+Base de datos existente.
+
+### ESCENARIO C
+
+Base de datos parcialmente actualizada.
+
+### ESCENARIO D
+
+Base de datos actualizada después de una versión anterior.
+
+---
+
+# 30. MIGRACIONES
+
+Antes de realizar modificaciones estructurales debes implementar o adaptar un sistema de migraciones.
+
+Nunca hagas:
+
+```sql
+DROP TABLE
+```
+
+para solucionar una actualización.
+
+Nunca ejecutes:
+
+```text
+resetDatabase()
+```
+
+como parte de una actualización.
+
+Las migraciones deben:
+
+* tener versión.
+* ejecutarse una sola vez.
+* ser idempotentes cuando sea posible.
+* conservar información.
+* verificar columnas existentes.
+* verificar tablas existentes.
+* utilizar transacciones cuando sea posible.
+* registrar errores.
+* registrar versión aplicada.
+
+Antes de modificar una base existente:
+
+```text
+BACKUP
+↓
+MIGRATION
+↓
+VALIDATION
+```
+
+---
+
+# 31. RESPALDO
+
+Antes de ejecutar una migración sobre una base existente:
+
+crear una copia del archivo:
+
+```text
+database.sqlite
+```
+
+No sobrescribir la copia original.
+
+Si la aplicación tiene ya un sistema de backup, reutilízalo.
+
+Si no existe, propone una solución segura.
+
+---
+
+# 32. NO SOBREARQUITECTAR
+
+No conviertas GestorFX en una arquitectura excesivamente compleja.
+
+Recuerda:
+
+```text
+Electron
++
+better-sqlite3
++
+SQLite
++
+JavaScript
+```
+
+Es una aplicación desktop local.
+
+La solución debe ser:
+
+* mantenible.
+* rápida.
+* simple.
+* robusta.
+* escalable dentro del contexto desktop.
+* fácil de distribuir con Electron Forge.
+
+No introduzcas:
+
+* microservicios.
+* servidores externos.
+* APIs innecesarias.
+* bases de datos cloud.
+* frameworks frontend nuevos.
+
+salvo que exista una justificación técnica real y autorización expresa.
+
+---
+
+# 33. ORDEN DE IMPLEMENTACIÓN
+
+Trabaja en estas fases:
+
+## FASE 0 — AUDITORÍA
+
+NO MODIFICAR CÓDIGO.
+
+Analizar:
+
+* estructura.
+* base de datos.
+* IPC.
+* preload.
+* login.
+* settings.
+* productos.
+* inventario.
+* servicios.
+* ventas.
+* compras.
+* caja.
+* usuarios.
+
+Entregar diagnóstico.
+
+---
+
+## FASE 1 — ARQUITECTURA DE CONFIGURACIÓN
+
+Implementar:
+
+* tipo de negocio.
+* configuración empresarial.
+* indicador de primera configuración.
+* migraciones necesarias.
+
+---
+
+## FASE 2 — ASISTENTE DE PRIMERA EJECUCIÓN
+
+Crear/adaptar:
+
+```text
+setup.html
+setup.js
+```
+
+o los nombres coherentes con la arquitectura existente.
+
+Implementar:
+
+```text
+Bienvenida
+→ negocio
+→ empresa
+→ configuración
+→ administrador
+→ confirmación
+→ finalización
+```
+
+---
+
+## FASE 3 — TIPOS DE NEGOCIO
+
+Crear catálogo de perfiles.
+
+No duplicar productos.
+
+---
+
+## FASE 4 — PRODUCTOS DINÁMICOS
+
+Implementar:
+
+* tipos de producto.
+* atributos.
+* valores.
+* unidades.
+* variantes.
+
+---
+
+## FASE 5 — INVENTARIO
+
+Adaptar:
+
+* stock.
+* movimientos.
+* ajustes.
+* variantes.
+* lotes cuando corresponda.
+
+---
+
+## FASE 6 — SERVICIOS
+
+Adaptar el módulo actual para los sectores que combinan productos + servicios.
+
+---
+
+## FASE 7 — SEGURIDAD
+
+Revisar:
+
+* contraseñas.
+* IPC.
+* roles.
+* permisos.
+* operaciones sensibles.
+* auditoría.
+
+---
+
+## FASE 8 — INTERFAZ
+
+Adaptar:
+
+* formulario.
+* tabla.
+* filtros.
+* categorías.
+* unidades.
+* módulos.
+
+---
+
+## FASE 9 — PRUEBAS
+
+Probar:
+
+* instalación nueva.
+* instalación existente.
+* migraciones.
+* productos.
+* ventas.
+* compras.
+* inventario.
+* servicios.
+* caja.
+* créditos.
+* reportes.
+* usuarios.
+
+---
+
+# 34. REGLA DE MODIFICACIÓN
+
+No hagas una modificación masiva sin comprobar sus dependencias.
+
+Antes de modificar cualquier archivo:
+
+1. Leerlo.
+2. Identificar dependencias.
+3. Buscar referencias.
+4. Comprender su función.
+5. Modificar.
+6. Ejecutar prueba.
+7. Verificar regresiones.
+
+Si modificas una función:
+
+```text
+function X()
+```
+
+busca primero todos los lugares donde:
+
+```text
+X()
+```
+
+es utilizada.
+
+---
+
+# 35. NO INVENTAR FUNCIONALIDADES
+
+No declares implementado algo que únicamente hayas diseñado.
+
+Diferencia claramente:
+
+```text
+IMPLEMENTADO
+```
+
+de:
+
+```text
+PROPUESTO
+```
+
+de:
+
+```text
+PENDIENTE
+```
+
+de:
+
+```text
+NO APLICA
+```
+
+---
+
+# 36. CRITERIO DE FINALIZACIÓN
+
+GestorFX se considerará preparado para la arquitectura multiindustria cuando:
+
+* una instalación nueva pueda seleccionar su negocio.
+* el tipo de negocio quede persistido en SQLite.
+* el sistema pueda cargar la configuración al iniciar.
+* el formulario de productos sea dinámico.
+* los atributos sean configurables.
+* las unidades sean configurables.
+* las variantes existentes continúen funcionando.
+* el inventario continúe funcionando.
+* ventas continúen funcionando.
+* compras continúen funcionando.
+* servicios continúen funcionando.
+* caja continúe funcionando.
+* créditos continúen funcionando.
+* reportes continúen funcionando.
+* usuarios continúen funcionando.
+* los datos existentes se conserven.
+* las migraciones sean seguras.
+* las operaciones sensibles tengan controles adecuados.
+* no existan errores críticos de regresión.
+
+---
+
+# 37. FORMATO OBLIGATORIO DE LOS INFORMES
+
+Después de cada fase informa:
+
+## Estado
+
+```text
+COMPLETADO
+EN PROGRESO
+BLOQUEADO
+```
+
+## Archivos modificados
+
+Lista exacta.
+
+## Archivos creados
+
+Lista exacta.
+
+## Base de datos
+
+Tablas/columnas/migraciones afectadas.
+
+## Funcionalidades
+
+Qué se modificó.
+
+## Pruebas ejecutadas
+
+Indicar exactamente cuáles.
+
+## Resultado
+
+```text
+APROBADA
+FALLIDA
+PENDIENTE
+```
+
+## Riesgos
+
+Indicar cualquier riesgo.
+
+## Pendientes
+
+Lista concreta.
+
+---
+
+# 38. REGLA ABSOLUTA SOBRE LA BASE DE DATOS
+
+Antes de modificar cualquier tabla existente:
+
+```text
+1. Inspeccionar estructura.
+2. Inspeccionar relaciones.
+3. Inspeccionar código que la utiliza.
+4. Crear respaldo.
+5. Diseñar migración.
+6. Ejecutar migración.
+7. Validar datos.
+8. Probar funcionalidades.
+```
+
+Nunca omitir este proceso.
+
+---
+
+# 39. PRIMERA TAREA
+
+IMPORTANTE:
+
+En esta primera ejecución NO debes modificar ningún archivo.
+
+Debes realizar exclusivamente una auditoría del proyecto actual.
+
+Debes revisar como mínimo:
+
+```text
+src/index.js
+src/database.js
+src/preload.js
+src/js/products.js
+src/views/products.html
+src/js/settings.js
+src/views/settings.html
+src/js/login.js
+src/views/login.html
+src/js/services.js
+src/views/services.html
+src/js/sales.js
+src/js/purchase_orders.js
+src/js/cash_register.js
+src/cashRegister.js
+package.json
+```
+
+Además, debes inspeccionar la estructura real de:
+
+```text
+database.sqlite
+```
+
+si está disponible en el entorno.
+
+Tu primer resultado NO debe contener modificaciones de código.
+
+Debes entregarme:
+
+### 1. Arquitectura actual real.
+
+### 2. Tablas reales de SQLite.
+
+### 3. Columnas principales de cada tabla.
+
+### 4. Relaciones entre tablas.
+
+### 5. Flujo actual de inicio.
+
+### 6. Flujo actual de login.
+
+### 7. Flujo actual de configuración.
+
+### 8. Flujo actual de productos.
+
+### 9. Flujo actual de variantes.
+
+### 10. Flujo actual de inventario.
+
+### 11. Flujo actual de ventas.
+
+### 12. Flujo actual de compras.
+
+### 13. Flujo actual de servicios.
+
+### 14. Flujo actual de caja.
+
+### 15. Flujo actual de usuarios/permisos.
+
+### 16. Handlers IPC existentes.
+
+### 17. APIs expuestas por preload.
+
+### 18. Riesgos de seguridad encontrados.
+
+### 19. Riesgos de migración.
+
+### 20. Problemas de arquitectura.
+
+### 21. Funcionalidades que ya pueden reutilizarse para el sistema multiindustria.
+
+### 22. Funcionalidades que necesitan modificación.
+
+### 23. Nuevas tablas realmente necesarias.
+
+### 24. Nuevas columnas realmente necesarias.
+
+### 25. Migraciones necesarias.
+
+### 26. Plan de implementación por fases.
+
+### 27. Dependencias entre fases.
+
+### 28. Pruebas necesarias.
+
+### 29. Riesgos de regresión.
+
+### 30. Recomendación final de arquitectura.
+
+NO escribas código todavía.
+
+NO ejecutes migraciones todavía.
+
+NO borres datos.
+
+NO ejecutes `resetDatabase()`.
+
+NO cambies la estructura de la base de datos todavía.
+
+Primero entrega la auditoría completa.
+
+Después espera mi autorización explícita para comenzar la implementación.

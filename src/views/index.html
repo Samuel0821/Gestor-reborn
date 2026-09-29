@@ -20,10 +20,10 @@
   <div class="container-fluid py-4 px-4">
     
     <!-- 1. Banner de Bienvenida -->
-    <div class="welcome-banner d-flex justify-content-between align-items-center">
+    <div class="welcome-banner d-flex justify-content-between align-items-center" id="dashboard-welcome-banner">
       <div>
         <h2 class="text-white mb-1" id="welcome-msg">Buen día,  </h2>
-        <p class="mb-0 opacity-75">Aquí tienes el resumen de tu negocio hoy.</p>
+        <p class="mb-0 opacity-75" id="dashboard-business-subtitle">Aquí tienes el resumen de tu negocio hoy.</p>
       </div>
       <div class="text-end d-none d-md-block">
         <div class="fs-6 opacity-75" id="current-date">Cargando fecha...</div>
@@ -44,7 +44,7 @@
     <!-- 3. KPIs Principales (Financieros y Alertas) -->
     <div class="row g-4 mb-4">
       <!-- Ventas Hoy (Destacado) -->
-      <div class="col-md-6 col-lg-3">
+      <div class="col-md-6 col-lg-3" data-dashboard-module="sales">
         <div class="kpi-card">
           <div class="d-flex justify-content-between align-items-start">
             <div>
@@ -62,7 +62,7 @@
       </div>
 
       <!-- Utilidad Neta (Mes) -->
-      <div class="col-md-6 col-lg-3">
+      <div class="col-md-6 col-lg-3" data-dashboard-module="sales">
         <div class="kpi-card">
           <div class="d-flex justify-content-between align-items-start">
             <div>
@@ -78,7 +78,7 @@
       </div>
 
       <!-- Alertas / Pendientes -->
-      <div class="col-md-6 col-lg-3">
+      <div class="col-md-6 col-lg-3" data-dashboard-module="reports">
         <div class="kpi-card">
           <div class="d-flex justify-content-between align-items-start">
             <div>
@@ -94,7 +94,7 @@
       </div>
 
       <!-- Clientes Deudores -->
-      <div class="col-md-6 col-lg-3">
+      <div class="col-md-6 col-lg-3" data-dashboard-module="sales">
         <div class="kpi-card">
           <div class="d-flex justify-content-between align-items-start">
             <div>
@@ -111,8 +111,8 @@
     </div>
 
     <!-- 4. Gráficos Estratégicos -->
-    <div class="row g-4 mb-4">
-      <div class="col-lg-8">
+    <div class="row g-4 mb-4" id="dashboard-charts-row">
+      <div class="col-lg-8" data-dashboard-workflow="inventory">
         <div class="card border-0 shadow-sm h-100">
           <div class="card-header bg-white border-0 py-3">
             <h5 class="mb-0 fw-bold text-primary"><i class="fa fa-star me-2"></i>Top 5 Productos Más Vendidos</h5>
@@ -124,7 +124,7 @@
           </div>
         </div>
       </div>
-      <div class="col-lg-4">
+      <div class="col-lg-4" data-dashboard-module="sales">
         <div class="card border-0 shadow-sm h-100">
           <div class="card-header bg-white border-0 py-3">
             <h5 class="mb-0 fw-bold text-primary"><i class="fa fa-wallet me-2"></i>Métodos de Pago</h5>
@@ -139,10 +139,10 @@
     </div>
 
     <!-- 5. Nuevas Tarjetas de Gestión (Inventario y Operaciones) -->
-    <h5 class="mb-3 text-muted fw-bold"><i class="fa fa-cubes me-2"></i>Resumen Operativo</h5>
+    <h5 class="mb-3 text-muted fw-bold" id="operational-summary-title"><i class="fa fa-cubes me-2"></i>Resumen Operativo</h5>
     <div class="row g-3 mb-4">
       <!-- Inventario Valorizado -->
-      <div class="col-md-4 col-lg-3">
+      <div class="col-md-4 col-lg-3" data-dashboard-workflow="inventory">
         <div class="kpi-card small-card">
           <div class="d-flex align-items-center">
             <div class="kpi-icon-wrapper bg-info bg-opacity-10 text-info mb-0 me-3" style="width: 45px; height: 45px; font-size: 20px;">
@@ -157,7 +157,7 @@
       </div>
       
       <!-- Total Productos -->
-      <div class="col-md-4 col-lg-3">
+      <div class="col-md-4 col-lg-3" data-dashboard-workflow="inventory">
         <div class="kpi-card small-card">
           <div class="d-flex align-items-center">
             <div class="kpi-icon-wrapper bg-secondary bg-opacity-10 text-secondary mb-0 me-3" style="width: 45px; height: 45px; font-size: 20px;">
@@ -172,7 +172,7 @@
       </div>
 
       <!-- Clientes -->
-      <div class="col-md-4 col-lg-2">
+      <div class="col-md-4 col-lg-2" data-dashboard-module="clients">
         <div class="kpi-card small-card">
           <div class="d-flex align-items-center">
             <div class="kpi-icon-wrapper bg-primary bg-opacity-10 text-primary mb-0 me-3" style="width: 45px; height: 45px; font-size: 20px;">
@@ -187,7 +187,7 @@
       </div>
 
       <!-- Proveedores -->
-      <div class="col-md-4 col-lg-2">
+      <div class="col-md-4 col-lg-2" data-dashboard-module="suppliers">
         <div class="kpi-card small-card">
           <div class="d-flex align-items-center">
             <div class="kpi-icon-wrapper bg-dark bg-opacity-10 text-dark mb-0 me-3" style="width: 45px; height: 45px; font-size: 20px;">
@@ -202,7 +202,7 @@
       </div>
 
       <!-- Deuda a Proveedores -->
-      <div class="col-md-4 col-lg-2">
+      <div class="col-md-4 col-lg-2" data-dashboard-module="purchases">
         <div class="kpi-card small-card">
           <div class="d-flex align-items-center">
             <div class="kpi-icon-wrapper bg-danger bg-opacity-10 text-danger mb-0 me-3" style="width: 45px; height: 45px; font-size: 20px;">
@@ -219,7 +219,7 @@
 
     <!-- 6. Actividad Reciente y Alertas Detalladas -->
     <div class="row g-4">
-      <div class="col-lg-6">
+      <div class="col-lg-6" data-dashboard-module="reports">
         <div class="card border-0 shadow-sm h-100">
           <div class="card-header bg-white border-0 py-3 d-flex justify-content-between">
             <h5 class="mb-0 fw-bold text-primary">Actividad Reciente</h5>
@@ -234,7 +234,7 @@
         </div>
       </div>
 
-      <div class="col-lg-6">
+      <div class="col-lg-6" data-dashboard-workflow="inventory">
         <div class="card border-0 shadow-sm h-100">
           <div class="card-header bg-white border-0 py-3 d-flex justify-content-between">
             <h5 class="mb-0 fw-bold text-danger">Panel de Alertas</h5>

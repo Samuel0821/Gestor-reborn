@@ -14,10 +14,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   const quoteItemsTbody = document.getElementById('quote-items');
   const totalDiv = document.getElementById('quote-total');
   const finalizeBtn = document.getElementById('finalize-quote');
+  const quoteModal = new bootstrap.Modal(document.getElementById('quote-form-modal'));
+  const quoteModalTitle = document.getElementById('quote-form-modal-title');
+  const newQuoteButton = document.getElementById('new-quote-btn');
 
   let quoteItems = [];
   let allProducts = [];
   let editingQuoteId = null;
+
+  function resetQuoteForm() {
+    editingQuoteId = null;
+    quoteItems = [];
+    renderQuoteItems();
+    clientSelect.value = '';
+    clientInput.value = '';
+    clientHiddenIdInput.value = '';
+    quoteNotesInput.value = '';
+    finalizeBtn.textContent = 'Finalizar Cotización';
+    finalizeBtn.classList.remove('btn-warning');
+    finalizeBtn.classList.add('btn-success');
+  }
+
+  newQuoteButton.addEventListener('click', () => {
+    resetQuoteForm();
+    quoteModalTitle.textContent = 'Registrar Cotización';
+    quoteModal.show();
+    productInput.focus();
+  });
 
   // Función para guardar el estado del carrito en localStorage
   function saveQuoteState() {
@@ -448,6 +471,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     finalizeBtn.classList.add('btn-primary');
     const cancelBtn = document.getElementById('cancel-edit-quote-btn');
     if(cancelBtn) cancelBtn.remove();
+    quoteModal.hide();
   }
 
   // --- Cargar cotizaciones
@@ -540,6 +564,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         finalizeBtn.textContent = "Actualizar Cotización";
         finalizeBtn.classList.remove('btn-primary');
         finalizeBtn.classList.add('btn-warning');
+        quoteModalTitle.textContent = 'Editar Cotización';
+        quoteModal.show();
 
         // Agregar botón cancelar si no existe
         if(!document.getElementById('cancel-edit-quote-btn')) {
@@ -548,7 +574,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           document.getElementById('cancel-edit-quote-btn').addEventListener('click', cancelEdit);
         }
         
-        window.scrollTo(0, 0);
+        productInput.focus();
       });
     });
 
