@@ -5,6 +5,14 @@ module.exports = {
   packagerConfig: {
     asar: true,
     icon: './src/logo/gestorfx_logof.ico', // Icono del ejecutable
+    extraResource: ['./scripts'],
+    ignore: [
+      /[\\/]\.tools(?:[\\/]|$)/i,
+      /[\\/]licensing(?:[\\/]|$)/i,
+      /[\\/]out(?:[\\/]|$)/i,
+      /[\\/]database\.sqlite$/i,
+      /[\\/]npm-install\.log$/i,
+    ],
   },
   rebuildConfig: {},
   makers: [
@@ -16,7 +24,7 @@ module.exports = {
     },
     {
       name: '@electron-forge/maker-zip',
-      platforms: ['darwin'],
+      platforms: ['win32', 'darwin'],
     },
     {
       name: '@electron-forge/maker-deb',

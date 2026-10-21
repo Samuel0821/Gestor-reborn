@@ -24,6 +24,13 @@
       <section class="setup-step" data-step="1">
         <h2 class="h4">Bienvenido</h2>
         <p>Este asistente guardará la información inicial en la base de datos local.</p>
+        <div id="license-block" class="mt-4">
+          <label class="form-label" for="activation-code">Código de activación</label>
+          <input id="activation-code" class="form-control text-uppercase" placeholder="GFX-XXXX-XXXX-XXXX" autocomplete="off" maxlength="30">
+          <div class="form-text">Código de un solo uso entregado por su asesor de GestorFX. Se requiere conexión a Internet en el servidor.</div>
+          <div id="license-alert" class="alert alert-danger d-none mt-3"></div>
+          <p class="small text-muted mt-3 mb-0">Al finalizar la configuración, GestorFX enviará a Grisalis Technologies los datos del negocio (nombre, NIT, teléfono, correo, dirección y tipo de negocio) para registrar su instalación y licencia.</p>
+        </div>
       </section>
 
       <section class="setup-step d-none" data-step="2">

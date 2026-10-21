@@ -1402,9 +1402,11 @@ document.addEventListener("DOMContentLoaded", async () => {
                 const totalAbonado = ${Number(sale.paid_amount || 0)};
                 const printerSelect = document.getElementById("printerSelect");
                 const paperSizeSelect = document.getElementById("paperSizeSelect");
+                // localStorage no está disponible en páginas data:, se usa un almacén en memoria
+                const previewStore = { paperSize: ${JSON.stringify(localStorage.getItem('paperSize') || '')}, printer: ${JSON.stringify(localStorage.getItem('printer') || '')} };
                 function applyTicketWidth(width) {
                   document.body.dataset.ticketWidth = width;
-                  localStorage.setItem("paperSize", width);
+                  previewStore.paperSize = width;
                   let pageStyle = document.getElementById("ticketPageSizeStyle");
                   if (!pageStyle) {
                     pageStyle = document.createElement("style");
@@ -1421,15 +1423,15 @@ document.addEventListener("DOMContentLoaded", async () => {
                 }
                 function suggestPrinterWidth() {
                   const detectedWidth = printerSelect?.selectedOptions[0]?.dataset.paperWidth;
-                  const savedWidth = localStorage.getItem("paperSize");
+                  const savedWidth = previewStore.paperSize;
                   const width = detectedWidth || (savedWidth === "57mm" ? "57mm" : "80mm");
                   paperSizeSelect.value = width;
-                  if (printerSelect?.value) localStorage.setItem("printer", printerSelect.value);
+                  if (printerSelect?.value) previewStore.printer = printerSelect.value;
                   applyTicketWidth(width);
                 }
                 printerSelect?.addEventListener("change", suggestPrinterWidth);
                 paperSizeSelect?.addEventListener("change", () => applyTicketWidth(paperSizeSelect.value));
-                const savedPrinter = localStorage.getItem("printer");
+                const savedPrinter = previewStore.printer;
                 if (savedPrinter && printerSelect) printerSelect.value = savedPrinter;
                 suggestPrinterWidth();
                 function updateTotals() {
@@ -1446,7 +1448,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 const prntBtn = document.getElementById("printButton");
                 if (prntBtn) prntBtn.addEventListener("click", () => {
                   updateTotals();
-                  localStorage.setItem("printer", printerSelect.value);
+                  previewStore.printer = printerSelect.value;
                   applyTicketWidth(paperSizeSelect.value);
                   window.print();
                 });

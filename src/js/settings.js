@@ -22,7 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // NUEVAS VARIABLES para la configuración de impresión
     const printSettingsForm = document.getElementById('print-settings-form');
     const printerSelect = document.getElementById('printer-select');
-    const paperSizeSelect = document.getElementById('paper-size');
+  const paperSizeSelect = document.getElementById('paper-size');
+  let currentLogoPath = null;
 
   async function loadSettings() {
     try {
@@ -35,8 +36,10 @@ document.addEventListener('DOMContentLoaded', () => {
       phoneInput.value = s.company_phone || '';
       countryInput.value = s.country_code || 'CO';
       currencyInput.value = s.currency_code || 'COP';
-      if (s.logo_path) {
-        logoPreview.src = s.logo_path;
+      currentLogoPath = s.logo_path || null;
+      if (currentLogoPath) {
+        const logoData = await window.api.getCompanyLogo();
+        logoPreview.src = logoData || '';
         logoPreview.style.display = 'block';
       } else {
         logoPreview.style.display = 'none';
@@ -94,7 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const logoPath = logoInput.files && logoInput.files[0] ? logoInput.files[0].path : (logoPreview.src || null);
+    const logoPath = logoInput.files && logoInput.files[0] ? logoInput.files[0].path : null;
     const payload = {
       company_name: nameInput.value.trim(),
       company_id_card_or_nit: idInput.value.trim(),

@@ -49,7 +49,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const user = usernameInput.value.trim();
     const pass = passwordInput.value;
     
-    const res = await window.api.login({ username: user, password: pass });
+    let res;
+    try {
+      res = await window.api.login({ username: user, password: pass });
+    } catch (error) {
+      alertMsg.textContent = error.message || 'No fue posible conectar con el servidor.';
+      alertBox.classList.remove('d-none');
+      setLoading(false);
+      return;
+    }
     
     if (res.success) {
       // Guardar preferencia de usuario

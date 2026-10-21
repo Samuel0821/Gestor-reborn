@@ -8,8 +8,8 @@
 ## 1. Información General del Sistema
 **Nombre del Software:** GestorFX: Sistema Integral Para Gestionar Inventarios y Puntos De Ventas
 **Tipo de Aplicación:** Sistema ERP de Escritorio (Desktop).
-**Arquitectura:** Monolítica modular basada en Electron (Chromium + Node.js).
-**Base de Datos:** SQLite3 (Local, embebida).
+**Arquitectura:** Electron con modo local y modo servidor LAN.
+**Base de Datos:** SQLite3; en modo LAN, un único proceso servidor mantiene la base en disco local y las estaciones se conectan por HTTPS.
 **Licencia:** Propietaria / Comercial.
 
 ## 2. Requisitos del Sistema
@@ -32,6 +32,7 @@ El sistema utiliza tecnologías web modernas encapsuladas para ejecutarse como u
 *   **[Electron JS](https://www.electronjs.org/):** Framework principal que permite crear aplicaciones de escritorio con tecnologías web. Maneja el proceso principal (`Main Process`) y las ventanas (`Renderer Process`).
 *   **Node.js:** Entorno de ejecución para la lógica de negocio, acceso al sistema de archivos y manejo de base de datos.
 *   **IPC (Inter-Process Communication):** Comunicación segura entre el frontend y el backend mediante `ipcMain` y `ipcRenderer` (contextBridge).
+*   **API LAN:** Adaptador HTTPS para enrutar al servidor las mismas operaciones registradas por IPC. Ver `RED_LOCAL.md` para configuración y límites actuales.
 
 ### Frontend (Interfaz de Usuario)
 *   **HTML5:** Estructura semántica de las vistas.
@@ -154,7 +155,7 @@ El sistema utiliza un modelo relacional robusto. Las tablas principales son:
 
 ## 6. Seguridad
 
-*   **Almacenamiento Local:** Los datos residen exclusivamente en el equipo del usuario, reduciendo riesgos de ataques remotos a servidores.
+*   **Almacenamiento:** En modo local, la base reside en el equipo. En modo LAN, las estaciones no abren SQLite; solo el proceso servidor lo usa y crea respaldos diarios consistentes.
 *   **Hashing de Contraseñas:** Las contraseñas de usuario se almacenan cifradas utilizando el algoritmo **SHA-256**.
 *   **Roles de Usuario:**
     *   **Admin:** Acceso total a configuración, usuarios y eliminación de registros.

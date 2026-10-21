@@ -1,15 +1,30 @@
   // ---------- DEPENDENCIAS PRINCIPALES ----------
   const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
   const path = require("node:path");
+  const http = require("node:http");
+  const https = require("node:https");
+  const crypto = require("node:crypto");
+  const fs = require("fs");
+  const isServerMode = process.env.GESTORFX_SERVER_MODE === "1";
+  if (!isServerMode && !process.env.GESTORFX_API_URL) {
+    try {
+      const appData = process.env.APPDATA || path.join(require("node:os").homedir(), "AppData", "Roaming");
+      const configPath = path.join(appData, "GestorFX", "gestorfx-network.json");
+      const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      if (typeof config.apiUrl === "string") process.env.GESTORFX_API_URL = config.apiUrl;
+    } catch (_) {}
+  }
+  const isRemoteStation = Boolean(process.env.GESTORFX_API_URL) && !isServerMode;
   const appIcon = path.join(__dirname, "logo", "gestorfx_logof.ico");
   
   // Handle creating/removing shortcuts on Windows when installing/uninstalling.
   if (require('electron-squirrel-startup')) app.quit();
-  const fs = require("fs");
-  const db = require("./database");
+  const db = isRemoteStation ? null : require("./database");
+  const licensing = require("./licensing");
+  const licenseDirectory = () => process.env.GESTORFX_DATABASE_PATH ? path.dirname(process.env.GESTORFX_DATABASE_PATH) : app.getPath("userData");
   const PDFDocument = require("pdfkit");
   const ExcelJS = require("exceljs");
-  const cashRegister = require("./cashRegister");
+  const cashRegister = isRemoteStation ? {} : require("./cashRegister");
 
 
   // Deshabilitar la caché de disco para prevenir errores de "Acceso denegado"
@@ -18,7 +33,17 @@
   // ---------- CREAR VENTANA PRINCIPAL ----------
   let mainWindow;
 
-  function createWindow() {
+  async function createWindow() {
+    let installationCompleted = isRemoteStation;
+    if (isRemoteStation) {
+      try {
+        const response = await fetch(`${process.env.GESTORFX_API_URL.replace(/\/$/, "")}/health`);
+        const health = await response.json();
+        installationCompleted = Boolean(health.installationCompleted);
+      } catch (_) {}
+    } else {
+      installationCompleted = Boolean(db.getInstallationState().completed);
+    }
     mainWindow = new BrowserWindow({
 
       width: 1300, // Aumentar un poco el ancho para el nuevo módulo
@@ -28,6 +53,7 @@
         preload: path.join(__dirname, "preload.js"),
         contextIsolation: true,
         nodeIntegration: false,
+        additionalArguments: isRemoteStation ? [`--gestorfx-api-url=${process.env.GESTORFX_API_URL}`] : [],
       },
     });
     const rendererId = mainWindow.webContents.id;
@@ -35,7 +61,7 @@
     // Eliminar la barra de menú por defecto (Archivo, Vista, etc.)
     mainWindow.setMenu(null);
 
-    const initialView = db.getInstallationState().completed ? "login.html" : "setup.html";
+    const initialView = installationCompleted ? "login.html" : "setup.html";
     mainWindow.loadFile(path.join(__dirname, "views", initialView));
 
     // Push current cash session to renderer once the page finishes loading
@@ -62,7 +88,9 @@
 
   app.whenReady().then(() => {
       registerIpcHandlers();
-      createWindow();
+      if (!isRemoteStation) licensing.registerCustomer(licenseDirectory());
+      if (isServerMode) startLanApi();
+      else createWindow();
   });
 
   app.on("window-all-closed", () => {
@@ -196,6 +224,184 @@
 
   const loginAttempts = new Map();
   const authenticatedRenderers = new Map();
+  const apiHandlers = new Map();
+  const apiSessions = new Map();
+
+  // Keep one operation registry so the same business handlers can be reached
+  // through Electron IPC locally and through the LAN API on the host machine.
+  function registerIpcHandler(channel, handler) {
+    apiHandlers.set(channel, handler);
+    ipcMain.handle(channel, handler);
+  }
+
+  function startLanApi() {
+    const host = process.env.GESTORFX_API_HOST || "0.0.0.0";
+    const port = Number(process.env.GESTORFX_API_PORT || 47821);
+    let requestQueue = Promise.resolve();
+    const handleRequest = (req, res) => {
+      const headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      };
+      const send = (status, data) => { res.writeHead(status, headers); res.end(JSON.stringify(data)); };
+      if (req.method === "OPTIONS") { res.writeHead(204, headers); return res.end(); }
+      if (req.method === "GET" && req.url === "/health") return send(200, {
+        status: "ok", service: "GestorFX", installationCompleted: Boolean(db.getInstallationState().completed),
+      });
+      if (req.method !== "POST" || req.url !== "/rpc") return send(404, { error: "Ruta no encontrada" });
+      let raw = "";
+      let oversized = false;
+      req.on("data", chunk => {
+        if (oversized) return;
+        raw += chunk;
+        if (raw.length > 10_000_000) { oversized = true; raw = ""; }
+      });
+      req.on("end", () => {
+        if (oversized) return send(413, { error: "Solicitud demasiado grande." });
+        const currentRequest = requestQueue.then(async () => {
+        try {
+          const payload = JSON.parse(raw || "{}");
+          const { channel, args = [] } = payload;
+          if (typeof channel !== "string" || !Array.isArray(args)) return send(400, { error: "Solicitud inválida" });
+          if (["select-file", "read-file-for-upload", "save-remote-export", "get-printers", "preview-invoice", "print-invoice", "get-payment-receipt-preview"].includes(channel)
+            || (channel === "export-payment-receipt-pdf" && args[0] && args[0].preview)) {
+            return send(403, { error: "Esta operación se ejecuta localmente en la estación." });
+          }
+          const handler = apiHandlers.get(channel);
+          if (!handler) return send(404, { error: "Operación no disponible" });
+          if (channel === "login" && !db.getInstallationState().completed) {
+            return send(200, { result: { success: false, message: "Complete primero la configuración inicial." } });
+          }
+
+          const publicChannels = new Set(["login", "get-installation-state", "get-business-types", "get-product-form-config", "save-initial-setup", "get-license-state", "activate-license"]);
+          const bearerToken = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+
+          let senderId;
+          if (channel === "login" || publicChannels.has(channel)) {
+            senderId = crypto.randomUUID();
+          } else {
+            const session = apiSessions.get(bearerToken);
+            if (!session || Date.now() - session.createdAt > 12 * 60 * 60 * 1000) {
+              apiSessions.delete(bearerToken);
+              return send(401, { error: "Sesión vencida. Inicie sesión de nuevo." });
+            }
+            senderId = session.senderId;
+            if (!publicChannels.has(channel) && !authenticatedRenderers.has(senderId)) {
+              apiSessions.delete(bearerToken);
+              return send(401, { error: "Inicie sesión para continuar." });
+            }
+          }
+          const event = { sender: { id: senderId } };
+          if (channel === "update-company-settings" && args[0] && args[0].logo_upload) {
+            const upload = args[0].logo_upload;
+            const allowedExtensions = { "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp" };
+            const extension = allowedExtensions[upload.mimeType];
+            if (!extension || typeof upload.dataBase64 !== "string" || upload.dataBase64.length > 7_000_000) {
+              return send(400, { error: "Imagen no válida o demasiado grande." });
+            }
+            const bytes = Buffer.from(upload.dataBase64, "base64");
+            if (bytes.length > 5 * 1024 * 1024) return send(400, { error: "La imagen debe pesar máximo 5 MB." });
+            const signatures = {
+              "image/png": bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+              "image/jpeg": bytes[0] === 255 && bytes[1] === 216 && bytes[bytes.length - 2] === 255 && bytes[bytes.length - 1] === 217,
+              "image/webp": bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP",
+            };
+            if (!signatures[upload.mimeType]) return send(400, { error: "El contenido no coincide con el formato de imagen." });
+            const assetsDirectory = path.join(path.dirname(process.env.GESTORFX_DATABASE_PATH || app.getPath("userData")), "assets");
+            fs.mkdirSync(assetsDirectory, { recursive: true });
+            const logoPath = path.join(assetsDirectory, `company-logo-${crypto.randomUUID()}${extension}`);
+            fs.writeFileSync(logoPath, bytes, { flag: "wx" });
+            args[0].logo_path = logoPath;
+            delete args[0].logo_upload;
+          }
+          const isExport = channel.startsWith("export-");
+          const exportDirectory = path.join(path.dirname(process.env.GESTORFX_DATABASE_PATH || app.getPath("userData")), "pending-exports");
+          const originalShowSaveDialog = dialog.showSaveDialog;
+          if (isExport) {
+            dialog.showSaveDialog = async (...dialogArgs) => {
+              const options = dialogArgs.length > 1 ? dialogArgs[1] : dialogArgs[0];
+              const suggestedName = path.basename(String(options && options.defaultPath || "gestorfx-export.pdf"));
+              const filePath = path.join(exportDirectory, `${crypto.randomUUID()}-${suggestedName}`);
+              fs.mkdirSync(exportDirectory, { recursive: true });
+              return { filePath, canceled: false };
+            };
+          }
+          let result;
+          try {
+            result = await handler(event, ...args);
+          } finally {
+            dialog.showSaveDialog = originalShowSaveDialog;
+          }
+          let fileDownload;
+          if (isExport && result && result.success && typeof result.filePath === "string") {
+            const outputPath = path.resolve(result.filePath);
+            if (path.dirname(outputPath) === path.resolve(exportDirectory) && fs.existsSync(outputPath)) {
+              const outputName = path.basename(outputPath).replace(/^[0-9a-f-]{36}-/i, "");
+              fileDownload = { name: outputName, dataBase64: fs.readFileSync(outputPath).toString("base64") };
+              fs.unlinkSync(outputPath);
+              result = { ...result, filePath: null };
+            }
+          }
+          if (channel === "login" && result && result.success) {
+            const sessionToken = crypto.randomBytes(32).toString("hex");
+            apiSessions.set(sessionToken, { senderId, createdAt: Date.now() });
+            return send(200, { result, sessionToken, fileDownload });
+          }
+          return send(200, { result, fileDownload });
+        } catch (error) {
+          console.error("Error en API LAN:", error);
+          return send(500, { error: error.message === "No tiene permisos para realizar esta operación." ? error.message : "No fue posible procesar la solicitud" });
+        }
+        });
+        requestQueue = currentRequest.catch(() => undefined);
+      });
+    };
+    const pfxPath = process.env.GESTORFX_TLS_PFX_PATH;
+    const tlsPassword = process.env.GESTORFX_TLS_PFX_PASSWORD;
+    if (Boolean(pfxPath) !== Boolean(tlsPassword)) {
+      throw new Error("Configure tanto GESTORFX_TLS_PFX_PATH como GESTORFX_TLS_PFX_PASSWORD.");
+    }
+    const server = pfxPath
+      ? https.createServer({ pfx: fs.readFileSync(pfxPath), passphrase: tlsPassword }, handleRequest)
+      : http.createServer(handleRequest);
+    server.on("error", error => console.error("No se pudo iniciar la API LAN:", error));
+    server.listen(port, host, () => console.log(`API GestorFX ${pfxPath ? "HTTPS" : "HTTP"} disponible en ${host}:${port}`));
+    const backupDirectory = path.join(path.dirname(process.env.GESTORFX_DATABASE_PATH || app.getPath("userData")), "backups");
+    let backupRunning = false;
+    const createDailyBackup = async () => {
+      if (backupRunning || !db.getInstallationState().completed) return;
+      backupRunning = true;
+      const day = new Date().toISOString().slice(0, 10);
+      const backupPath = path.join(backupDirectory, `gestorfx-${day}.sqlite`);
+      const temporaryPath = `${backupPath}.tmp`;
+      try {
+        fs.mkdirSync(backupDirectory, { recursive: true });
+        if (!fs.existsSync(backupPath)) {
+          await db.db.backup(temporaryPath);
+          fs.renameSync(temporaryPath, backupPath);
+          console.log(`Copia de seguridad creada: ${backupPath}`);
+        }
+        const retentionBoundary = Date.now() - 30 * 24 * 60 * 60 * 1000;
+        for (const name of fs.readdirSync(backupDirectory)) {
+          if (!/^gestorfx-\d{4}-\d{2}-\d{2}\.sqlite$/.test(name)) continue;
+          const backupFile = path.join(backupDirectory, name);
+          if (fs.statSync(backupFile).mtimeMs < retentionBoundary) fs.unlinkSync(backupFile);
+        }
+      } catch (error) {
+        console.error("No se pudo crear la copia diaria de GestorFX:", error);
+        try { if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath); } catch (_) {}
+      } finally {
+        backupRunning = false;
+      }
+    };
+    createDailyBackup();
+    const backupTimer = setInterval(createDailyBackup, 60 * 60 * 1000);
+    backupTimer.unref();
+    app.on("before-quit", () => server.close());
+  }
 
   function requireAuthenticated(event, allowedRoles = []) {
     const auth = authenticatedRenderers.get(event.sender.id);
@@ -208,7 +414,7 @@
 
   function registerIpcHandlers() {
       // Autenticación
-      ipcMain.handle("login", async (event, creds) => {
+      registerIpcHandler("login", async (event, creds) => {
         const { username, password } = creds;
         const now = Date.now();
         
@@ -238,42 +444,42 @@
         return res;
       });
       // Clientes
-      ipcMain.handle("get-clients", (event) => { requireAuthenticated(event); return db.getClients(); });
-      ipcMain.handle("get-client-by-id", (event, id) => { requireAuthenticated(event); return db.getClientById(id); });
-      ipcMain.handle("save-client", (event, data) => { requireAuthenticated(event); return db.saveClient(data); });
-      ipcMain.handle("update-client", (event, data) => { requireAuthenticated(event); return db.updateClient(data); });
-      ipcMain.handle("delete-client", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteClient(id); });
+      registerIpcHandler("get-clients", (event) => { requireAuthenticated(event); return db.getClients(); });
+      registerIpcHandler("get-client-by-id", (event, id) => { requireAuthenticated(event); return db.getClientById(id); });
+      registerIpcHandler("save-client", (event, data) => { requireAuthenticated(event); return db.saveClient(data); });
+      registerIpcHandler("update-client", (event, data) => { requireAuthenticated(event); return db.updateClient(data); });
+      registerIpcHandler("delete-client", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteClient(id); });
 
       // Productos
-      ipcMain.handle("get-products", (event) => { requireAuthenticated(event); return db.getProducts(); });
-      ipcMain.handle("get-product-by-id", (event, id) => { requireAuthenticated(event); return db.getProductById(id); });
+      registerIpcHandler("get-products", (event) => { requireAuthenticated(event); return db.getProducts(); });
+      registerIpcHandler("get-product-by-id", (event, id) => { requireAuthenticated(event); return db.getProductById(id); });
 
-      ipcMain.handle("add-product", (event, data) => { requireAuthenticated(event); return db.addProduct(data); });
-      ipcMain.handle("update-product", (event, data) => { requireAuthenticated(event); return db.updateProduct(data); });
-      ipcMain.handle("delete-product", (event, id) => {
+      registerIpcHandler("add-product", (event, data) => { requireAuthenticated(event); return db.addProduct(data); });
+      registerIpcHandler("update-product", (event, data) => { requireAuthenticated(event); return db.updateProduct(data); });
+      registerIpcHandler("delete-product", (event, id) => {
         requireAuthenticated(event, ['admin']);
         return db.deleteProduct(id);
       });
-      ipcMain.handle("get-categories", () => db.getCategories());
-      ipcMain.handle("add-category", (event, name) => { requireAuthenticated(event); return db.addCategory(name); });
-      ipcMain.handle("update-category", (event, id, name) => { requireAuthenticated(event); return db.updateCategory(id, name); });
-      ipcMain.handle("delete-category", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteCategory(id); });
+      registerIpcHandler("get-categories", () => db.getCategories());
+      registerIpcHandler("add-category", (event, name) => { requireAuthenticated(event); return db.addCategory(name); });
+      registerIpcHandler("update-category", (event, id, name) => { requireAuthenticated(event); return db.updateCategory(id, name); });
+      registerIpcHandler("delete-category", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteCategory(id); });
 
       // Proveedores
-      ipcMain.handle("get-suppliers", (event) => { requireAuthenticated(event); return db.getSuppliers(); });
-      ipcMain.handle("get-supplier-by-id", (event, id) => { requireAuthenticated(event); return db.getSupplierById(id); });
-      ipcMain.handle("save-supplier", (event, data) => { requireAuthenticated(event); return db.saveSupplier(data); });
-      ipcMain.handle("update-supplier", (event, data) => { requireAuthenticated(event); return db.updateSupplier(data); });
-      ipcMain.handle("delete-supplier", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteSupplier(id); });
+      registerIpcHandler("get-suppliers", (event) => { requireAuthenticated(event); return db.getSuppliers(); });
+      registerIpcHandler("get-supplier-by-id", (event, id) => { requireAuthenticated(event); return db.getSupplierById(id); });
+      registerIpcHandler("save-supplier", (event, data) => { requireAuthenticated(event); return db.saveSupplier(data); });
+      registerIpcHandler("update-supplier", (event, data) => { requireAuthenticated(event); return db.updateSupplier(data); });
+      registerIpcHandler("delete-supplier", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteSupplier(id); });
 
-      ipcMain.handle("get-suppliers-count", () => db.getSuppliersCount());
+      registerIpcHandler("get-suppliers-count", () => db.getSuppliersCount());
 
       // Ventas
-      ipcMain.handle("create-sale", (event, data) => { requireAuthenticated(event); return db.createSale(data); });
-      ipcMain.handle("get-sales", (event, limit, offset, clientId, searchTerm, statusFilter) => db.getSales(limit, offset, clientId, searchTerm, statusFilter));
-      ipcMain.handle("get-sale-by-id", (event, id) => db.getSaleById(id));
-      ipcMain.handle("get-sale-items", (event, id) => db.getSaleItems(id));
-      ipcMain.handle("annul-sale", (event, id) => {
+      registerIpcHandler("create-sale", (event, data) => { requireAuthenticated(event); return db.createSale(data); });
+      registerIpcHandler("get-sales", (event, limit, offset, clientId, searchTerm, statusFilter) => db.getSales(limit, offset, clientId, searchTerm, statusFilter));
+      registerIpcHandler("get-sale-by-id", (event, id) => db.getSaleById(id));
+      registerIpcHandler("get-sale-items", (event, id) => db.getSaleItems(id));
+      registerIpcHandler("annul-sale", (event, id) => {
         requireAuthenticated(event, ['admin']);
         const res = db.annulSale(id);
         try { if (mainWindow) {
@@ -282,7 +488,7 @@
         } } catch(e){}
         return res;
       }); // Registrar manejador para anular
-      ipcMain.handle("delete-sale", (event, id) => {
+      registerIpcHandler("delete-sale", (event, id) => {
         requireAuthenticated(event, ['admin']);
         const res = db.deleteSale(id);
         try { if (mainWindow) {
@@ -291,51 +497,51 @@
         } } catch(e){}
         return res;
       });
-      ipcMain.handle("update-sale", (event, data) => { requireAuthenticated(event, ['admin']); return db.updateSale(data); });
+      registerIpcHandler("update-sale", (event, data) => { requireAuthenticated(event, ['admin']); return db.updateSale(data); });
 
-      ipcMain.handle("delete-sale-item", (event, id) => {
+      registerIpcHandler("delete-sale-item", (event, id) => {
         requireAuthenticated(event, ['admin']);
         return db.deleteSaleItem(id);
       });
-      ipcMain.handle("get-last-invoice-number", () => db.getLastInvoiceNumber());
-      ipcMain.handle("set-invoice-number", (event, { id, invoiceNumber }) => db.setInvoiceNumber(id, invoiceNumber));
+      registerIpcHandler("get-last-invoice-number", () => db.getLastInvoiceNumber());
+      registerIpcHandler("set-invoice-number", (event, { id, invoiceNumber }) => db.setInvoiceNumber(id, invoiceNumber));
 
       // Caja registradora
-      ipcMain.handle("open-cash-register", (event, { openingBalance, userId, userName, openingNotes }) => {
+      registerIpcHandler("open-cash-register", (event, { openingBalance, userId, userName, openingNotes }) => {
         const auth = requireAuthenticated(event);
         return cashRegister.openCashRegister(openingBalance, auth.id, auth.name || auth.username, openingNotes);
       });
-      ipcMain.handle("get-active-cash-session", () => cashRegister.getActiveSession());
-      ipcMain.handle("add-cash-movement-manual", (event, { sessionId, type, sub_type, amount, description }) => {
+      registerIpcHandler("get-active-cash-session", () => cashRegister.getActiveSession());
+      registerIpcHandler("add-cash-movement-manual", (event, { sessionId, type, sub_type, amount, description }) => {
         requireAuthenticated(event);
         return cashRegister.addCashMovement(sessionId, type, sub_type, amount, description);
       });
-      ipcMain.handle("close-cash-register", (event, { realClosingBalance, closingNotes }) => {
+      registerIpcHandler("close-cash-register", (event, { realClosingBalance, closingNotes }) => {
         const auth = requireAuthenticated(event);
         return cashRegister.closeCashRegister(realClosingBalance, auth.id, auth.name || auth.username, closingNotes);
       });
-      ipcMain.handle("get-cash-register-sessions", () => cashRegister.getCashRegisterSessions());
-      ipcMain.handle("get-cash-movements", (event, sessionId) => cashRegister.getCashMovements(sessionId));
-      ipcMain.handle("get-cash-movements-detailed", (event, sessionId) => cashRegister.getCashMovementsDetailed(sessionId));
-      ipcMain.handle("get-sales-for-session", (event, sessionId) => cashRegister.getSalesForSession(sessionId));
-      ipcMain.handle("get-expenses-for-session", (event, sessionId) => cashRegister.getExpensesForSession(sessionId));
-      ipcMain.handle("get-purchase-payments-for-session", (event, sessionId) => cashRegister.getPurchasePaymentsForSession(sessionId));
-      ipcMain.handle("get-service-payments-for-session", (event, sessionId) => cashRegister.getServicePaymentsForSession(sessionId));
-      ipcMain.handle("get-credit-payments-for-session", (event, sessionId) => cashRegister.getCreditPaymentsForSession(sessionId));
-      ipcMain.handle("save-reconciliation-details", (event, { sessionId, denominations }) => {
+      registerIpcHandler("get-cash-register-sessions", () => cashRegister.getCashRegisterSessions());
+      registerIpcHandler("get-cash-movements", (event, sessionId) => cashRegister.getCashMovements(sessionId));
+      registerIpcHandler("get-cash-movements-detailed", (event, sessionId) => cashRegister.getCashMovementsDetailed(sessionId));
+      registerIpcHandler("get-sales-for-session", (event, sessionId) => cashRegister.getSalesForSession(sessionId));
+      registerIpcHandler("get-expenses-for-session", (event, sessionId) => cashRegister.getExpensesForSession(sessionId));
+      registerIpcHandler("get-purchase-payments-for-session", (event, sessionId) => cashRegister.getPurchasePaymentsForSession(sessionId));
+      registerIpcHandler("get-service-payments-for-session", (event, sessionId) => cashRegister.getServicePaymentsForSession(sessionId));
+      registerIpcHandler("get-credit-payments-for-session", (event, sessionId) => cashRegister.getCreditPaymentsForSession(sessionId));
+      registerIpcHandler("save-reconciliation-details", (event, { sessionId, denominations }) => {
         requireAuthenticated(event);
         return cashRegister.saveReconciliationDetails(sessionId, denominations);
       });
-      ipcMain.handle("get-reconciliation-details", (event, sessionId) => {
+      registerIpcHandler("get-reconciliation-details", (event, sessionId) => {
         requireAuthenticated(event);
         return cashRegister.getReconciliationDetails(sessionId);
       });
-      ipcMain.handle("export-cash-register-report-pdf", async (event, sessionId) => exportCashRegisterReportPDF(sessionId));
+      registerIpcHandler("export-cash-register-report-pdf", async (event, sessionId) => exportCashRegisterReportPDF(sessionId));
       
       // Gestión de Créditos
 
-      ipcMain.handle("get-credits", async (event, searchTerm, onlyPending, limit, offset) => db.getCredits(searchTerm, onlyPending, limit, offset));
-      ipcMain.handle("add-credit-payment", async (event, saleId, amount, method, reference) => {
+      registerIpcHandler("get-credits", async (event, searchTerm, onlyPending, limit, offset) => db.getCredits(searchTerm, onlyPending, limit, offset));
+      registerIpcHandler("add-credit-payment", async (event, saleId, amount, method, reference) => {
         requireAuthenticated(event);
         const res = db.addCreditPayment(saleId, amount, method, reference);
         try { if (mainWindow) {
@@ -344,7 +550,7 @@
         } } catch(e){}
         return res;
       });
-      ipcMain.handle("mark-credit-as-paid", async (event, saleId, method, reference) => {
+      registerIpcHandler("mark-credit-as-paid", async (event, saleId, method, reference) => {
         requireAuthenticated(event);
         const res = db.markCreditAsPaid(saleId, method, reference);
         try { if (mainWindow) {
@@ -353,9 +559,9 @@
         } } catch(e){}
         return res;
       });
-      ipcMain.handle("get-sale-payments", (event, saleId) => db.getSalePayments(saleId));
+      registerIpcHandler("get-sale-payments", (event, saleId) => db.getSalePayments(saleId));
       
-      ipcMain.handle("export-payment-receipt-pdf", async (event, { paymentId, type, preview = false }) => {
+      registerIpcHandler("export-payment-receipt-pdf", async (event, { paymentId, type, preview = false }) => {
         try {
           requireAuthenticated(event);
           const company = db.getCompanySettings() || {};
@@ -571,7 +777,7 @@
         }
       });
 
-      ipcMain.handle("get-payment-receipt-preview", (event, { paymentId, type }) => {
+      registerIpcHandler("get-payment-receipt-preview", (event, { paymentId, type }) => {
         requireAuthenticated(event);
         if (type !== 'purchase') return { success: false, message: "Tipo de comprobante no soportado." };
         const details = db.getPurchasePaymentDetailsForPdf(paymentId);
@@ -589,25 +795,25 @@
       });
 
       // Ordenes de Compra
-      ipcMain.handle("create-purchase-order", (event, data) => { requireAuthenticated(event); return db.createPurchaseOrder(data); });
-      ipcMain.handle("get-purchase-orders", () => db.getPurchaseOrders());
-      ipcMain.handle("get-purchase-order-by-id", (event, id) => db.getPurchaseOrderById(id));
-      ipcMain.handle("update-purchase-order", (event, data) => { requireAuthenticated(event); return db.updatePurchaseOrder(data); });
-      ipcMain.handle("delete-purchase-order", (event, id) => { requireAuthenticated(event, ['admin']); return db.deletePurchaseOrder(id); });
+      registerIpcHandler("create-purchase-order", (event, data) => { requireAuthenticated(event); return db.createPurchaseOrder(data); });
+      registerIpcHandler("get-purchase-orders", () => db.getPurchaseOrders());
+      registerIpcHandler("get-purchase-order-by-id", (event, id) => db.getPurchaseOrderById(id));
+      registerIpcHandler("update-purchase-order", (event, data) => { requireAuthenticated(event); return db.updatePurchaseOrder(data); });
+      registerIpcHandler("delete-purchase-order", (event, id) => { requireAuthenticated(event, ['admin']); return db.deletePurchaseOrder(id); });
 
-      ipcMain.handle("export-purchase-order-pdf", (event, id) => exportPurchaseOrderPDF(id));
-      ipcMain.handle("get-purchase-orders-count", () => db.getPurchaseOrders().length);
-      ipcMain.handle("receive-purchase-order", (event, id) => {
+      registerIpcHandler("export-purchase-order-pdf", (event, id) => exportPurchaseOrderPDF(id));
+      registerIpcHandler("get-purchase-orders-count", () => db.getPurchaseOrders().length);
+      registerIpcHandler("receive-purchase-order", (event, id) => {
         requireAuthenticated(event);
         return db.receivePurchaseOrder(id);
       });
       
       // --- GESTIÓN DE PAGOS A PROVEEDORES ---
-      ipcMain.handle("update-purchase-invoice-number", (event, { id, invoiceNumber, discountAmount }) => {
+      registerIpcHandler("update-purchase-invoice-number", (event, { id, invoiceNumber, discountAmount }) => {
         requireAuthenticated(event);
         return db.updatePurchaseInvoiceNumber(id, invoiceNumber, discountAmount);
       });
-      ipcMain.handle("add-purchase-payment", (event, data) => {
+      registerIpcHandler("add-purchase-payment", (event, data) => {
         requireAuthenticated(event);
         const res = db.addPurchasePayment(data);
         try { if (mainWindow) {
@@ -616,30 +822,30 @@
         } } catch(e){}
         return res;
       });
-      ipcMain.handle("get-purchase-payments", (event, orderId) => db.getPurchasePayments(orderId));
-      ipcMain.handle("get-retentions-report", (event, filters) => db.getRetentionsReport(filters));
-      ipcMain.handle("get-due-purchase-orders", () => db.getDuePurchaseOrders());
+      registerIpcHandler("get-purchase-payments", (event, orderId) => db.getPurchasePayments(orderId));
+      registerIpcHandler("get-retentions-report", (event, filters) => db.getRetentionsReport(filters));
+      registerIpcHandler("get-due-purchase-orders", () => db.getDuePurchaseOrders());
 
       // Cotizaciones
-      ipcMain.handle("create-quote", (event, data) => { requireAuthenticated(event); return db.createQuote(data); });
-      ipcMain.handle("get-quotes", (event, clientId, searchTerm) => db.getQuotes(clientId, searchTerm));
-      ipcMain.handle("get-quote-by-id", (event, id) => db.getQuoteById(id));
-      ipcMain.handle("get-quote-items", (event, id) => db.getQuoteItems(id));
-      ipcMain.handle("delete-quote", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteQuote(id); });
-      ipcMain.handle("get-last-quote-number", () => db.getLastQuoteNumber());
-      ipcMain.handle("set-quote-number", (event, { id, quoteNumber }) => db.setQuoteNumber(id, quoteNumber));
-      ipcMain.handle("create-sale-from-quote", (event, data) => { requireAuthenticated(event); return db.createSaleFromQuote(data); });
-      ipcMain.handle("update-quote-details", (event, data) => { requireAuthenticated(event); return db.updateQuoteDetails(data); });
+      registerIpcHandler("create-quote", (event, data) => { requireAuthenticated(event); return db.createQuote(data); });
+      registerIpcHandler("get-quotes", (event, clientId, searchTerm) => db.getQuotes(clientId, searchTerm));
+      registerIpcHandler("get-quote-by-id", (event, id) => db.getQuoteById(id));
+      registerIpcHandler("get-quote-items", (event, id) => db.getQuoteItems(id));
+      registerIpcHandler("delete-quote", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteQuote(id); });
+      registerIpcHandler("get-last-quote-number", () => db.getLastQuoteNumber());
+      registerIpcHandler("set-quote-number", (event, { id, quoteNumber }) => db.setQuoteNumber(id, quoteNumber));
+      registerIpcHandler("create-sale-from-quote", (event, data) => { requireAuthenticated(event); return db.createSaleFromQuote(data); });
+      registerIpcHandler("update-quote-details", (event, data) => { requireAuthenticated(event); return db.updateQuoteDetails(data); });
 
       // Servicios
-      ipcMain.handle("get-services", (event, limit, offset, status, executionStatus, searchTerm) => db.getServices(limit, offset, status, executionStatus, searchTerm));
-      ipcMain.handle("get-service-by-id", (event, id) => db.getServiceById(id));
-      ipcMain.handle("create-service", (event, data) => { requireAuthenticated(event); return db.createService(data); });
-      ipcMain.handle("update-service", (event, data) => { requireAuthenticated(event); return db.updateService(data); });
-      ipcMain.handle("delete-service", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteService(id); });
-      ipcMain.handle("update-service-status", (event, { id, status }) => { requireAuthenticated(event); return db.updateServiceStatus(id, status); });
-      ipcMain.handle("cancel-service", (event, id) => { requireAuthenticated(event); return db.cancelService(id); });
-      ipcMain.handle("add-service-payment", (event, { serviceId, amount, method, reference }) => {
+      registerIpcHandler("get-services", (event, limit, offset, status, executionStatus, searchTerm) => db.getServices(limit, offset, status, executionStatus, searchTerm));
+      registerIpcHandler("get-service-by-id", (event, id) => db.getServiceById(id));
+      registerIpcHandler("create-service", (event, data) => { requireAuthenticated(event); return db.createService(data); });
+      registerIpcHandler("update-service", (event, data) => { requireAuthenticated(event); return db.updateService(data); });
+      registerIpcHandler("delete-service", (event, id) => { requireAuthenticated(event, ['admin']); return db.deleteService(id); });
+      registerIpcHandler("update-service-status", (event, { id, status }) => { requireAuthenticated(event); return db.updateServiceStatus(id, status); });
+      registerIpcHandler("cancel-service", (event, id) => { requireAuthenticated(event); return db.cancelService(id); });
+      registerIpcHandler("add-service-payment", (event, { serviceId, amount, method, reference }) => {
         requireAuthenticated(event);
         const res = db.addServicePayment(serviceId, amount, method, reference);
         try { if (mainWindow) {
@@ -648,28 +854,28 @@
         } } catch(e){}
         return res;
       });
-      ipcMain.handle("get-service-payments", (event, serviceId) => db.getServicePayments(serviceId));
-      ipcMain.handle("mark-service-performed", (event, id) => { requireAuthenticated(event); return db.markServicePerformed(id); });
-      ipcMain.handle("get-pending-scheduled-services", () => db.getPendingScheduledServices());
-      ipcMain.handle("get-open-services-list", () => db.getOpenServicesList());
+      registerIpcHandler("get-service-payments", (event, serviceId) => db.getServicePayments(serviceId));
+      registerIpcHandler("mark-service-performed", (event, id) => { requireAuthenticated(event); return db.markServicePerformed(id); });
+      registerIpcHandler("get-pending-scheduled-services", () => db.getPendingScheduledServices());
+      registerIpcHandler("get-open-services-list", () => db.getOpenServicesList());
 
       // Usuarios
-      ipcMain.handle("get-users", (event) => { requireAuthenticated(event, ['admin']); return db.getUsers(); });
-      ipcMain.handle("create-user", (event, data) => {
+      registerIpcHandler("get-users", (event) => { requireAuthenticated(event, ['admin']); return db.getUsers(); });
+      registerIpcHandler("create-user", (event, data) => {
         requireAuthenticated(event, ['admin']);
         return db.createUser(data);
       });
-      ipcMain.handle("update-user", (event, data) => {
+      registerIpcHandler("update-user", (event, data) => {
         requireAuthenticated(event, ['admin']);
         return db.updateUser(data);
       });
-      ipcMain.handle("delete-user", (event, id) => {
+      registerIpcHandler("delete-user", (event, id) => {
         requireAuthenticated(event, ['admin']);
         return db.deleteUser(id);
       });
 
       // Soporte Técnico
-      ipcMain.handle("send-support-ticket", async (event, { subject, message }) => {
+      registerIpcHandler("send-support-ticket", async (event, { subject, message }) => {
         try {
           const userEmail = "contacto.grisalistech@gmail.com";
           const fullSubject = `Soporte GestorFX: ${subject}`;
@@ -684,9 +890,9 @@
       });
 
       // Gastos
-      ipcMain.handle('get-expenses', async (event, startDate, endDate) => db.getExpenses(startDate, endDate));
-      ipcMain.handle('get-expense-by-id', async (event, id) => db.getExpenseById(id));
-      ipcMain.handle('save-expense', async (event, expense) => {
+      registerIpcHandler('get-expenses', async (event, startDate, endDate) => db.getExpenses(startDate, endDate));
+      registerIpcHandler('get-expense-by-id', async (event, id) => db.getExpenseById(id));
+      registerIpcHandler('save-expense', async (event, expense) => {
         requireAuthenticated(event);
         const res = db.saveExpense(expense);
         try { if (mainWindow) {
@@ -695,11 +901,11 @@
         } } catch(e){}
         return res;
       });
-      ipcMain.handle('update-expense', async (event, expense) => {
+      registerIpcHandler('update-expense', async (event, expense) => {
         requireAuthenticated(event, ['admin']);
         return db.updateExpense(expense);
       });
-      ipcMain.handle('delete-expense', async (event, id) => {
+      registerIpcHandler('delete-expense', async (event, id) => {
         requireAuthenticated(event, ['admin']);
         const res = db.deleteExpense(id);
         try { if (mainWindow) {
@@ -709,7 +915,7 @@
         return res;
       });
       
-      ipcMain.handle('export-expense-pdf', async (event, id) => {
+      registerIpcHandler('export-expense-pdf', async (event, id) => {
         try {
             const expense = db.getExpenseById(id);
             if (!expense) return { success: false, message: "Gasto no encontrado" };
@@ -839,7 +1045,7 @@
         }
       });
       
-      ipcMain.handle('export-expenses-report-pdf', async (event, { startDate, endDate }) => {
+      registerIpcHandler('export-expenses-report-pdf', async (event, { startDate, endDate }) => {
         try {
             const expenses = db.getExpenses(startDate, endDate);
             const company = db.getCompanySettings() || {};
@@ -911,17 +1117,17 @@
       });
 
       // Auditoría
-      ipcMain.handle("get-audit-logs", (event, { startDate, endDate }) => {
+      registerIpcHandler("get-audit-logs", (event, { startDate, endDate }) => {
         requireAuthenticated(event, ['admin']);
         return db.getAuditLogs(startDate, endDate);
       });
-      ipcMain.handle("log-action", (event, { action, details }) => {
+      registerIpcHandler("log-action", (event, { action, details }) => {
         const auth = requireAuthenticated(event);
         return db.logAction(auth.name || auth.username, action, details);
       });
 
       // --- Aprobar cotización y convertir en venta ---
-      ipcMain.handle("approve-quote", async (event, quoteId) => {
+      registerIpcHandler("approve-quote", async (event, quoteId) => {
         requireAuthenticated(event);
 
         try {
@@ -958,30 +1164,50 @@
       });
       
       // Configuración y Dashboard
-      ipcMain.handle("get-company-settings", (event) => { requireAuthenticated(event); return db.getCompanySettings(); });
-      ipcMain.handle("get-business-types", () => db.getBusinessTypes());
-      ipcMain.handle("get-installation-state", () => db.getInstallationState());
-      ipcMain.handle("get-product-form-config", () => db.getProductFormConfig());
-      ipcMain.handle("get-business-module-config", (event) => { requireAuthenticated(event); return db.getBusinessModuleConfig(); });
-      ipcMain.handle("save-initial-setup", (event, data) => db.saveInitialSetup(data));
+      registerIpcHandler("get-company-settings", (event) => { requireAuthenticated(event); return db.getCompanySettings(); });
+      registerIpcHandler("get-business-types", () => db.getBusinessTypes());
+      registerIpcHandler("get-installation-state", () => db.getInstallationState());
+      registerIpcHandler("get-product-form-config", () => db.getProductFormConfig());
+      registerIpcHandler("get-business-module-config", (event) => { requireAuthenticated(event); return db.getBusinessModuleConfig(); });
+      registerIpcHandler("get-license-state", () => ({ activated: licensing.getLicenseState(licenseDirectory()).valid }));
+      registerIpcHandler("activate-license", (event, data) => licensing.activate(licenseDirectory(), data && data.code, app.getVersion()));
+      registerIpcHandler("save-initial-setup", async (event, data) => {
+        if (!licensing.getLicenseState(licenseDirectory()).valid) {
+          return { success: false, message: "Active esta instalación con un código válido antes de continuar." };
+        }
+        const result = db.saveInitialSetup(data);
+        if (result.success) {
+          const setup = data || {};
+          const businessType = db.getBusinessTypes().find(type => type.id === setup.business_type_id);
+          licensing.registerCustomer(licenseDirectory(), {
+            business_name: setup.company_name,
+            nit: setup.company_id_card_or_nit,
+            phone: setup.company_phone,
+            email: setup.company_email,
+            city: setup.company_address,
+            business_type: businessType ? businessType.name : "",
+          });
+        }
+        return result;
+      });
 
-      ipcMain.handle("update-company-settings", (event, settings) => {
+      registerIpcHandler("update-company-settings", (event, settings) => {
         requireAuthenticated(event, ['admin']);
         return db.updateCompanySettings(settings);
       });
-      ipcMain.handle("update-business-type", (event, businessTypeId) => {
+      registerIpcHandler("update-business-type", (event, businessTypeId) => {
         requireAuthenticated(event, ['admin']);
         return db.updateBusinessType(businessTypeId);
       });
-      ipcMain.handle("get-dashboard-data", (event) => { requireAuthenticated(event); return db.getDashboardData(); });
-      ipcMain.handle("get-sales-last-days", (event, days) => db.getSalesLastDays(days));
-      ipcMain.handle("reset-database", (event) => {
+      registerIpcHandler("get-dashboard-data", (event) => { requireAuthenticated(event); return db.getDashboardData(); });
+      registerIpcHandler("get-sales-last-days", (event, days) => db.getSalesLastDays(days));
+      registerIpcHandler("reset-database", (event) => {
         requireAuthenticated(event, ['admin']);
         return db.resetDatabase();
       });
       
       // --- DASHBOARD AVANZADO (NUEVO) ---
-      ipcMain.handle("get-advanced-dashboard-stats", async (event, { startDate, endDate } = {}) => {
+      registerIpcHandler("get-advanced-dashboard-stats", async (event, { startDate, endDate } = {}) => {
         try {
           const now = new Date();
           // Si no llegan fechas, usar mes actual por defecto
@@ -1110,12 +1336,12 @@
         }
       });
 
-      ipcMain.handle("get-expiration-alerts", (event, { days = 30, status = 'all' } = {}) => {
+      registerIpcHandler("get-expiration-alerts", (event, { days = 30, status = 'all' } = {}) => {
         requireAuthenticated(event);
         return db.getExpirationAlerts(days, status);
       });
 
-      ipcMain.handle("get-recent-activity", async () => {
+      registerIpcHandler("get-recent-activity", async () => {
         try {
           // Si existe tabla audit_logs, usarla. Si no, simular con últimas ventas y compras.
           // Asumiremos que audit_logs existe por el contexto previo, si no, fallback a ventas.
@@ -1132,16 +1358,46 @@
         } catch (err) { return []; }
       });
 
-      ipcMain.handle("select-file", async (event, options) => {
+      registerIpcHandler("select-file", async (event, options) => {
           const result = await dialog.showOpenDialog(options);
           return result.canceled ? null : result.filePaths[0];
       });
+      registerIpcHandler("read-file-for-upload", async (_event, filePath) => {
+        const extensions = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
+        const extension = path.extname(String(filePath || "")).toLowerCase();
+        if (!extensions[extension]) throw new Error("Formato de imagen no permitido.");
+        const stats = fs.statSync(filePath);
+        if (!stats.isFile() || stats.size > 5 * 1024 * 1024) throw new Error("La imagen debe pesar máximo 5 MB.");
+        return {
+          name: path.basename(filePath),
+          mimeType: extensions[extension],
+          dataBase64: fs.readFileSync(filePath).toString("base64"),
+        };
+      });
+      registerIpcHandler("save-remote-export", async (_event, download) => {
+        const allowedExtensions = new Set([".pdf", ".xlsx"]);
+        const extension = path.extname(String(download && download.name || "")).toLowerCase();
+        if (!allowedExtensions.has(extension) || typeof download.dataBase64 !== "string") {
+          throw new Error("Archivo de exportación inválido.");
+        }
+        const bytes = Buffer.from(download.dataBase64, "base64");
+        if (bytes.length > 30 * 1024 * 1024) throw new Error("El archivo de exportación supera 30 MB.");
+        const suggestedName = path.basename(download.name).replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
+        const result = await dialog.showSaveDialog({
+          title: "Guardar exportación de GestorFX",
+          defaultPath: suggestedName,
+          filters: [{ name: extension === ".pdf" ? "PDF" : "Excel", extensions: [extension.slice(1)] }],
+        });
+        if (result.canceled || !result.filePath) return { success: false, message: "Exportación cancelada." };
+        fs.writeFileSync(result.filePath, bytes, { flag: "w" });
+        return { success: true, filePath: result.filePath };
+      });
 
       // Reportes e Inventario
-        ipcMain.handle("get-sales-report", (event, params) => { requireAuthenticated(event); return db.getSalesReport(params); });
+        registerIpcHandler("get-sales-report", (event, params) => { requireAuthenticated(event); return db.getSalesReport(params); });
 
         
-          ipcMain.handle("get-inventory", async (event) => {
+          registerIpcHandler("get-inventory", async (event) => {
             requireAuthenticated(event);
                 try {
                     const products = db.getProducts();
@@ -1153,17 +1409,17 @@
                 }
             });
 
-        ipcMain.handle("get-inventory-movements", (event, productId, limit = 100) => {
+        registerIpcHandler("get-inventory-movements", (event, productId, limit = 100) => {
           requireAuthenticated(event);
           return db.getInventoryMovements(productId, limit);
         });
-        ipcMain.handle("get-inventory-lots", (event, productId) => {
+        registerIpcHandler("get-inventory-lots", (event, productId) => {
           requireAuthenticated(event);
           return db.getInventoryLots(productId);
         });
 
 
-        ipcMain.handle("get-low-stock-products", async (event) => {
+        registerIpcHandler("get-low-stock-products", async (event) => {
           requireAuthenticated(event);
             try {
                 const products = db.getProducts();
@@ -1176,7 +1432,7 @@
 
         // ---------- Exportar productos con bajo stock a PDF ----------
 
-        ipcMain.handle("export-low-stock-pdf", async () => {
+        registerIpcHandler("export-low-stock-pdf", async () => {
           try {
             const company = db.getCompanySettings() || {};
             const products = db.getProducts();
@@ -1242,7 +1498,7 @@
 
         // ---------- Exportar reporte de ventas a PDF ----------
 
-          ipcMain.handle("export-sales-report-pdf", async (event, { salesReport, companyInfo, filename, financialSummary, paymentMethodsSummary }) => {
+          registerIpcHandler("export-sales-report-pdf", async (event, { salesReport, companyInfo, filename, financialSummary, paymentMethodsSummary }) => {
             try {
               const salesArray = Array.isArray(salesReport) ? salesReport : [];
               if (!salesArray.length) {
@@ -1406,7 +1662,7 @@
 
       // Exportar proveedores a PDF
 
-      ipcMain.handle("export-suppliers-pdf", async () => {
+      registerIpcHandler("export-suppliers-pdf", async () => {
         try {
             const suppliers = db.getSuppliers() || [];
             const company = db.getCompanySettings() || {};
@@ -1461,7 +1717,7 @@
 
     // Exportar proveedores a Excel
 
-    ipcMain.handle("export-suppliers-excel", async () => {
+    registerIpcHandler("export-suppliers-excel", async () => {
         try {
             const suppliers = db.getSuppliers() || [];
             const { filePath, canceled } = await dialog.showSaveDialog({
@@ -1489,7 +1745,7 @@
   // ---------------- IMPRESIÓN ----------------
   // Vista previa de factura
 
-            ipcMain.handle("preview-invoice", async (event, { content }) => {
+            registerIpcHandler("preview-invoice", async (event, { content }) => {
               let previewWin = new BrowserWindow({
                 width: 800, 
                 height: 800,
@@ -1512,7 +1768,7 @@
 
             // Obtener lista de impresoras
 
-            ipcMain.handle("get-printers", async () => {
+            registerIpcHandler("get-printers", async () => {
               try {
                 const win = BrowserWindow.getAllWindows()[0];
                 if (!win) return [];
@@ -1540,7 +1796,7 @@
 
             // --- Obtener logo de la empresa en base64 ---
 
-            ipcMain.handle("get-company-logo", async () => {
+            registerIpcHandler("get-company-logo", async () => {
               try {
                 const settings = db.getCompanySettings() || {};
                 if (settings.logo_path && fs.existsSync(settings.logo_path)) {
@@ -1557,7 +1813,7 @@
 
             // Imprimir factura
 
-            ipcMain.handle("print-invoice", async (event, { printer, paperSize, htmlContent }) => {
+            registerIpcHandler("print-invoice", async (event, { printer, paperSize, htmlContent }) => {
               try {
                 const printWin = new BrowserWindow({
                   width: 800,
@@ -1611,7 +1867,7 @@
 
       // Exportación de PDF descarga factura
 
-      ipcMain.handle("export-invoice-pdf", async (event, { id, includeIva = false } = {}) => {
+      registerIpcHandler("export-invoice-pdf", async (event, { id, includeIva = false } = {}) => {
           requireAuthenticated(event);
         try {
           const sale = db.getSaleById(id);
@@ -1825,7 +2081,7 @@
       });
         
       // Exportar Recibo de Caja PDF
-      ipcMain.handle("export-sale-receipt-pdf", async (event, { id, receivedBy, observations }) => {
+      registerIpcHandler("export-sale-receipt-pdf", async (event, { id, receivedBy, observations }) => {
         try {
           // Si se enviaron observaciones, actualizarlas en la BD primero
           if (observations !== undefined) {
@@ -2004,7 +2260,7 @@
       });
 
       // Exportación cotizaciones pdf
-      ipcMain.handle("export-quote-pdf", async (event, { id, quote_number, includeIva = false } = {}) => {
+      registerIpcHandler("export-quote-pdf", async (event, { id, quote_number, includeIva = false } = {}) => {
         try {
             let quote = null;
             let quoteId = id;
@@ -2123,7 +2379,7 @@
     });
 
 
-        ipcMain.handle("export-inventory-pdf", async (event) => {
+        registerIpcHandler("export-inventory-pdf", async (event) => {
                 try {
               requireAuthenticated(event);
                     const products = db.getProducts() || [];
@@ -2198,7 +2454,7 @@
                 }
             });
 
-      ipcMain.handle("export-inventory-excel", async (event) => {
+      registerIpcHandler("export-inventory-excel", async (event) => {
 
         try {
         requireAuthenticated(event);
@@ -2616,4 +2872,3 @@
       return { success: false, message: "Error al exportar reporte de cierre de caja: " + (err.message || String(err)) };
     }
   }
- 

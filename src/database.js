@@ -39,7 +39,10 @@ try {
   electronApp = null;
 }
 
-if (electronApp && electronApp.isPackaged) {
+if (process.env.GESTORFX_DATABASE_PATH) {
+  dbPath = path.resolve(process.env.GESTORFX_DATABASE_PATH);
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+} else if (electronApp && electronApp.isPackaged) {
   const userData = electronApp.getPath('userData');
   dbPath = path.join(userData, "database.sqlite");
   if (!fs.existsSync(dbPath)) {
@@ -56,6 +59,8 @@ const db = new Database(dbPath);
 
 // activar foreign keys
 db.pragma("foreign_keys = ON");
+db.pragma("busy_timeout = 5000");
+db.pragma("journal_mode = WAL");
 
 //MIGRACIONES
 
@@ -753,11 +758,15 @@ const countRow = db.prepare("SELECT COUNT(*) as c FROM company_settings").get();
 if (countRow.c === 0) db.prepare("INSERT INTO company_settings (id) VALUES (1)").run();
 
 let backupDirectory;
-try {
-  const electronApp = require('electron').app;
-  backupDirectory = path.join(electronApp.getPath('userData'), 'database-backups');
-} catch (e) {
-  backupDirectory = path.join(os.homedir(), '.gestorfx', 'database-backups');
+if (process.env.GESTORFX_DATABASE_PATH) {
+  backupDirectory = path.join(path.dirname(dbPath), 'database-backups');
+} else {
+  try {
+    const electronApp = require('electron').app;
+    backupDirectory = path.join(electronApp.getPath('userData'), 'database-backups');
+  } catch (e) {
+    backupDirectory = path.join(os.homedir(), '.gestorfx', 'database-backups');
+  }
 }
 
 runMigrations(db, dbPath, backupDirectory);
@@ -2413,7 +2422,7 @@ function updateCompanySettings(s) {
         company_address = ?,
         company_email = ?,
         company_phone = ?,
-        logo_path = ?,
+        logo_path = COALESCE(?, logo_path),
         updated_at = DATETIME('now', 'localtime')
       WHERE id = 1
     `).run(

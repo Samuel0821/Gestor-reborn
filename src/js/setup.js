@@ -8,6 +8,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const summary = document.getElementById('setup-summary');
   const alertBox = document.getElementById('setup-alert');
   let currentStep = 1;
+  let licenseActivated = false;
+  const licenseBlock = document.getElementById('license-block');
+  const licenseAlert = document.getElementById('license-alert');
 
   const value = id => document.getElementById(id).value.trim();
 
@@ -17,6 +20,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       window.location.href = 'login.html';
       return;
     }
+
+    licenseActivated = Boolean((await window.api.getLicenseState()).activated);
+    licenseBlock.classList.toggle('d-none', licenseActivated);
 
     const businessTypes = await window.api.getBusinessTypes();
     businessTypeSelect.replaceChildren(...businessTypes.map(type => {
@@ -108,6 +114,32 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     if (!validateCurrentStep()) return;
+    if (currentStep === 1 && !licenseActivated) {
+      const code = value('activation-code');
+      if (!code) {
+        licenseAlert.textContent = 'Ingrese el código de activación para continuar.';
+        licenseAlert.classList.remove('d-none');
+        return;
+      }
+      nextButton.disabled = true;
+      licenseAlert.classList.add('d-none');
+      try {
+        const activation = await window.api.activateLicense({ code });
+        if (!activation.success) {
+          licenseAlert.textContent = activation.message || 'No se pudo activar.';
+          licenseAlert.classList.remove('d-none');
+          return;
+        }
+        licenseActivated = true;
+        licenseBlock.classList.add('d-none');
+      } catch (error) {
+        licenseAlert.textContent = error.message || 'No se pudo activar.';
+        licenseAlert.classList.remove('d-none');
+        return;
+      } finally {
+        nextButton.disabled = false;
+      }
+    }
     if (currentStep < 6) {
       currentStep += 1;
       renderStep();

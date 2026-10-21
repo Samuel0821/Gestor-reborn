@@ -1,5 +1,6 @@
 {
   "name": "gestorfx",
+  "productName": "GestorFX",
   "version": "1.0.9",
   "description": "GestorFX: Sistema Integral Para Gestionar Inventarios y Puntos De Ventas.",
   "authors": [
@@ -10,6 +11,7 @@
     "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
+    "make:windows": "electron-forge make --platform win32",
     "postinstall": "electron-rebuild"
   },
   "dependencies": {

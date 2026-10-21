@@ -2,6 +2,7 @@
 # Dependencias
 # ========================
 node_modules/
+.tools/
 
 # ========================
 # Archivos de build/output
