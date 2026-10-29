@@ -522,6 +522,29 @@ function migration013(db) {
   }
 }
 
+function migration014(db) {
+  db.exec(`
+    CREATE TABLE service_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      quantity REAL NOT NULL CHECK (quantity > 0),
+      price REAL NOT NULL CHECK (price >= 0)
+    );
+    CREATE INDEX idx_service_items_service ON service_items(service_id);
+    INSERT INTO service_items (service_id, name, quantity, price)
+    SELECT id, name, 1, price FROM services;
+  `);
+}
+
+function migration015(db) {
+  for (const table of ['quote_items', 'sale_items']) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN service_id INTEGER REFERENCES services(id) ON DELETE SET NULL;
+      ALTER TABLE ${table} ADD COLUMN service_item_id INTEGER;
+      CREATE INDEX idx_${table}_service ON ${table}(service_id);`);
+  }
+}
+
 const MIGRATIONS = [
   { version: 1, name: "business-profile-and-installation-state", run: migration001 },
   { version: 2, name: "dynamic-product-catalogs", run: migration002 },
@@ -536,6 +559,8 @@ const MIGRATIONS = [
   { version: 11, name: "hardware-packaging-units", run: migration011 },
   { version: 12, name: "inventory-lots-and-expiration", run: migration012 },
   { version: 13, name: "legacy-installation-baseline", run: migration013 },
+  { version: 14, name: "service-labor-items", run: migration014 },
+  { version: 15, name: "service-commercial-item-links", run: migration015 },
 ];
 
 function runMigrations(db, dbPath, backupDirectory) {

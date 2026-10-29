@@ -148,8 +148,9 @@ El sistema utiliza un modelo relacional robusto. Las tablas principales son:
 12. **quotes / quote_items:** Gestión de cotizaciones con soporte para `notes` y `status`. `quote_items` incluye `variant_id` y `skip_stock`.
 13. **purchase_orders / purchase_order_items:** Gestión de compras. `purchase_orders` incluye `include_iva` y `due_date`.
 14. **purchase_payments:** Registro de pagos a proveedores con soporte para `retention_amount` y `retention_type`.
-15. **services / service_products:** Definición de servicios (incluye `client_id`, `status`, `scheduled_date`, `performed_at`) y recetas de materiales.
+15. **services / service_items / service_products:** Definición de servicios (incluye `client_id`, `status`, `scheduled_date`, `performed_at`), trabajos con nombre, cantidad y precio unitario, y materiales. La migración 14 convierte cada servicio existente en un trabajo de cantidad 1. `services.price` conserva el subtotal agregado de mano de obra, calculado en el backend, para mantener compatibles abonos y reportes.
 16. **service_payments:** Registro de abonos a servicios (relacionado con `services`).
+    - La migración 15 agrega `service_id` y `service_item_id` a `quote_items` y `sale_items`. La creación/edición de cotizaciones y la creación de ventas sincronizan cantidad, precio y subtotal de mano de obra dentro de la misma transacción del documento. Se valida que cada trabajo pertenezca al servicio y que este no esté anulado ni finalizado. El envío al formulario no cambia el estado del servicio.
 17. **company_settings:** Configuración global (Logo, NIT, Datos de contacto).
 18. **audit_logs:** Registro de acciones críticas para auditoría (usuario, acción, detalles, fecha).
 

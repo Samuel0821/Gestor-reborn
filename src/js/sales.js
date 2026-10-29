@@ -206,6 +206,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  const serviceSaleContext = sessionStorage.getItem('serviceSaleContext');
+  if (serviceSaleContext) {
+    const context = JSON.parse(serviceSaleContext);
+    if (context.client_id) {
+      const client = await window.api.getClientById(context.client_id);
+      clientSelect.value = context.client_id;
+      clientHiddenIdInput.value = context.client_id;
+      clientInput.value = client ? `${client.name} (${client.id_card_or_nit})` : '';
+    }
+    sessionStorage.removeItem('serviceSaleContext');
+    bootstrap.Tab.getOrCreateInstance(document.getElementById('quick-sale-tab')).show();
+  }
+
   function cancelEdit() {
     editingSaleId = null;
     includeSaleIva = false;
@@ -365,7 +378,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       total += it.subtotal;
       const tr = document.createElement("tr");
 
-      const isService = it.is_service || String(it.product_name).toLowerCase().startsWith('[servicio]');
+      const isService = ServiceCommercial.isService(it);
+      const editableService = isService && !editingSaleId;
       const variantUnit = String(it.variant_unit_abbreviation || it.variant_unit_name || '').toLowerCase();
       const isFractionalUnit = ['kg', 'kilogramo', 'g', 'gramo', 'lb', 'libra', 'l', 'litro', 'ml', 'mililitro', 'm', 'metro', 'cm', 'centimetro'].includes(variantUnit);
 
@@ -375,17 +389,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         <td>${it.product_name}</td>
         <td><input type="text" class="form-control form-control-sm serial-input" data-i="${i}" placeholder="Escribir serial..." value="${it.serial_number || ''}"></td>
         <td>
-          ${!isService && isFractionalUnit
+          ${editableService
+            ? `<input type="number" aria-label="Cantidad del servicio" min="0.01" step="0.01" value="${Number(it.quantity)}" data-i="${i}" data-field="quantity" class="form-control form-control-sm service-commercial-input" required>`
+            : !isService && isFractionalUnit
             ? `<input type="number" min="0.1" step="0.1" value="${it.quantity}" data-i="${i}" class="form-control form-control-sm qty-input">`
             : it.quantity}
         </td>
         <td>
           ${isService 
-            ? formatCOP(it.price) 
+            ? (editableService ? `<input type="number" aria-label="Valor unitario del servicio" min="0" step="0.01" value="${Number(it.price)}" data-i="${i}" data-field="price" class="form-control form-control-sm service-commercial-input" required>` : formatCOP(it.price))
             : `<select class="form-select form-select-sm price-selector" data-i="${i}">${generatePriceOptions(it)}</select>`
           }
         </td>
-        <td>${formatCOP(it.price * it.quantity)}</td>
+        <td class="item-subtotal">${formatCOP(it.subtotal)}</td>
         <td><button class="btn btn-sm btn-danger remove" data-i="${i}">Eliminar</button></td>
       `;
 
@@ -423,6 +439,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // Delegación de eventos para el cambio de precios
+  saleItemsTbody.addEventListener('input', event => {
+    if (!event.target.classList.contains('service-commercial-input')) return;
+    const item = saleItems[Number(event.target.dataset.i)];
+    if (!item || !ServiceCommercial.edit(item, event.target.dataset.field, event.target.value)) return;
+    event.target.closest('tr').querySelector('.item-subtotal').textContent = formatCOP(item.subtotal);
+    renderSaleTotals(saleItems.reduce((sum, row) => sum + row.subtotal, 0));
+    saveCart();
+  });
   saleItemsTbody.addEventListener('change', (e) => {
     if (e.target.classList.contains('price-selector')) {
       const index = Number(e.target.dataset.i);
@@ -901,6 +925,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Finalizar venta (ajustado)
  
   finalizeBtn.addEventListener("click", async () => {
+      if (!ServiceCommercial.inputsValid(saleItems)) {
+          Swal.fire('Atención', 'Indica una cantidad mayor que cero y un valor unitario válido para cada servicio.', 'warning');
+          return;
+      }
       if (editingSaleId) {
           await handleUpdateSale();
       } else {

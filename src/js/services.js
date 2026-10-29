@@ -64,7 +64,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const form = document.getElementById('service-form');
   const idInput = document.getElementById('service-id');
   const nameInput = document.getElementById('service-name');
-  const priceInput = document.getElementById('service-price');
+  const itemsTable = document.getElementById('service-items-table');
   const descInput = document.getElementById('service-desc');
   
   const productSearch = document.getElementById('product-search');
@@ -82,6 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let allProducts = [];
   let currentServiceProducts = []; // { product_id, name, price, quantity }
+  let currentServiceItems = [];
   let allServices = [];
   let currentOffset = 0;
   let currentSearchTerm = '';
@@ -89,6 +90,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function resetServiceForm() {
     form.reset();
+    currentServiceItems = [{ name: 'Mano de obra', quantity: 1, price: 0 }];
+    renderServiceItems();
     idInput.value = '';
     clientHiddenIdInput.value = '';
     clientInput.value = '';
@@ -175,7 +178,78 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ------------------------------------
 
   function formatCOP(value) {
-    return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  }
+
+  function itemSubtotal(item) {
+    return Math.round(Number(item.quantity) * Number(item.price) * 100) / 100 || 0;
+  }
+
+  function updateServiceTotals() {
+    const labor = currentServiceItems.reduce((sum, item) => sum + itemSubtotal(item), 0);
+    const materials = currentServiceProducts.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    document.getElementById('service-labor-total').textContent = formatCOP(labor);
+    document.getElementById('service-materials-total').textContent = formatCOP(materials);
+    document.getElementById('service-grand-total').textContent = formatCOP(labor + materials);
+    itemsTable.querySelectorAll('.labor-subtotal').forEach((cell, index) => {
+      cell.textContent = formatCOP(itemSubtotal(currentServiceItems[index]));
+    });
+  }
+
+  function renderServiceItems() {
+    itemsTable.innerHTML = currentServiceItems.map((item, index) => `
+      <tr data-index="${index}">
+        <td><input aria-label="Nombre del trabajo" class="form-control form-control-sm" data-field="name" value="${escapeHtml(item.name)}" required></td>
+        <td><input aria-label="Cantidad de servicios" type="number" class="form-control form-control-sm" data-field="quantity" value="${escapeHtml(item.quantity)}" min="0.01" step="0.01" required></td>
+        <td><input aria-label="Valor unitario del servicio" type="number" class="form-control form-control-sm" data-field="price" value="${escapeHtml(item.price)}" min="0" step="0.01" required></td>
+        <td class="labor-subtotal text-nowrap"></td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger remove-labor" ${currentServiceItems.length === 1 ? 'disabled' : ''}>Quitar</button></td>
+      </tr>`).join('');
+    updateServiceTotals();
+  }
+
+  itemsTable.addEventListener('input', event => {
+    const field = event.target.dataset.field;
+    if (!field) return;
+    currentServiceItems[Number(event.target.closest('tr').dataset.index)][field] = event.target.value;
+    updateServiceTotals();
+    saveDraft();
+  });
+  itemsTable.addEventListener('click', event => {
+    if (!event.target.closest('.remove-labor') || currentServiceItems.length <= 1) return;
+    currentServiceItems.splice(Number(event.target.closest('tr').dataset.index), 1);
+    renderServiceItems();
+    saveDraft();
+  });
+  document.getElementById('add-service-item').addEventListener('click', () => {
+    currentServiceItems.push({ name: '', quantity: 1, price: 0 });
+    renderServiceItems();
+    itemsTable.lastElementChild.querySelector('input').focus();
+    saveDraft();
+  });
+
+  function getLaborItems(service) {
+    return service.items?.length ? service.items : [{ name: service.name, quantity: 1, price: service.price }];
+  }
+
+  function getLaborCartItems(service) {
+    return getLaborItems(service).map(item => ({
+      product_id: null,
+      product_code: 'SERV',
+      product_name: `[SERVICIO] ${service.name} - ${item.name}${service.description ? ` - ${service.description}` : ''}`,
+      service_id: service.id,
+      service_item_id: item.id,
+      is_service: true,
+      quantity: Number(item.quantity),
+      price: Number(item.price),
+      sale_price: Number(item.price),
+      special_price: 0,
+      subtotal: itemSubtotal(item)
+    }));
   }
 
   // --- PERSISTENCIA DEL BORRADOR (DRAFT) ---
@@ -185,7 +259,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const draft = {
         name: nameInput.value,
-        price: priceInput.value,
+        items: currentServiceItems,
         description: descInput.value,
         client_id: clientHiddenIdInput.value,
         scheduled_date: scheduledDateInput.value,
@@ -200,7 +274,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const draft = JSON.parse(draftStr);
             nameInput.value = draft.name || "";
-            priceInput.value = draft.price || "";
+            currentServiceItems = draft.items?.length ? draft.items : [{ name: draft.name || 'Mano de obra', quantity: 1, price: draft.price || 0 }];
+            renderServiceItems();
             descInput.value = draft.description || "";
             clientHiddenIdInput.value = draft.client_id || "";
             
@@ -238,7 +313,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Listeners para guardar borrador en campos de texto
-  [nameInput, priceInput, descInput, clientHiddenIdInput, scheduledDateInput].forEach(el => {
+  [nameInput, descInput, clientHiddenIdInput, scheduledDateInput].forEach(el => {
       el.addEventListener('input', saveDraft);
       el.addEventListener('change', saveDraft);
   });
@@ -380,6 +455,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function renderServiceProducts() {
     productsTable.innerHTML = "";
+    updateServiceTotals();
 
     function generatePriceOptions(item) {
       let options = '';
@@ -443,25 +519,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // --- VALIDACIÓN DE STOCK ---
     const noStockItems = [];
-    currentServiceProducts.forEach(item => {
-        const prod = allProducts.find(p => p.id === item.product_id);
-        if (prod) {
-            // Validar si el stock es insuficiente (o 0)
-            let requiredQty = item.quantity;
-            
-            // Si es variante, convertir a unidad base para comparar con stock global del producto
-            if (item.variant_id && prod.variants) {
-                const variant = prod.variants.find(v => v.id === item.variant_id);
-                if (variant) {
-                    requiredQty = item.quantity * variant.conversion_factor;
-                }
-            }
-
-            // Usamos una pequeña tolerancia para flotantes
-            if (prod.stock < (requiredQty - 0.0001)) {
-                noStockItems.push(`${item.name} (Disponible: ${prod.stock})`);
-            }
-        }
+    const previousService = idInput.value ? await window.api.getServiceById(Number(idInput.value)) : null;
+    function materialQuantity(items, product) {
+      return items.filter(item => item.product_id === product.id).reduce((sum, item) => {
+        const variant = product.variants?.find(v => v.id === item.variant_id);
+        return sum + item.quantity * (variant ? variant.conversion_factor : 1);
+      }, 0);
+    }
+    allProducts.forEach(product => {
+      const required = materialQuantity(currentServiceProducts, product);
+      const available = Number(product.stock) + materialQuantity(previousService?.products || [], product);
+      if (required > 0 && required > available + 0.0001) noStockItems.push(`${product.name} (Disponible: ${available})`);
     });
 
     if (noStockItems.length > 0) {
@@ -477,17 +545,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     const data = {
       id: idInput.value ? Number(idInput.value) : null,
       name: nameInput.value,
-      price: Number(priceInput.value) || 0,
+      items: currentServiceItems,
       client_id: clientHiddenIdInput.value ? Number(clientHiddenIdInput.value) : null,
       scheduled_date: scheduledDateInput.value || null,
       description: descInput.value,
       products: currentServiceProducts
     };
 
-    if (data.id) {
-      await window.api.updateService(data);
-    } else {
-      await window.api.createService(data);
+    try {
+      const result = data.id ? await window.api.updateService(data) : await window.api.createService(data);
+      if (!result?.success) throw new Error(result?.message || 'No se pudo guardar el servicio.');
+    } catch (error) {
+      Swal.fire('Error al guardar', error.message, 'error');
+      return;
     }
 
     Swal.fire({ icon: 'success', title: 'Servicio guardado', timer: 1500, showConfirmButton: false });
@@ -501,6 +571,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function resetForm() {
     form.reset();
+    currentServiceItems = [{ name: 'Mano de obra', quantity: 1, price: 0 }];
+    renderServiceItems();
     idInput.value = "";
     clientHiddenIdInput.value = "";
     clientInput.value = "";
@@ -548,7 +620,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             loadMoreBtn.style.display = 'none';
         }
     } else if (!append) {
-        servicesTable.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No hay servicios registrados.</td></tr>';
+        servicesTable.innerHTML = '<tr><td colspan="11" class="text-center text-muted">No hay servicios registrados.</td></tr>';
     }
   }
 
@@ -615,7 +687,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       const disabledEdit = (isFinalized || isAnulado) ? 'disabled' : '';
       const disabledDelete = isFinalized ? 'disabled' : '';
-      const disabledQuote = (isFinalized || isQuoted || isAnulado) ? 'disabled' : '';
+      const disabledQuote = (isFinalized || isAnulado) ? 'disabled' : '';
       const disabledSale = (isFinalized || isAnulado) ? 'disabled' : '';
       const disabledCancel = (isFinalized || isAnulado) ? 'disabled' : '';
       const disabledPayment = (isFinalized || isAnulado) ? 'disabled' : '';
@@ -627,6 +699,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <td>${s.client_name || '<span class="text-muted">-</span>'}</td>
         <td>${s.scheduled_date || '<span class="text-muted">-</span>'}</td>
         <td>${s.description || '-'}</td>
+        <td>${getLaborItems(s).map(item => `<div>${escapeHtml(item.name)}: ${item.quantity} × ${formatCOP(item.price)} = <strong>${formatCOP(itemSubtotal(item))}</strong></div>`).join('')}</td>
         <td>${formatCOP(s.price)}</td>
         <td>${formatCOP(materialsCost)}</td>
         <td><strong>${formatCOP(totalSuggested)}</strong></td>
@@ -751,7 +824,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       idInput.value = service.id;
       nameInput.value = service.name;
-      priceInput.value = service.price;
+      currentServiceItems = getLaborItems(service).map(item => ({ ...item }));
+      renderServiceItems();
       descInput.value = service.description;
       clientHiddenIdInput.value = service.client_id || "";
       const client = await window.api.getClientById(service.client_id);
@@ -780,25 +854,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const service = await window.api.getServiceById(id);
       
       // Construir items para el carrito
-      const cartItems = [];
-      
-      let serviceName = `[SERVICIO] ${service.name}`;
-      if (service.description) {
-        serviceName += ` - ${service.description}`;
-      }
-
-      // 1. El servicio como ítem (sin product_id)
-      cartItems.push({
-        product_id: null,
-        product_code: "SERV",
-        product_name: serviceName,
-        service_id: service.id, // ID para actualizar estado al vender
-        quantity: 1,
-        price: service.price,
-        sale_price: service.price,
-        special_price: 0,
-        subtotal: service.price
-      });
+      const cartItems = getLaborCartItems(service);
 
       // 2. Los materiales
       service.products.forEach(p => {
@@ -825,6 +881,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const newCart = existingCart.concat(cartItems);
       
       sessionStorage.setItem('shoppingCart', JSON.stringify(newCart));
+      sessionStorage.setItem('serviceSaleContext', JSON.stringify({ client_id: service.client_id }));
       window.location.href = "sales.html";
     }));
 
@@ -832,28 +889,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const id = e.currentTarget.dataset.id;
       const service = await window.api.getServiceById(id);
 
-      // Actualizar estado a Cotizado
-      await window.api.updateServiceStatus(id, 'Cotizado');
-      
       // Construir items para la cotización
-      const cartItems = [];
-      
-      let serviceName = `[SERVICIO] ${service.name}`;
-      if (service.description) {
-        serviceName += ` - ${service.description}`;
-      }
-
-      // 1. El servicio como ítem
-      cartItems.push({
-        product_id: null,
-        product_code: "SERV",
-        product_name: serviceName,
-        quantity: 1,
-        price: service.price,
-        sale_price: service.price,
-        special_price: 0,
-        subtotal: service.price
-      });
+      const cartItems = getLaborCartItems(service);
 
       // 2. Los materiales
       service.products.forEach(p => {
@@ -877,6 +914,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const newQuoteCart = existingQuoteCart.concat(cartItems);
       
       sessionStorage.setItem('quoteCart', JSON.stringify(newQuoteCart));
+      sessionStorage.setItem('serviceQuoteContext', JSON.stringify({ client_id: service.client_id }));
       window.location.href = "quotes.html";
     }));
   }
@@ -1060,6 +1098,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
   }
 
+  currentServiceItems = [{ name: 'Mano de obra', quantity: 1, price: 0 }];
+  renderServiceItems();
   await loadProducts();
   await loadClients();
 

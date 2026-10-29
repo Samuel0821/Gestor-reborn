@@ -110,7 +110,10 @@ Administre todo su catálogo de artículos.
 ## 7. Módulo de Servicios
 Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 
-*   **Crear Servicio:** Defina el nombre, precio y asocie un **Cliente** específico para llevar un mejor control.
+*   **Crear Servicio:** Defina el nombre, la descripción y asocie un **Cliente** específico para llevar un mejor control.
+*   **Detalle de mano de obra:** Use **Agregar trabajo** para incluir instalaciones o trabajos con nombre, cantidad y valor unitario independientes. Cada fila muestra su subtotal y puede quitarse, conservando al menos una. Por ejemplo, 3 instalaciones a $50.000 muestran un subtotal de $150.000.
+*   **Totales:** El subtotal de mano de obra se suma al valor de los materiales para obtener el total del servicio. Al enviar a venta o cotización se conservan las cantidades y los valores unitarios de cada trabajo. Los servicios anteriores se cargan como un trabajo con cantidad 1 y su precio original.
+*   **Cotizar o vender un servicio:** Al enviarlo a cotización se abre el formulario de nueva cotización con los trabajos y materiales cargados. Puede agregar productos y modificar la cantidad y el valor unitario de los servicios; los productos conservan sus controles habituales. Al finalizar la cotización, los valores se guardan también en el servicio original y su estado pasa a **Cotizado**. En ventas puede realizar los mismos ajustes antes de finalizar; al registrar la venta se actualizan los trabajos originales y el servicio pasa a **Finalizado**. Cerrar el formulario sin guardar no modifica el servicio.
 *   **Buscador de Cliente:** Escriba para encontrar rápidamente al cliente asociado.
 *   **Estados del Servicio:**
     *   **Abierto:** Borrador editable.
@@ -127,6 +130,8 @@ Ideal para negocios que ofrecen mano de obra, reparaciones o paquetes.
 
 ## 8. Módulo de Cotizaciones
 Genere propuestas comerciales profesionales sin descontar inventario.
+*   **Continuar un borrador:** Los ítems, cantidades, precios, cliente y notas se guardan automáticamente mientras trabaja. Puede salir a otro módulo o cerrar el formulario; al volver a Cotizaciones se abre el borrador para continuar. El botón **Continuar Cotización** también permite reabrirlo sin vaciar el carrito. Los campos de búsqueda de producto y cantidad pendientes se conservan.
+*   **Descartar un borrador:** Use **Descartar borrador** y confirme para empezar de nuevo. El borrador se limpia automáticamente al guardar correctamente la cotización; si el guardado falla, se conserva. Si estaba editando una cotización existente, al regresar continúa la edición de esa misma cotización.
 *   **Búsqueda Histórica:** Encuentre cotizaciones antiguas escribiendo el nombre del cliente o el número de cotización.
 *   **Crear:** Seleccione cliente y productos. Soporta variantes, selección de precios múltiples y **Notas/Observaciones** (ej. "Válido por 7 días") que aparecen en el PDF.
 *   **Editar:** Puede modificar cotizaciones guardadas previamente.

@@ -21,31 +21,81 @@ document.addEventListener('DOMContentLoaded', async () => {
   let quoteItems = [];
   let allProducts = [];
   let editingQuoteId = null;
+  let quoteStateReady = false;
+
+  function hasQuoteDraft() {
+    return Boolean(quoteItems.length || editingQuoteId || clientInput.value || clientHiddenIdInput.value ||
+      quoteNotesInput.value || productInput.value || (qtyInput.value && qtyInput.value !== '1'));
+  }
 
   function resetQuoteForm() {
     editingQuoteId = null;
     quoteItems = [];
-    renderQuoteItems();
     clientSelect.value = '';
     clientInput.value = '';
     clientHiddenIdInput.value = '';
     quoteNotesInput.value = '';
+    productInput.value = '';
+    qtyInput.value = '1';
     finalizeBtn.textContent = 'Finalizar Cotización';
     finalizeBtn.classList.remove('btn-warning');
     finalizeBtn.classList.add('btn-success');
+    renderQuoteItems();
   }
 
   newQuoteButton.addEventListener('click', () => {
-    resetQuoteForm();
-    quoteModalTitle.textContent = 'Registrar Cotización';
+    if (!hasQuoteDraft()) resetQuoteForm();
+    configureQuoteForm();
     quoteModal.show();
     productInput.focus();
   });
 
-  // Función para guardar el estado del carrito en localStorage
-  function saveQuoteState() {
-    localStorage.setItem('persistentQuoteCart', JSON.stringify(quoteItems));
+  function configureQuoteForm() {
+    quoteModalTitle.textContent = editingQuoteId ? 'Editar Cotización' : 'Registrar Cotización';
+    finalizeBtn.textContent = editingQuoteId ? 'Actualizar Cotización' : 'Finalizar Cotización';
+    finalizeBtn.classList.toggle('btn-warning', Boolean(editingQuoteId));
+    finalizeBtn.classList.toggle('btn-success', !editingQuoteId);
+    newQuoteButton.textContent = hasQuoteDraft() ? 'Continuar Cotización' : 'Registrar Cotización';
   }
+
+  // Persistir el borrador completo, sin escribir antes de haberlo restaurado.
+  function saveQuoteState() {
+    if (!quoteStateReady) return;
+    if (hasQuoteDraft()) {
+      localStorage.setItem('persistentQuoteDraft', JSON.stringify({
+        items: quoteItems,
+        editingQuoteId,
+        clientId: clientHiddenIdInput.value,
+        clientText: clientInput.value,
+        notes: quoteNotesInput.value,
+        productText: productInput.value,
+        quantity: qtyInput.value
+      }));
+    } else {
+      localStorage.removeItem('persistentQuoteDraft');
+    }
+    localStorage.removeItem('persistentQuoteCart');
+    newQuoteButton.textContent = hasQuoteDraft() ? 'Continuar Cotización' : 'Registrar Cotización';
+  }
+
+  [quoteNotesInput, productInput, qtyInput].forEach(input => {
+    input.addEventListener('input', saveQuoteState);
+    input.addEventListener('change', saveQuoteState);
+  });
+  document.getElementById('quote-form-modal').addEventListener('hide.bs.modal', saveQuoteState);
+  window.addEventListener('pagehide', saveQuoteState);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveQuoteState();
+  });
+  document.getElementById('discard-quote-draft').addEventListener('click', async () => {
+    const result = await Swal.fire({
+      title: '¿Descartar borrador?',
+      text: 'Se eliminarán los cambios de esta cotización que aún no has guardado.',
+      icon: 'question', showCancelButton: true,
+      confirmButtonText: 'Descartar', cancelButtonText: 'Continuar editando'
+    });
+    if (result.isConfirmed) cancelEdit();
+  });
 
   // --- ESTILOS PERSONALIZADOS PARA EL MENÚ DESPLEGABLE (Modo Oscuro + Efecto Flotante) ---
   const dropdownStyles = document.createElement('style');
@@ -151,20 +201,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
       clientHiddenIdInput.value = "";
     }
+    clientSelect.value = clientHiddenIdInput.value;
+    saveQuoteState();
   });
 
   // Cargar carritos guardados DESPUÉS de cargar productos para poder enriquecerlos
-  const persistentCart = localStorage.getItem('persistentQuoteCart');
-  if (persistentCart) {
-    try {
-      quoteItems = JSON.parse(persistentCart);
-    } catch (e) { console.error(e); }
-  }
+  try {
+    const draft = JSON.parse(localStorage.getItem('persistentQuoteDraft') || 'null');
+    if (draft && Array.isArray(draft.items)) {
+      quoteItems = draft.items;
+      editingQuoteId = draft.editingQuoteId || null;
+      clientHiddenIdInput.value = draft.clientId || '';
+      clientSelect.value = draft.clientId || '';
+      clientInput.value = draft.clientText || '';
+      quoteNotesInput.value = draft.notes || '';
+      productInput.value = draft.productText || '';
+      qtyInput.value = draft.quantity ?? '1';
+    } else {
+      const legacyCart = JSON.parse(localStorage.getItem('persistentQuoteCart') || '[]');
+      if (Array.isArray(legacyCart)) quoteItems = legacyCart;
+    }
+  } catch (error) { console.error('Error restaurando el borrador de cotización', error); }
 
   const savedQuoteCart = sessionStorage.getItem('quoteCart');
   if (savedQuoteCart) {
     try {
       const newItems = JSON.parse(savedQuoteCart);
+      if (!Array.isArray(newItems)) throw new Error('Carrito de cotización inválido');
       quoteItems = quoteItems.concat(newItems);
       sessionStorage.removeItem('quoteCart');
     } catch (e) { console.error(e); }
@@ -175,12 +238,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!item.product_id) return item;
     const product = allProducts.find(p => p.id === item.product_id);
     if (!product) return item;
-    const source = item.variant_id ? product.variants.find(v => v.id === item.variant_id) : product;
+    const source = item.variant_id ? product.variants?.find(v => v.id === item.variant_id) : product;
     if (!source) return item;
     return { ...item, ...{ sale_price: source.sale_price, special_price: source.special_price, special_price_2: source.special_price_2 } };
   });
 
-  renderQuoteItems(); // Renderizar una vez con los datos cargados y enriquecidos
+  if (savedQuoteCart && quoteItems.length) {
+    const context = JSON.parse(sessionStorage.getItem('serviceQuoteContext') || '{}');
+    if (context.client_id) {
+      const client = await window.api.getClientById(context.client_id);
+      clientSelect.value = context.client_id;
+      clientHiddenIdInput.value = context.client_id;
+      clientInput.value = client ? `${client.name} (${client.id_card_or_nit})` : '';
+    }
+    sessionStorage.removeItem('serviceQuoteContext');
+  }
+  quoteStateReady = true;
+  renderQuoteItems();
+  configureQuoteForm();
+  if (hasQuoteDraft()) quoteModal.show();
 
   function formatCOP(value) {
     return new Intl.NumberFormat("es-CO", {
@@ -356,18 +432,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     quoteItems.forEach((it, i) => {
-      const isService = it.is_service || String(it.product_name).toLowerCase().startsWith('[servicio]');
+      const isService = ServiceCommercial.isService(it);
       total += it.subtotal;
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${i+1}</td>
         <td>${it.product_code || '-'}</td>
         <td>${it.product_name}</td>
-        <td>${it.quantity}</td>
+        <td>${isService ? `<input type="number" aria-label="Cantidad del servicio" min="0.01" step="0.01" class="form-control form-control-sm service-commercial-input" data-i="${i}" data-field="quantity" value="${Number(it.quantity)}" required>` : it.quantity}</td>
         <td>
-          ${isService ? formatCOP(it.price) : `<select class="form-select form-select-sm price-selector" data-i="${i}">${generatePriceOptions(it)}</select>`}
+          ${isService ? `<input type="number" aria-label="Valor unitario del servicio" min="0" step="0.01" class="form-control form-control-sm service-commercial-input" data-i="${i}" data-field="price" value="${Number(it.price)}" required>` : `<select class="form-select form-select-sm price-selector" data-i="${i}">${generatePriceOptions(it)}</select>`}
         </td>
-        <td>${formatCOP(it.price*it.quantity)}</td>
+        <td class="item-subtotal">${formatCOP(it.subtotal)}</td>
         <td>
           <button class="btn btn-sm btn-danger remove" data-i="${i}">Eliminar</button>
         </td>
@@ -385,6 +461,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Delegación de eventos para el cambio de precios en cotizaciones
+  quoteItemsTbody.addEventListener('input', event => {
+    if (!event.target.classList.contains('service-commercial-input')) return;
+    const item = quoteItems[Number(event.target.dataset.i)];
+    if (!item || !ServiceCommercial.edit(item, event.target.dataset.field, event.target.value)) return;
+    event.target.closest('tr').querySelector('.item-subtotal').textContent = formatCOP(item.subtotal);
+    totalDiv.textContent = `TOTAL: ${formatCOP(quoteItems.reduce((sum, row) => sum + row.subtotal, 0))}`;
+    saveQuoteState();
+  });
   quoteItemsTbody.addEventListener('change', (e) => {
     if (e.target.classList.contains('price-selector')) {
       const index = Number(e.target.dataset.i);
@@ -430,12 +514,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     productInput.value = "";
     qtyInput.value = "1";
+    saveQuoteState();
     productInput.focus();
   });
 
   // --- Finalizar cotización
   finalizeBtn.addEventListener("click", async ()=>{
     if(quoteItems.length===0){ Swal.fire('Atención', "No hay items", 'warning'); return;}
+    if (!ServiceCommercial.inputsValid(quoteItems)) {
+      Swal.fire('Atención', 'Indica una cantidad mayor que cero y un valor unitario válido para cada servicio.', 'warning');
+      return;
+    }
     const clientId = clientHiddenIdInput.value ? Number(clientHiddenIdInput.value) : null;
     const notes = quoteNotesInput.value.trim();
     
@@ -459,16 +548,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   function cancelEdit() {
-    editingQuoteId = null;
-    quoteItems = [];
-    renderQuoteItems();
-    clientSelect.value = "";
-    clientInput.value = "";
-    clientHiddenIdInput.value = "";
-    quoteNotesInput.value = "";
-    finalizeBtn.textContent = "Finalizar Cotización";
-    finalizeBtn.classList.remove('btn-warning');
-    finalizeBtn.classList.add('btn-primary');
+    resetQuoteForm();
+    configureQuoteForm();
     const cancelBtn = document.getElementById('cancel-edit-quote-btn');
     if(cancelBtn) cancelBtn.remove();
     quoteModal.hide();
@@ -844,9 +925,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       Swal.fire('Éxito', res.message || "Cotización aprobada y convertida a venta exitosamente.", 'success');
-      localStorage.removeItem('persistentQuoteCart'); // Limpiar el carrito persistente de cotizaciones
-      quoteItems = []; // Limpiar los ítems de la cotización actual
-      renderQuoteItems(); // Actualizar la interfaz de usuario
+      if (editingQuoteId === quoteId) cancelEdit();
       modal.hide(); // Cerrar el modal de pago
       await loadQuotes(); // Recargar la lista de cotizaciones
       await loadProducts(); // Recargar productos para reflejar los cambios de stock

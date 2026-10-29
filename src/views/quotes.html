@@ -12,6 +12,7 @@
         }
     </script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script defer src="../js/serviceCommercial.js"></script>
     <script defer src="../js/quotes.js"></script>
     <script src="../js/layout.js"></script>
 </head>
@@ -84,7 +85,8 @@
               <label for="quote-notes" class="form-label">Notas / Observaciones (Aparecerán en el PDF)</label>
               <textarea id="quote-notes" class="form-control" rows="2" placeholder="Ej: Cotización válida por 7 días. Precios sujetos a cambio sin previo aviso."></textarea>
             </div>
-            <div class="d-flex justify-content-end">
+            <div class="d-flex justify-content-end gap-2">
+                <button id="discard-quote-draft" type="button" class="btn btn-outline-secondary">Descartar borrador</button>
                 <button id="finalize-quote" class="btn btn-success">Finalizar Cotización</button>
             </div>
         </div>

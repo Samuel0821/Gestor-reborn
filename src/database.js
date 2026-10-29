@@ -4,6 +4,7 @@ const os = require("node:os");
 const fs = require("fs");
 const crypto = require("crypto");
 const { runMigrations } = require("./migrations");
+const { normalizeServiceItems } = require("./serviceItems");
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -1208,6 +1209,38 @@ function deleteProduct(id) {
   }
 }
 
+// Runs inside the commercial document transaction: failed saves leave the service untouched.
+function syncServiceCommercialItems(items, nextStatus) {
+  const serviceIds = new Set();
+  const seen = new Set();
+  for (const item of items) {
+    if (item.product_id || !item.service_id) continue;
+    const service = db.prepare("SELECT status FROM services WHERE id = ?").get(item.service_id);
+    if (!service || ['Finalizado', 'Anulado'].includes(service.status)) {
+      throw new Error('El servicio asociado no está disponible para cotizar o vender.');
+    }
+    const laborItems = db.prepare("SELECT id, name FROM service_items WHERE service_id = ? ORDER BY id").all(item.service_id);
+    const laborItem = item.service_item_id
+      ? laborItems.find(row => row.id === Number(item.service_item_id))
+      : (laborItems.length === 1 ? laborItems[0] : null);
+    if (!laborItem) throw new Error('El detalle del servicio cambió. Vuelve a enviarlo desde Servicios.');
+    if (seen.has(laborItem.id)) throw new Error('Un trabajo del servicio está repetido en el documento.');
+    seen.add(laborItem.id);
+    const normalized = normalizeServiceItems({ items: [{ name: laborItem.name, quantity: item.quantity, price: item.price }] }).items[0];
+    db.prepare("UPDATE service_items SET quantity = ?, price = ? WHERE id = ?").run(normalized.quantity, normalized.price, laborItem.id);
+    item.service_item_id = laborItem.id;
+    item.quantity = normalized.quantity;
+    item.price = normalized.price;
+    item.subtotal = normalized.subtotal;
+    serviceIds.add(item.service_id);
+  }
+  for (const serviceId of serviceIds) {
+    const rows = db.prepare("SELECT name, quantity, price FROM service_items WHERE service_id = ?").all(serviceId);
+    const labor = normalizeServiceItems({ items: rows });
+    db.prepare("UPDATE services SET price = ?, status = ? WHERE id = ?").run(labor.price, nextStatus, serviceId);
+  }
+}
+
 // Ajuste createSale para registrar pagos
 function createSale({ 
   client_id = null, 
@@ -1251,8 +1284,8 @@ function createSale({
   `);
 
   const insertItem = db.prepare(`
-    INSERT INTO sale_items (sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, conversion_factor, variant_id, skip_stock)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sale_items (sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, conversion_factor, variant_id, skip_stock, service_id, service_item_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const getProduct = db.prepare("SELECT id, code, name, stock FROM products WHERE id = ?");
@@ -1260,6 +1293,7 @@ function createSale({
   const clothingInventory = db.prepare(`SELECT 1 FROM company_settings cs JOIN business_types bt ON bt.id = cs.business_type_id WHERE cs.id = 1 AND bt.code = 'ROPA'`).get();
 
   const trx = db.transaction((client_id, items, cash_payment, transfer_payment, transfer_reference, service_id, notes) => {
+    syncServiceCommercialItems(items, 'Finalizado');
     const formattedDate = new Date().toLocaleString('sv-SE'); // Genera YYYY-MM-DD HH:mm:ss local para compatibilidad
 
     let total = 0;
@@ -1360,7 +1394,7 @@ function createSale({
 
       insertItem.run(
         saleId, it.product_id || null, it.product_name, prodCode, it.serial_number || null,
-        it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null, it.skip_stock ? 1 : 0
+        it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null, it.skip_stock ? 1 : 0, it.service_id || null, it.service_item_id || null
       );
 
       if (it.product_id && !it.skip_stock) {
@@ -1545,8 +1579,8 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName, due_
         // 3. Update sale items
         db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(saleId);
         const insertItemStmt = db.prepare(`
-            INSERT INTO sale_items (sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, conversion_factor, variant_id, skip_stock)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO sale_items (sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, conversion_factor, variant_id, skip_stock, service_id, service_item_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const getProduct = db.prepare("SELECT code FROM products WHERE id = ?");
         const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
@@ -1560,7 +1594,7 @@ function updateSale({ saleId, clientId, items, paymentAdjustment, userName, due_
                     conversionFactor = getVariant.get(it.variant_id)?.conversion_factor || 1;
                 }
             }
-            insertItemStmt.run(saleId, it.product_id, it.product_name, prodCode, it.serial_number || null, it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null, it.skip_stock ? 1 : 0);
+            insertItemStmt.run(saleId, it.product_id, it.product_name, prodCode, it.serial_number || null, it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null, it.skip_stock ? 1 : 0, it.service_id || null, it.service_item_id || null);
         }
 
         // 4. Handle financial adjustments
@@ -1662,7 +1696,7 @@ function getSales(limit = -1, offset = 0, clientId = null, searchTerm = null, st
   params.push(limit, offset);
 
   const sales = db.prepare(query).all(...params);
-  const itemsStmt = db.prepare("SELECT id, sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, variant_id, conversion_factor, skip_stock FROM sale_items WHERE sale_id = ?");
+  const itemsStmt = db.prepare("SELECT id, sale_id, product_id, product_name, product_code, serial_number, quantity, price, subtotal, variant_id, conversion_factor, skip_stock, service_id, service_item_id FROM sale_items WHERE sale_id = ?");
   for (const s of sales) s.items = itemsStmt.all(s.id);
   return sales;
 }
@@ -1674,7 +1708,7 @@ function getSaleById(id) {
 function getSaleItems(saleId) {
   return db.prepare(`
     SELECT si.id, si.sale_id, si.product_id, si.product_name, si.product_code, si.serial_number,
-           si.quantity, si.price, si.subtotal, si.variant_id, si.conversion_factor, si.skip_stock,
+           si.quantity, si.price, si.subtotal, si.variant_id, si.conversion_factor, si.skip_stock, si.service_id, si.service_item_id,
            pv.name as variant_name, pv.size as variant_size, pv.color as variant_color,
            p.name as parent_product_name, u.name as variant_unit_name, u.abbreviation as variant_unit_abbreviation
     FROM sale_items si
@@ -2057,9 +2091,10 @@ function annulSale(id) {
 // COTIZACIONES
 function createQuote({ client_id = null, items = [], notes = null }) {
   const insertQuote = db.prepare("INSERT INTO quotes (client_id, total_amount, notes) VALUES (?, ?, ?)");
-  const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock, service_id, service_item_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const getProduct = db.prepare("SELECT id, code, name, sale_price FROM products WHERE id = ?");
   const trx = db.transaction((client_id, items, notes) => {
+    syncServiceCommercialItems(items, 'Cotizado');
     const q = insertQuote.run(client_id || null, 0, notes);
     const quoteId = q.lastInsertRowid;
     let total = 0;
@@ -2070,7 +2105,7 @@ function createQuote({ client_id = null, items = [], notes = null }) {
       const price = (it.price != null) ? it.price : (prod ? prod.sale_price : 0);
       const subtotal = price * it.quantity;
       total += subtotal;
-      insertItem.run(quoteId, it.product_id || null, prodName, prodCode, it.quantity, price, subtotal, it.variant_id || null, it.skip_stock ? 1 : 0);
+      insertItem.run(quoteId, it.product_id || null, prodName, prodCode, it.quantity, price, subtotal, it.variant_id || null, it.skip_stock ? 1 : 0, it.service_id || null, it.service_item_id || null);
     }
     db.prepare("UPDATE quotes SET total_amount = ? WHERE id = ?").run(total, quoteId);
     const last = getLastQuoteNumber();
@@ -2112,7 +2147,7 @@ function getQuotes(clientId = null, searchTerm = null) {
 
   query += " ORDER BY quote_date DESC";
   const quotes = db.prepare(query).all(...params);
-  const itemsStmt = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock FROM quote_items WHERE quote_id = ?");
+  const itemsStmt = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock, service_id, service_item_id FROM quote_items WHERE quote_id = ?");
   for (const q of quotes) q.items = itemsStmt.all(q.id);
   return quotes;
 }
@@ -2120,7 +2155,7 @@ function getQuotes(clientId = null, searchTerm = null) {
 function getQuoteById(id) {
   const quote = db.prepare("SELECT * FROM quotes WHERE id = ?").get(id);
   if (quote) {
-    quote.items = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock FROM quote_items WHERE quote_id = ?").all(id);
+    quote.items = db.prepare("SELECT id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock, service_id, service_item_id FROM quote_items WHERE quote_id = ?").all(id);
   }
   return quote;
 }
@@ -2150,10 +2185,11 @@ function updateQuote({ id, status }) {
 function updateQuoteDetails({ id, client_id, items, notes }) {
   const updateHeader = db.prepare("UPDATE quotes SET client_id = ?, total_amount = ?, notes = ? WHERE id = ?");
   const deleteItems = db.prepare("DELETE FROM quote_items WHERE quote_id = ?");
-  const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  const insertItem = db.prepare("INSERT INTO quote_items (quote_id, product_id, product_name, product_code, quantity, price, subtotal, variant_id, skip_stock, service_id, service_item_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const getProduct = db.prepare("SELECT id, code, name, sale_price FROM products WHERE id = ?");
 
   const trx = db.transaction((id, client_id, items) => {
+    syncServiceCommercialItems(items, 'Cotizado');
     let total = 0;
     // Calcular total y preparar items
     for (const it of items) {
@@ -2172,7 +2208,7 @@ function updateQuoteDetails({ id, client_id, items, notes }) {
        const price = (it.price !== undefined && it.price !== null) ? it.price : (prod ? prod.sale_price : 0);
        const subtotal = price * it.quantity;
        
-       insertItem.run(id, it.product_id || null, prodName, prodCode, it.quantity, price, subtotal, it.variant_id || null, it.skip_stock ? 1 : 0);
+       insertItem.run(id, it.product_id || null, prodName, prodCode, it.quantity, price, subtotal, it.variant_id || null, it.skip_stock ? 1 : 0, it.service_id || null, it.service_item_id || null);
     }
     return { success: true, message: "Cotización actualizada correctamente" };
   });
@@ -3094,7 +3130,9 @@ function getServices(limit = 10, offset = 0, status = null, executionStatus = nu
   query += " ORDER BY s.id DESC LIMIT ? OFFSET ?";
   params.push(limit, offset);
 
-  return db.prepare(query).all(...params);
+  const services = db.prepare(query).all(...params);
+  const getItems = db.prepare("SELECT id, name, quantity, price FROM service_items WHERE service_id = ? ORDER BY id");
+  return services.map(service => ({ ...service, items: getItems.all(service.id) }));
 }
 
 function getServiceById(id) {
@@ -3123,6 +3161,7 @@ function getServiceById(id) {
     service.materials_cost = materialsCostRow.materials_cost;
     service.paid_amount = db.prepare("SELECT COALESCE(SUM(amount), 0) as total FROM service_payments WHERE service_id = ?").get(id).total || 0;
     service.products = products;
+    service.items = db.prepare("SELECT id, name, quantity, price FROM service_items WHERE service_id = ? ORDER BY id").all(id);
   }
   return service;
 }
@@ -3133,8 +3172,11 @@ function createService(data) {
   const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
   
   const trx = db.transaction((data) => {
-    const info = insert.run(data.name, data.description, data.price, data.client_id || null, data.scheduled_date || null);
+    const labor = normalizeServiceItems(data);
+    const info = insert.run(data.name, data.description, labor.price, data.client_id || null, data.scheduled_date || null);
     const serviceId = info.lastInsertRowid;
+    const insertLabor = db.prepare("INSERT INTO service_items (service_id, name, quantity, price) VALUES (?, ?, ?, ?)");
+    for (const item of labor.items) insertLabor.run(serviceId, item.name, item.quantity, item.price);
     if (data.products && data.products.length > 0) {
       for (const p of data.products) {
         insertItem.run(serviceId, p.product_id, p.quantity, p.variant_id || null, p.price || 0);
@@ -3180,7 +3222,11 @@ function updateService(data) {
   const getVariant = db.prepare("SELECT conversion_factor FROM product_variants WHERE id = ?");
 
   const trx = db.transaction((data) => {
-    update.run(data.name, data.description, data.price, data.client_id || null, data.scheduled_date || null, data.id);
+    const labor = normalizeServiceItems(data);
+    update.run(data.name, data.description, labor.price, data.client_id || null, data.scheduled_date || null, data.id);
+    db.prepare("DELETE FROM service_items WHERE service_id = ?").run(data.id);
+    const insertLabor = db.prepare("INSERT INTO service_items (service_id, name, quantity, price) VALUES (?, ?, ?, ?)");
+    for (const item of labor.items) insertLabor.run(data.id, item.name, item.quantity, item.price);
     
     // 1. Restaurar stock de ítems antiguos antes de borrarlos
     const oldItems = getOldItems.all(data.id);
