@@ -10,7 +10,7 @@ module.exports = {
       /[\\/]\.tools(?:[\\/]|$)/i,
       /[\\/]licensing(?:[\\/]|$)/i,
       /[\\/]out(?:[\\/]|$)/i,
-      /[\\/]database\.sqlite$/i,
+      /[\\/]database\.sqlite(?:-(?:wal|shm|journal)|\.backup-.*)?$/i,
       /[\\/]npm-install\.log$/i,
     ],
   },

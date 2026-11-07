@@ -55,6 +55,7 @@ Es la pantalla principal que ofrece una visión global del estado de su negocio 
     *   **Servicios Programados:** Lista de servicios pendientes de ejecución ordenados por fecha.
     *   **Borradores de Servicios:** Acceso rápido a servicios en estado "Abierto" para continuar trabajando.
 *   **Menú Lateral:** Navegación rápida a todos los módulos del sistema. Puede colapsar este menú usando el botón de hamburguesa (☰) en la parte superior izquierda.
+*   **Acceso por industria:** Todas las industrias pueden acceder a todos los módulos, incluidos Productos, Proveedores, Órdenes de Compra y Servicios. El tipo de negocio personaliza el catálogo de productos; las acciones disponibles siguen sujetas al rol del usuario.
 
 ---
 

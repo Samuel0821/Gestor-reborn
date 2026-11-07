@@ -202,6 +202,28 @@ try {
 
   assert.equal(api.deleteService(legacy.id).success, true);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM service_items WHERE service_id = ?').get(legacy.id).n, 0);
+
+  // Module availability must not depend on industry or legacy installation flags.
+  const moduleNames = ['clients', 'suppliers', 'products', 'sales', 'purchases', 'quotes', 'services', 'expenses', 'cashRegister', 'reports', 'support'];
+  const originalSettings = db.prepare('SELECT business_type_id, services_config, inventory_config FROM company_settings WHERE id = 1').get();
+  const setProfile = db.prepare('UPDATE company_settings SET business_type_id = ?, services_config = ?, inventory_config = ? WHERE id = 1');
+  const industries = api.getBusinessTypes();
+  assert.ok(industries.length >= 17);
+  for (const industry of [...industries, { id: null, code: 'SIN_PERFIL' }]) {
+    for (const legacyFlags of [null, '{"enabled":false}', '{"enabled":true}', 'invalid-json']) {
+      setProfile.run(industry.id, legacyFlags, legacyFlags);
+      const config = api.getBusinessModuleConfig();
+      assert.deepEqual(Object.keys(config.modules).sort(), [...moduleNames].sort());
+      for (const moduleName of moduleNames) assert.equal(config.modules[moduleName], true, `${industry.code}: ${moduleName}`);
+      assert.equal(config.workflows.inventory, true, industry.code);
+      assert.equal(config.workflows.serviceMaterials, true, industry.code);
+      if (industry.id) assert.equal(config.businessType.code, industry.code);
+      if (industry.code === 'FARMACIA') assert.equal(config.workflows.lotsAndExpiration, true);
+      if (industry.code === 'TECNOLOGIA') assert.equal(config.workflows.serialTracking, true);
+    }
+  }
+  setProfile.run(originalSettings.business_type_id, originalSettings.services_config, originalSettings.inventory_config);
+  console.log(`OK: all modules available for ${industries.length} industries and the default profile, including legacy disabled settings.`);
   console.log('OK: migrations, legacy compatibility, editable service fields, atomic quote/sale synchronization, document links, validation, payments, quote approval and inventory.');
 } finally {
   api?.db.close();

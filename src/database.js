@@ -2342,32 +2342,25 @@ function getBusinessModuleConfig() {
     ? db.prepare("SELECT code, name, description FROM business_types WHERE id = ? AND active = 1").get(settings.business_type_id)
     : null;
   const code = businessType?.code || 'GENERAL';
-  let servicesEnabled = false;
-  try {
-    servicesEnabled = Boolean(JSON.parse(settings?.services_config || '{}').enabled);
-  } catch (error) {
-    servicesEnabled = false;
-  }
-  const serviceBusinesses = ['TALLER_MOTOS', 'TALLER_AUTOMOTRIZ', 'AIRES_ACONDICIONADOS', 'CALEFACCION', 'SERVICIOS'];
-  const inventoryBusinesses = code !== 'SERVICIOS';
+  // La industria personaliza el catálogo y los flujos especializados, no el acceso a módulos.
   return {
     businessType,
     modules: {
       clients: true,
-      suppliers: inventoryBusinesses,
-      products: inventoryBusinesses,
+      suppliers: true,
+      products: true,
       sales: true,
-      purchases: inventoryBusinesses,
+      purchases: true,
       quotes: true,
-      services: serviceBusinesses.includes(code) || servicesEnabled,
+      services: true,
       expenses: true,
       cashRegister: true,
       reports: true,
       support: true,
     },
     workflows: {
-      inventory: inventoryBusinesses,
-      serviceMaterials: serviceBusinesses.includes(code),
+      inventory: true,
+      serviceMaterials: true,
       serialTracking: ['TECNOLOGIA', 'REPUESTOS', 'TALLER_MOTOS', 'TALLER_AUTOMOTRIZ'].includes(code),
       lotsAndExpiration: ['FARMACIA', 'VETERINARIA', 'NATURISTA', 'MINIMERCADO'].includes(code),
     }
