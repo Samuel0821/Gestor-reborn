@@ -40,7 +40,8 @@ document.addEventListener("DOMContentLoaded", () => {
         <img src="../logo/gestorfx_logof.ico" alt="Logo" style="height: 100px; width: auto; margin-right: 10px;">
       </div>
       <nav class="sidebar-menu">
-        <a href="index.html" class="sidebar-link ${currentPage === 'index.html' ? 'active' : ''}"><i class="fa fa-home"></i> <span class="link-text">Dashboard</span></a>
+        <a data-module="dashboard" href="index.html" class="sidebar-link ${currentPage === 'index.html' ? 'active' : ''}"><i class="fa fa-home"></i> <span class="link-text">Dashboard</span></a>
+        <a data-module="production" href="production.html" class="sidebar-link ${currentPage === 'production.html' ? 'active' : ''}"><i class="fa fa-bread-slice"></i> <span class="link-text">Recetas y producción</span></a>
         <a data-module="sales" href="sales.html" class="sidebar-link ${currentPage === 'sales.html' ? 'active' : ''}"><i class="fa fa-shopping-cart"></i> <span class="link-text">Ventas</span></a>
         <a data-module="products" href="products.html" class="sidebar-link ${currentPage === 'products.html' ? 'active' : ''}"><i class="fa fa-box"></i> <span class="link-text">Productos</span></a>
         <a data-module="clients" href="clients.html" class="sidebar-link ${currentPage === 'clients.html' ? 'active' : ''}"><i class="fa fa-users"></i> <span class="link-text">Clientes</span></a>
@@ -51,7 +52,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <a data-module="cashRegister" href="cash_register.html" class="sidebar-link ${currentPage === 'cash_register.html' ? 'active' : ''}"><i class="fa fa-cash-register"></i> <span class="link-text">Cierre de Caja</span></a>
         <a data-module="reports" href="reports.html" class="sidebar-link ${currentPage === 'reports.html' ? 'active' : ''}"><i class="fa fa-chart-line"></i> <span class="link-text">Reportes</span></a>
         <a data-module="expenses" href="expenses.html" class="sidebar-link ${currentPage === 'expenses.html' ? 'active' : ''}"><i class="fa fa-money-bill-wave"></i> <span class="link-text">Gastos</span></a>
-        <a href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
+        <a data-module="settings" href="settings.html" class="sidebar-link ${currentPage === 'settings.html' ? 'active' : ''}"><i class="fa fa-cog"></i> <span class="link-text">Ajustes</span></a>
         <a href="support.html" class="sidebar-link ${currentPage === 'support.html' ? 'active' : ''}"><i class="fa fa-headset"></i> <span class="link-text">Soporte Técnico</span></a>
       </nav>
       <div style="margin-top: auto; padding: 15px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.1);">
@@ -101,6 +102,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.body.insertBefore(appWrapper, document.body.firstChild);
 
     window.api.getBusinessModuleConfig().then(config => {
+      localStorage.setItem('business_industry', config.businessType?.code || '');
+      if (config.businessType?.code !== 'PANADERIA') document.querySelector('[data-module="production"]')?.remove();
       Object.entries(config.modules || {}).forEach(([module, enabled]) => {
         if (!enabled) document.querySelectorAll(`[data-module="${module}"]`).forEach(link => link.remove());
       });
@@ -116,6 +119,8 @@ document.addEventListener("DOMContentLoaded", () => {
             cancelButtonText: 'Cancelar'
         });
         if (result.isConfirmed) {
+            try { await window.api.logout(); } catch (_) { /* A disconnected station can still leave its local session. */ }
+            sessionStorage.removeItem('gestorfx_api_session');
             ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
             window.location.href = 'login.html';
         }

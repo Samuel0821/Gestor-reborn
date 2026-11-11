@@ -22,6 +22,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   let allProducts = [];
   let editingQuoteId = null;
   let quoteStateReady = false;
+  const bakeryUser = localStorage.getItem('business_industry') === 'PANADERIA';
+  const draftKey = bakeryUser ? `persistentQuoteDraft:${localStorage.getItem('user_id')}` : 'persistentQuoteDraft';
+  const transferKey = bakeryUser ? `quoteCart:${localStorage.getItem('user_id')}` : 'quoteCart';
 
   function hasQuoteDraft() {
     return Boolean(quoteItems.length || editingQuoteId || clientInput.value || clientHiddenIdInput.value ||
@@ -62,7 +65,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function saveQuoteState() {
     if (!quoteStateReady) return;
     if (hasQuoteDraft()) {
-      localStorage.setItem('persistentQuoteDraft', JSON.stringify({
+      localStorage.setItem(draftKey, JSON.stringify({
         items: quoteItems,
         editingQuoteId,
         clientId: clientHiddenIdInput.value,
@@ -72,9 +75,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         quantity: qtyInput.value
       }));
     } else {
-      localStorage.removeItem('persistentQuoteDraft');
+      localStorage.removeItem(draftKey);
     }
-    localStorage.removeItem('persistentQuoteCart');
+    if (!bakeryUser) localStorage.removeItem('persistentQuoteCart');
     newQuoteButton.textContent = hasQuoteDraft() ? 'Continuar Cotización' : 'Registrar Cotización';
   }
 
@@ -207,7 +210,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Cargar carritos guardados DESPUÉS de cargar productos para poder enriquecerlos
   try {
-    const draft = JSON.parse(localStorage.getItem('persistentQuoteDraft') || 'null');
+    const draft = JSON.parse(localStorage.getItem(draftKey) || 'null');
     if (draft && Array.isArray(draft.items)) {
       quoteItems = draft.items;
       editingQuoteId = draft.editingQuoteId || null;
@@ -218,18 +221,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       productInput.value = draft.productText || '';
       qtyInput.value = draft.quantity ?? '1';
     } else {
-      const legacyCart = JSON.parse(localStorage.getItem('persistentQuoteCart') || '[]');
+      const legacyCart = JSON.parse((!bakeryUser && localStorage.getItem('persistentQuoteCart')) || '[]');
       if (Array.isArray(legacyCart)) quoteItems = legacyCart;
     }
   } catch (error) { console.error('Error restaurando el borrador de cotización', error); }
 
-  const savedQuoteCart = sessionStorage.getItem('quoteCart');
+  const savedQuoteCart = sessionStorage.getItem(transferKey);
   if (savedQuoteCart) {
     try {
       const newItems = JSON.parse(savedQuoteCart);
       if (!Array.isArray(newItems)) throw new Error('Carrito de cotización inválido');
       quoteItems = quoteItems.concat(newItems);
-      sessionStorage.removeItem('quoteCart');
+      sessionStorage.removeItem(transferKey);
     } catch (e) { console.error(e); }
   }
 
@@ -244,14 +247,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   if (savedQuoteCart && quoteItems.length) {
-    const context = JSON.parse(sessionStorage.getItem('serviceQuoteContext') || '{}');
+    const contextKey = bakeryUser ? `serviceQuoteContext:${localStorage.getItem('user_id')}` : 'serviceQuoteContext';
+    const context = JSON.parse(sessionStorage.getItem(contextKey) || '{}');
     if (context.client_id) {
       const client = await window.api.getClientById(context.client_id);
       clientSelect.value = context.client_id;
       clientHiddenIdInput.value = context.client_id;
       clientInput.value = client ? `${client.name} (${client.id_card_or_nit})` : '';
     }
-    sessionStorage.removeItem('serviceQuoteContext');
+    sessionStorage.removeItem(contextKey);
   }
   quoteStateReady = true;
   renderQuoteItems();
@@ -375,6 +379,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function loadProducts() {
     allProducts = await window.api.getProducts();
+    allProducts = allProducts.filter(product => product.bakery_retail_allowed !== false);
     renderProductDatalist(allProducts);
   }
 

@@ -163,15 +163,15 @@ document.addEventListener('DOMContentLoaded', () => {
             productTableAttributes.forEach(attribute => {
                 addProductTableCell(tr, p.attributes?.[attribute.code] || '-');
             });
-            addProductTableCell(tr, formatCOP(p.sale_price));
-            const stockCell = addProductTableCell(tr, p.stock);
+            addProductTableCell(tr, window.BakeryProducts?.price(p) || formatCOP(p.sale_price));
+            const stockCell = addProductTableCell(tr, window.BakeryProducts?.quantity(p,p.stock) || p.stock);
             if (p.stock <= p.min_stock) {
                 const alert = document.createElement('span');
                 alert.className = 'badge bg-danger ms-2';
                 alert.textContent = 'Stock mínimo';
                 stockCell.appendChild(alert);
             }
-            addProductTableCell(tr, `${p.min_stock || 0} ${p.base_unit_abbreviation || ''}`.trim());
+            addProductTableCell(tr, window.BakeryProducts?.quantity(p,p.min_stock,true) || `${p.min_stock || 0} ${p.base_unit_abbreviation || ''}`.trim());
             const actionCell = document.createElement('td');
             actionCell.innerHTML = `
                 <div class="dropdown">
@@ -188,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Restricción de roles
             const role = localStorage.getItem('user_role');
             if (role !== 'admin') {
-                tr.querySelectorAll('.edit, .del').forEach(btn => {
+                tr.querySelectorAll(window.BakeryProducts?.canManage ? '.del' : '.edit, .del').forEach(btn => {
                     const li = btn.closest('li');
                     if (li) li.remove();
                 });
@@ -236,6 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 // --- FIN LÓGICA DE EDICIÓN DE VARIANTES ---
 
+                window.BakeryProducts?.fill(p);
                 productFormModalTitle.textContent = 'Editar Producto';
                 productFormModal.show();
             });
@@ -301,11 +302,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const header = document.getElementById('products-table-head');
         if (!header) return;
         header.replaceChildren();
+        const target = window.BakeryProducts?.active ? header.appendChild(document.createElement('tr')) : header;
         ['Código', 'Nombre', 'Categoría', ...productTableAttributes.map(attribute => attribute.name), 'Precio venta', 'Stock', 'Stock mínimo', 'Acciones']
             .forEach(label => {
                 const cell = document.createElement('th');
                 cell.textContent = label;
-                header.appendChild(cell);
+                if (window.BakeryProducts?.active) cell.style.minWidth = label === 'Nombre' ? '180px' : '110px';
+                target.appendChild(cell);
             });
     }
 
@@ -405,6 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
             row.querySelector('.variant-factor')?.classList.toggle('d-none', clothing);
             calculateFractionedVariant(row);
         });
+        window.BakeryProducts?.refresh();
     }
 
     addVariantBtn.addEventListener('click', () => {
@@ -615,6 +619,7 @@ document.addEventListener('DOMContentLoaded', () => {
             baseUnitSelect.value = defaultUnit?.value || '';
         }
         renderAttributeFields();
+        window.BakeryProducts?.reset();
     }
 
     newProductButton.addEventListener('click', () => {
@@ -689,6 +694,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (defaultUnit) baseUnitSelect.value = defaultUnit.id;
         refreshFractionedMode();
         renderAttributeFields();
+        await window.BakeryProducts?.initialize(config);
         renderProductTableHeader();
     }
 
@@ -832,13 +838,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Validar que los porcentajes no sean 0 si se usan
         const salePriceValue = parseFloat(saleInput.value);
-        if (isNaN(salePriceValue) || salePriceValue <= 0) {
+        if (isNaN(salePriceValue) || salePriceValue < 0 || (!window.BakeryProducts?.active && salePriceValue === 0)) {
             Swal.fire('Atención', 'El Precio de Venta (Normal) debe ser mayor a 0.', 'warning');
             return;
         }
         // Podríamos añadir validaciones similares para los precios especiales si son obligatorios
 
-        const payload = {
+        let payload = {
             id: idInput.value ? Number(idInput.value) : undefined,
             code: codeInput.value.trim(),
             name: nameInput.value.trim(),
@@ -859,6 +865,7 @@ document.addEventListener('DOMContentLoaded', () => {
             variants // Agregamos el array de variantes al payload
         };
         
+        payload = window.BakeryProducts?.payload(payload) || payload;
         if (!payload.code || !payload.name) {
             Swal.fire('Atención', 'Código y nombre obligatorios', 'warning');
             return;
@@ -937,7 +944,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.productFormConfig = { attributes: [] };
     window.api.getProductFormConfig().then(config => {
         return loadProductFormConfig();
-    }).then(() => loadProducts()).catch(error => console.error('Error cargando configuración de productos:', error));
+    }).then(() => loadProducts()).then(()=>{if(window.BakeryProducts?.active && new URLSearchParams(location.search).has('new'))newProductButton.click();}).catch(error => console.error('Error cargando configuración de productos:', error));
     loadCategories();
     loadSuppliers();
 });

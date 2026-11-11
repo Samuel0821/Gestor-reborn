@@ -93,6 +93,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const product = availableProducts.find(p => p.name === val);
             if (product) {
                 document.getElementById('newOrderCost').value = product.purchase_price || 0;
+                window.BakeryPurchases?.select(product);
             }
         });
     }
@@ -202,6 +203,7 @@ function renderTable() {
                             `<li><button class="dropdown-item" onclick="openHistoryModal(${order.id})"><i class="fas fa-history me-2 text-info"></i> Historial Pagos</button></li>` : ''
                         }
                         
+                        ${window.BakeryPurchases?.active && localStorage.getItem('user_role')==='admin' && order.status==='completed' ? `<li><button class="dropdown-item" onclick="window.BakeryPurchases.cancel(${order.id})">Anular recepción</button></li>` : ''}
                         <li><hr class="dropdown-divider"></li>
                         <li><button class="dropdown-item" onclick="deleteOrder(${order.id})"><i class="fas fa-trash me-2 text-danger"></i> Eliminar</button></li>
                     </ul>
@@ -526,6 +528,7 @@ async function openHistoryModal(id) {
 // --- CREACIÓN DE NUEVA ORDEN ---
 
 async function openCreateModal() {
+    await window.BakeryPurchases?.ready;
     // Resetear estado
     editingOrderId = null;
     orderItems = [];
@@ -609,6 +612,7 @@ async function openCreateModal() {
     // Cargar Productos para Datalist
     try {
         availableProducts = await window.api.getProducts();
+        if(window.BakeryPurchases) availableProducts = window.BakeryPurchases.filter(availableProducts);
         const datalist = document.getElementById('productList');
         datalist.innerHTML = '';
         availableProducts.forEach(p => {
@@ -624,6 +628,7 @@ async function openCreateModal() {
 }
 
 async function editOrder(id) {
+    await window.BakeryPurchases?.ready;
     const order = await window.api.getPurchaseOrderById(id);
     if (!order) return;
 
@@ -681,6 +686,7 @@ async function editOrder(id) {
     // Cargar Productos
     try {
         availableProducts = await window.api.getProducts();
+        if(window.BakeryPurchases) availableProducts = window.BakeryPurchases.filter(availableProducts);
         const datalist = document.getElementById('productList');
         datalist.innerHTML = '';
         availableProducts.forEach(p => {
@@ -722,6 +728,17 @@ function addItemToOrder() {
 
     if (!qty || qty <= 0) return;
 
+    if (window.BakeryPurchases?.active) {
+        try {
+            const line = window.BakeryPurchases.line(product, qty, cost);
+            const match = orderItems.find(item => window.BakeryPurchases.same(item, line));
+            if (match) { match.quantity += line.quantity; match.subtotal = match.quantity * match.price; }
+            else orderItems.push(line);
+            renderOrderItems(); input.value = ''; costInput.value = ''; qtyInput.value = 1; input.focus();
+        } catch (error) { Swal.fire('Revisar datos', error.message, 'warning'); }
+        return;
+    }
+
     // Verificar si ya existe en la lista
     const existing = orderItems.find(i => i.product_id === product.id);
     if (existing) {
@@ -757,7 +774,7 @@ function renderOrderItems() {
             <tr>
                 <td>${item.product_name}</td>
                 <td class="text-end">${formatCurrency(item.price)}</td>
-                <td class="text-center">${item.quantity}</td>
+                <td class="text-center">${window.BakeryPurchases?.quantity(item) ?? item.quantity}</td>
                 <td class="text-end">${formatCurrency(item.subtotal)}</td>
                 <td class="text-center">
                     <button type="button" class="btn btn-sm btn-outline-danger border-0" onclick="removeOrderItem(${index})"><i class="fas fa-trash"></i></button>

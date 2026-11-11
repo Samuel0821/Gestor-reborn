@@ -5,6 +5,8 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { runMigrations } = require("./migrations");
 const { normalizeServiceItems } = require("./serviceItems");
+const { createBakery } = require('./bakery');
+let bakery = null;
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -1002,11 +1004,12 @@ function normalizeProductVariants(product, variants = []) {
     }
     return normalized;
   }
-  const fractionedIndustries = ['FARMACIA', 'FERRETERIA', 'VETERINARIA', 'NATURISTA', 'MINIMERCADO', 'PAPELERIA_MISCELANEA', 'GENERAL', 'PERSONALIZADO'];
+  const fractionedIndustries = ['FARMACIA', 'FERRETERIA', 'VETERINARIA', 'NATURISTA', 'MINIMERCADO', 'PAPELERIA_MISCELANEA', 'GENERAL', 'PERSONALIZADO', 'PANADERIA'];
   const isFractioned = fractionedIndustries.includes(businessType?.code) && ['FRACCIONADO', 'FRACCTIONED'].includes(product.sale_type);
   if (!isFractioned) return variants;
 
   const baseContent = Number(product.base_content_units);
+  if (businessType?.code === 'PANADERIA' && baseContent !== 1) throw new Error('Panadería controla el inventario en gramos, mililitros o unidades: el contenido base debe ser 1.');
   if (isPharmacy ? (!Number.isInteger(baseContent) || baseContent < 1) : (!Number.isFinite(baseContent) || baseContent <= 0)) {
     throw new Error(isPharmacy ? "Farmacia requiere un contenido base entero mayor o igual a 1." : "Ferretería requiere un contenido base mayor que 0.");
   }
@@ -1016,7 +1019,18 @@ function normalizeProductVariants(product, variants = []) {
     if (isPharmacy ? (!Number.isInteger(contentUnits) || contentUnits < 1) : (!Number.isFinite(contentUnits) || contentUnits <= 0)) {
       throw new Error(`La variante '${variant.name || 'sin nombre'}' requiere un contenido válido mayor que 0.`);
     }
-    const factor = contentUnits / baseContent;
+    let factor = contentUnits / baseContent;
+    if (businessType?.code === 'PANADERIA') {
+      const profile = db.prepare('SELECT unit FROM bakery_items WHERE product_id=?').get(product.id);
+      if (!profile) throw new Error('Clasifica primero el artículo de Panadería en Productos.');
+      const unit = variant.unit_id ? db.prepare('SELECT code FROM units_of_measure WHERE id=?').get(variant.unit_id)?.code : null;
+      const measures = { GRAMO: ['g',1], KILOGRAMO: ['g',1000], LIBRA: ['g',453.59237], MILILITRO: ['ml',1], LITRO: ['ml',1000], UNIDAD: ['unit',1], DOCENA: ['unit',12] };
+      if (unit && measures[unit]) {
+        if (measures[unit][0] !== profile.unit) throw new Error('La medida de la presentación no corresponde al artículo de Panadería.');
+        factor = contentUnits * measures[unit][1];
+      }
+      if (profile.unit === 'unit' && !Number.isInteger(factor)) throw new Error('Las presentaciones por unidades requieren cantidades enteras.');
+    }
     return {
       ...variant,
       content_units: contentUnits,
@@ -1054,7 +1068,7 @@ function adjustProductStock(productId, quantityDelta, options = {}) {
   if (stockAfter < 0) throw new Error("El stock no puede quedar negativo");
 
   db.prepare("UPDATE products SET stock = ? WHERE id = ?").run(stockAfter, productId);
-  db.prepare(`
+  const movementResult = db.prepare(`
     INSERT INTO inventory_movements
       (product_id, variant_id, movement_type, quantity, stock_before, stock_after, reference_type, reference_id, reason, user_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1070,7 +1084,8 @@ function adjustProductStock(productId, quantityDelta, options = {}) {
     options.reason || null,
     options.userId || null
   );
-  return { stockBefore, stockAfter };
+  const bakeryCost = bakery?.onStockChange(productId, Number(quantityDelta), options, movementResult.lastInsertRowid);
+  return { stockBefore, stockAfter, bakeryCost };
 }
 
 function addProduct(p) {
@@ -1122,6 +1137,14 @@ function addProduct(p) {
 
 function updateProduct(p) {
   try {
+    if (bakery?.enabled() && db.prepare('SELECT 1 FROM bakery_items WHERE product_id=?').get(p.id)) {
+      const previous = db.prepare('SELECT stock,purchase_price,base_unit_id FROM products WHERE id=?').get(p.id);
+      if (!Number.isFinite(Number(p.stock)) || !Number.isFinite(Number(p.purchase_price)) ||
+          Math.abs(Number(p.stock) - previous.stock) > 0.000001 || Math.abs(Number(p.purchase_price) - previous.purchase_price) > 0.000001 ||
+          Number(p.base_unit_id) !== Number(previous.base_unit_id)) {
+        throw new Error('Registra las entradas, salidas y costos desde Panadería para conservar los lotes y su historial.');
+      }
+    }
     const catId = ensureCategoryId(p.category);
     const variants = normalizeProductVariants(p, p.variants || []);
     const isClothing = db.prepare(`SELECT 1 FROM company_settings cs JOIN business_types bt ON bt.id = cs.business_type_id WHERE cs.id = 1 AND bt.code = 'ROPA'`).get();
@@ -1257,7 +1280,9 @@ function createSale({
   service_id = null,
   due_date = null,
   status = 'active',
-  notes = null
+  notes = null,
+  request_id = null,
+  bakery_actor_id = null
 }) {
   const insertSale = db.prepare(`
     INSERT INTO sales (
@@ -1293,6 +1318,13 @@ function createSale({
   const clothingInventory = db.prepare(`SELECT 1 FROM company_settings cs JOIN business_types bt ON bt.id = cs.business_type_id WHERE cs.id = 1 AND bt.code = 'ROPA'`).get();
 
   const trx = db.transaction((client_id, items, cash_payment, transfer_payment, transfer_reference, service_id, notes) => {
+    if (bakery?.enabled() && request_id) {
+      const previous = db.prepare('SELECT sale_id FROM bakery_sale_requests WHERE request_id=?').get(request_id);
+      if (previous) return previous.sale_id;
+    }
+    if (bakery?.enabled()) bakery.validateSale(items);
+    const reservedCosts = new Map();
+    if (bakery?.enabled()) for (const item of items) if (item.product_id && item.skip_stock) reservedCosts.set(item, bakery.reservedServiceCost(item, items));
     syncServiceCommercialItems(items, 'Finalizado');
     const formattedDate = new Date().toLocaleString('sv-SE'); // Genera YYYY-MM-DD HH:mm:ss local para compatibilidad
 
@@ -1392,19 +1424,23 @@ function createSale({
         }
       }
 
-      insertItem.run(
+      const saleItemResult = insertItem.run(
         saleId, it.product_id || null, it.product_name, prodCode, it.serial_number || null,
         it.quantity, it.price, it.subtotal, conversionFactor, it.variant_id || null, it.skip_stock ? 1 : 0, it.service_id || null, it.service_item_id || null
       );
 
       if (it.product_id && !it.skip_stock) {
-        adjustProductStock(it.product_id, -(it.quantity * conversionFactor), {
+        const movement = adjustProductStock(it.product_id, -(it.quantity * conversionFactor), {
           variantId: it.variant_id,
           movementType: "SALE",
           referenceType: "sale",
           referenceId: saleId,
+          userId: bakery_actor_id,
           reason: "Salida por venta"
         });
+        if (movement.bakeryCost != null) db.prepare('UPDATE sale_items SET bakery_cost_total=? WHERE id=?').run(movement.bakeryCost, saleItemResult.lastInsertRowid);
+      } else if (reservedCosts.has(it)) {
+        db.prepare('UPDATE sale_items SET bakery_cost_total=? WHERE id=?').run(reservedCosts.get(it), saleItemResult.lastInsertRowid);
       }
     }
 
@@ -1459,6 +1495,8 @@ function createSale({
     }
     // ---------------------------------------
 
+    bakery?.recordSale(saleId, false, bakery_actor_id);
+    if (bakery?.enabled() && request_id) db.prepare('INSERT INTO bakery_sale_requests(request_id,sale_id) VALUES (?,?)').run(request_id, saleId);
     return saleId;
   });
 
@@ -1491,6 +1529,7 @@ function createSaleFromQuote(data) {
 }
 
 function updateSale({ saleId, clientId, items, paymentAdjustment, userName, due_date, notes = null, sale_type = null, total_amount = null }) {
+    if (bakery?.enabled()) return { success: false, message: 'En Panadería anula la venta y registra la corrección para conservar sus costos históricos.' };
     const trx = db.transaction(() => {
         // 1. Get original sale and items
         const originalSale = db.prepare("SELECT * FROM sales WHERE id = ?").get(saleId);
@@ -1883,6 +1922,7 @@ function assignReceiptNumber(saleId) {
 }
 
 function deleteSale(id) {
+  if (bakery?.enabled()) return { success: false, message: 'En Panadería utiliza Anular venta; el historial de costos no se elimina.' };
   try {
     db.prepare("DELETE FROM sales WHERE id = ?").run(id); // ON DELETE CASCADE se encarga de items y pagos
     try {
@@ -1906,6 +1946,7 @@ function updateSaleNotes(id, notes) {
 }
 
 function deleteSaleItem(id) {
+  if (bakery?.enabled()) return { success: false, message: 'En Panadería anula y registra nuevamente la venta para conservar su trazabilidad.' };
   const item = db.prepare("SELECT * FROM sale_items WHERE id = ?").get(id);
   if (!item) return { success: false, message: "Item no encontrado" };
   const trx = db.transaction((itemId) => {
@@ -1931,7 +1972,7 @@ function deleteSaleItem(id) {
   }
 }
 
-function annulSale(id) {
+function annulSale(id, bakeryActorId = null) {
   try {
     const trx = db.transaction(() => {
       const sale = db.prepare("SELECT * FROM sales WHERE id = ?").get(id);
@@ -1944,13 +1985,16 @@ function annulSale(id) {
       for (const it of items) {
         if (it.product_id && !it.skip_stock) {
           let factor = 1;
-          if (it.variant_id) {
+          if (bakery?.enabled()) {
+            factor = Number(it.conversion_factor) || 1;
+          } else if (it.variant_id) {
             const v = getVariant.get(it.variant_id);
             if (v) factor = v.conversion_factor;
           }
           adjustProductStock(it.product_id, it.quantity * factor, {
             variantId: it.variant_id,
             movementType: "SALE_RETURN",
+            userId: bakeryActorId,
             referenceType: "sale",
             referenceId: id,
             reason: "Reverso por anulación de venta"
@@ -1970,6 +2014,7 @@ function annulSale(id) {
             notes = COALESCE(notes, '') || ' (Anulada el ' || datetime('now') || ')'
         WHERE id = ?
       `).run(id);
+      bakery?.recordSale(id, true, bakeryActorId);
       // Eliminar movimientos de caja asociados a esta venta para mantener consistencia en reportes
       try {
         db.prepare("DELETE FROM cash_movements WHERE related_id = ?").run(id);
@@ -2311,6 +2356,7 @@ function getProductFormConfig() {
     SERVICIOS: { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE', inventory: false, supplier: false, variants: false },
     GENERAL: { saleTypes: ['SIMPLE', 'FRACCIONADO'], defaultSaleType: 'SIMPLE', contentLabel: 'Contenido total base', contentHelp: 'Cantidad, peso, longitud o volumen de la presentación.' },
     PERSONALIZADO: { saleTypes: ['SIMPLE', 'FRACCIONADO'], defaultSaleType: 'SIMPLE', contentLabel: 'Contenido total base', contentHelp: 'Cantidad o medida de la presentación.' },
+    PANADERIA: { saleTypes: ['SIMPLE', 'FRACCIONADO'], defaultSaleType: 'SIMPLE', contentLabel: 'Medida base del inventario (siempre 1)', contentHelp: 'Contenido por presentación en la medida seleccionada. Recibe compras en Órdenes de Compra y registra elaborados en Recetas y producción.' },
   };
   const strategy = strategies[businessType?.code] || { saleTypes: ['SIMPLE'], defaultSaleType: 'SIMPLE' };
 
@@ -2357,6 +2403,7 @@ function getBusinessModuleConfig() {
       cashRegister: true,
       reports: true,
       support: true,
+      ...(code === 'PANADERIA' ? { production: true } : {}),
     },
     workflows: {
       inventory: true,
@@ -2513,6 +2560,7 @@ function saveExpense(expense) {
 }
 
 function updateExpense(expense) {
+  if (bakery?.enabled() && bakery.expenseIsAllocated(expense.id)) return { success: false, message: 'Este gasto está asignado a una producción confirmada y conserva su valor histórico.' };
   const current = getExpenseById(expense.id);
   if (!current) return { success: false, message: "Gasto no encontrado" };
   const update = db.prepare(`UPDATE expenses SET description = ?, amount = ?, category = ?, date = ?, method = ?, reference = ? WHERE id = ?`);
@@ -2531,6 +2579,7 @@ function updateExpense(expense) {
 }
 
 function deleteExpense(id) {
+  if (bakery?.enabled() && bakery.expenseIsAllocated(id)) return { success: false, message: 'No se elimina un gasto asignado a una producción confirmada.' };
   // Eliminar el gasto y cualquier movimiento de caja relacionado
   db.prepare("DELETE FROM expenses WHERE id = ?").run(id);
   try {
@@ -2564,6 +2613,7 @@ function getInventoryTotalValue() {
 }
 
 function getInventory() {
+  if (bakery?.enabled()) { const totalValue = getInventoryTotalValue(); return { products: getProducts().map(bakery.decorateProduct), totalValue, totalInventoryValue: totalValue }; }
   const products = db.prepare("SELECT * FROM products ORDER BY name").all();
   const totalValue = getInventoryTotalValue();
   return { products, totalValue };
@@ -2584,6 +2634,7 @@ function getInventoryMovements(productId, limit = 100) {
 }
 
 function getInventoryLots(productId) {
+  if (bakery?.enabled()) return db.prepare('SELECT l.*,p.name AS product_name,NULL AS variant_name FROM bakery_lots l JOIN products p ON p.id=l.product_id WHERE l.product_id=? ORDER BY l.expiration_date IS NULL,l.expiration_date,l.id').all(productId);
   return db.prepare(`
     SELECT il.*, p.name as product_name, pv.name as variant_name
     FROM inventory_lots il
@@ -2595,6 +2646,12 @@ function getInventoryLots(productId) {
 }
 
 function getExpirationAlerts(days = 30, status = 'all') {
+  if (bakery?.enabled()) {
+    const rows = db.prepare(`SELECT l.*,p.name AS product_name,p.code AS product_code,NULL AS variant_name,
+      CAST(julianday(l.expiration_date)-julianday(date('now','localtime')) AS INTEGER) AS days_remaining
+      FROM bakery_lots l JOIN products p ON p.id=l.product_id WHERE l.quantity>0 AND l.expiration_date IS NOT NULL ORDER BY l.expiration_date`).all();
+    return rows.filter(row => status === 'expired' ? row.days_remaining < 0 : status === 'expiring' ? row.days_remaining >= 0 && row.days_remaining <= Number(days) : row.days_remaining <= Number(days));
+  }
   const safeDays = Math.max(0, Math.min(Number(days) || 30, 3650));
   let condition = "il.expiration_date IS NOT NULL AND il.quantity > 0";
   if (status === 'expired') condition += " AND il.expiration_date < date('now', 'localtime')";
@@ -2638,7 +2695,7 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
 
     const itemsStmt = db.prepare(`
       SELECT si.product_name, si.quantity, si.price, si.subtotal, si.conversion_factor,
-             pv.purchase_price as variant_cost, p.purchase_price as base_cost
+             pv.purchase_price as variant_cost, p.purchase_price as base_cost, si.bakery_cost_total
       FROM sale_items si
       LEFT JOIN products p ON si.product_id = p.id
       LEFT JOIN product_variants pv ON si.variant_id = pv.id
@@ -2685,6 +2742,7 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
                      : (item.base_cost || 0) * (item.conversion_factor || 1);
                      
           const revenue = item.price * item.quantity;
+          if (bakery?.enabled() && item.bakery_cost_total != null) return profit + revenue - item.bakery_cost_total;
           return profit + (revenue - (cost * item.quantity));
         }, 0);
         
@@ -2762,6 +2820,10 @@ function getSalesReport({ startDate, endDate, reportType = "daily" }) {
 
 // ORDENES DE COMPRA (Purchase Orders)
 function createPurchaseOrder(data) {
+  if (bakery?.enabled()) {
+    try { data = { ...data, items: data.items.map(line => bakery.purchaseLine(line)) }; }
+    catch (error) { return { success: false, message: error.message }; }
+  }
   const insertPO = db.prepare("INSERT INTO purchase_orders (supplier_id, total_amount, notes, include_iva, due_date) VALUES (?, ?, ?, ?, ?)");
   const insertItem = db.prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
   const getProduct = db.prepare("SELECT id, code, name, purchase_price FROM products WHERE id = ?");
@@ -2777,7 +2839,8 @@ function createPurchaseOrder(data) {
       const price = (it.price != null) ? it.price : (prod ? prod.purchase_price : 0);
       const subtotal = price * it.quantity;
       total += subtotal;
-      insertItem.run(poId, it.product_id, prodName, prodCode, it.quantity, price, subtotal);
+      const inserted = insertItem.run(poId, it.product_id, prodName, prodCode, it.quantity, price, subtotal);
+      if (bakery?.enabled()) db.prepare('UPDATE purchase_order_items SET bakery_unit=?,bakery_lot_number=?,bakery_expiration_date=? WHERE id=?').run(it.bakery_unit, it.bakery_lot_number || null, it.bakery_expiration_date || null, inserted.lastInsertRowid);
     }
 
     // Calcular IVA si aplica
@@ -2821,7 +2884,7 @@ function getPurchaseOrderById(id) {
   return order;
 }
 
-function receivePurchaseOrder(orderId) {
+function receivePurchaseOrder(orderId, bakeryOptions = {}) {
   const getOrder = db.prepare("SELECT * FROM purchase_orders WHERE id = ?");
   const getOrderItems = db.prepare("SELECT * FROM purchase_order_items WHERE purchase_order_id = ?");
   
@@ -2837,17 +2900,25 @@ function receivePurchaseOrder(orderId) {
     if (!order) {
       throw new Error("Orden de compra no encontrada.");
     }
+    if (bakery?.enabled() && order.status === 'completed') return { success: true, message: 'La compra ya fue recibida; no se duplicaron existencias.' };
     if (order.status !== 'pending') {
       throw new Error("La orden de compra ya ha sido procesada.");
     }
 
     const items = getOrderItems.all(id);
-    for (const item of items) {
-      adjustProductStock(item.product_id, item.quantity, {
+    const bakeryDocumentId = bakery?.enabled() ? (bakeryOptions.bakeryDocument || bakery.purchaseDocument(order, items, bakeryOptions.userId)) : null;
+    for (const [itemIndex, item] of items.entries()) {
+      const factor = bakery?.enabled() ? require('./bakery').UNITS[item.bakery_unit || db.prepare('SELECT unit FROM bakery_items WHERE product_id=?').get(item.product_id)?.unit]?.[1] : 1;
+      if (!factor) throw new Error('Unidad de recepción inválida.');
+      adjustProductStock(item.product_id, item.quantity * factor, {
         movementType: "PURCHASE",
         referenceType: "purchase_order",
         referenceId: id,
-        reason: "Entrada por recepción de compra"
+        reason: "Entrada por recepción de compra",
+        bakeryUnitCost: item.price / factor,
+        bakeryDocument: bakeryDocumentId,
+        userId: bakeryOptions.userId,
+        bakeryLot: bakeryOptions.bakeryLots?.[itemIndex] || { lot_number: item.bakery_lot_number, expiration_date: item.bakery_expiration_date }
       });
     }
 
@@ -2863,6 +2934,7 @@ function receivePurchaseOrder(orderId) {
 }
 
 function deletePurchaseOrder(id) {
+  if (bakery?.enabled() && db.prepare('SELECT status FROM purchase_orders WHERE id=?').get(id)?.status !== 'pending') return { success: false, message: 'Una compra recibida de Panadería conserva su historial. Utiliza Anular recepción en esta orden cuando sus lotes sigan completos y no existan pagos.' };
   try {
     const trx = db.transaction((orderId) => {
       // Eliminar pagos asociados primero para evitar error de Foreign Key
@@ -2878,6 +2950,8 @@ function deletePurchaseOrder(id) {
 }
 
 function updatePurchaseOrder({ id, supplier_id, order_date, items = [], notes = null, include_iva = false, due_date = null }) {
+    if (bakery?.enabled()) { try { items = items.map(line => bakery.purchaseLine(line)); } catch (error) { return { success: false, message: error.message }; } }
+    if (bakery?.enabled() && db.prepare('SELECT status FROM purchase_orders WHERE id=?').get(id)?.status !== 'pending') return { success: false, message: 'No se cambia una compra ya recibida de Panadería. Sus lotes y costos históricos deben conservarse.' };
     const updatePO = db.prepare("UPDATE purchase_orders SET supplier_id = ?, order_date = ?, total_amount = ?, notes = ?, include_iva = ?, due_date = ? WHERE id = ?");
     const deleteItems = db.prepare("DELETE FROM purchase_order_items WHERE purchase_order_id = ?");
     const insertItem = db.prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, product_name, product_code, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)");
@@ -2899,7 +2973,8 @@ function updatePurchaseOrder({ id, supplier_id, order_date, items = [], notes = 
             const prod = getProduct.get(it.product_id);
             const prodName = prod ? prod.name : "Producto no encontrado";
             const prodCode = prod ? prod.code : "";
-            insertItem.run(id, it.product_id, prodName, prodCode, it.quantity, it.price, it.subtotal);
+            const inserted = insertItem.run(id, it.product_id, prodName, prodCode, it.quantity, it.price, it.subtotal);
+            if (bakery?.enabled()) db.prepare('UPDATE purchase_order_items SET bakery_unit=?,bakery_lot_number=?,bakery_expiration_date=? WHERE id=?').run(it.bakery_unit, it.bakery_lot_number || null, it.bakery_expiration_date || null, inserted.lastInsertRowid);
         }
         return id;
     });
@@ -3467,7 +3542,10 @@ function deleteUser(id) {
   } catch (e) { return { success: false, message: String(e) }; }
 }
 
+bakery = createBakery({ db, addProduct, updateProduct, saveProductAttributes, ensureCategoryId, adjustStock: adjustProductStock, createPurchaseOrder, receivePurchaseOrder, saveExpense });
+
 module.exports = {
+  bakery,
   db, 
   // clientes
   getClients, getClientById, saveClient, updateClient, deleteClient,

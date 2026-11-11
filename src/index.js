@@ -20,6 +20,7 @@
   // Handle creating/removing shortcuts on Windows when installing/uninstalling.
   if (require('electron-squirrel-startup')) app.quit();
   const db = isRemoteStation ? null : require("./database");
+  const { localDateKey, getDailyGrossProfit } = require('./dashboardFinancials');
   const licensing = require("./licensing");
   const licenseDirectory = () => process.env.GESTORFX_DATABASE_PATH ? path.dirname(process.env.GESTORFX_DATABASE_PATH) : app.getPath("userData");
   const PDFDocument = require("pdfkit");
@@ -230,8 +231,37 @@
   // Keep one operation registry so the same business handlers can be reached
   // through Electron IPC locally and through the LAN API on the host machine.
   function registerIpcHandler(channel, handler) {
-    apiHandlers.set(channel, handler);
-    ipcMain.handle(channel, handler);
+    const guarded = async (event, ...args) => {
+      const actor = authenticatedRenderers.get(event.sender.id);
+      db?.bakery.authorizeChannel(channel, actor);
+      if (db?.bakery.enabled() && actor && ['add-product','update-product'].includes(channel)) {
+        try { return db.bakery.saveProduct(args[0], actor); }
+        catch (error) { return { success: false, message: error.message }; }
+      }
+      if (db?.bakery.enabled() && actor && ['create-sale','create-sale-from-quote'].includes(channel) && args[0]) args[0] = { ...args[0], bakery_actor_id: actor.id };
+      const result = await handler(event, ...args);
+      if (db?.bakery.enabled() && actor && ['get-products', 'get-product-by-id', 'get-inventory'].includes(channel)) {
+        const access = db.bakery.access(actor);
+        const profiles = db.db.prepare('SELECT * FROM bakery_items').all();
+        const redact = product => {
+          if (!product) return product;
+          const profile = profiles.find(row => row.product_id === product.id);
+          const row = { ...db.bakery.decorateProduct(product), bakery_retail_allowed: Boolean(profile?.retail_allowed) };
+          if (!access.admin && !access.permissions.some(area => ['inventory', 'reports'].includes(area))) {
+            delete row.purchase_price;
+            row.variants = (row.variants || []).map(variant => { const copy = { ...variant }; delete copy.purchase_price; return copy; });
+          }
+          return row;
+        };
+        return channel === 'get-inventory' ? { ...result, products: result.products.map(redact) } : Array.isArray(result) ? result.map(redact) : redact(result);
+      }
+      if (channel === 'get-business-module-config' && result?.businessType?.code === 'PANADERIA' && actor) {
+        return db.bakery.moduleConfig(result, actor);
+      }
+      return result;
+    };
+    apiHandlers.set(channel, guarded);
+    ipcMain.handle(channel, guarded);
   }
 
   function startLanApi() {
@@ -414,7 +444,18 @@
 
   function registerIpcHandlers() {
       // Autenticación
+      registerIpcHandler('bakery', (event, { action, data = {} }) => {
+        const actor = requireAuthenticated(event);
+        try { return db.bakery.run(action, data, actor); }
+        catch (error) { return { success: false, message: error.message }; }
+      });
+      registerIpcHandler('logout', event => {
+        authenticatedRenderers.delete(event.sender.id);
+        for (const [token, session] of apiSessions) if (session.senderId === event.sender.id) apiSessions.delete(token);
+        return { success: true };
+      });
       registerIpcHandler("login", async (event, creds) => {
+        authenticatedRenderers.delete(event.sender.id);
         const { username, password } = creds;
         const now = Date.now();
         
@@ -429,6 +470,11 @@
         const res = db.login(username, password);
 
         if (res.success) {
+          if (db.bakery.enabled()) {
+            const access = db.bakery.access(res.user);
+            res.user.industry = 'PANADERIA';
+            res.user.bakery_permissions = access.permissions;
+          }
           loginAttempts.delete(username); // Resetear intentos al entrar
           authenticatedRenderers.set(event.sender.id, res.user);
         } else {
@@ -480,8 +526,8 @@
       registerIpcHandler("get-sale-by-id", (event, id) => db.getSaleById(id));
       registerIpcHandler("get-sale-items", (event, id) => db.getSaleItems(id));
       registerIpcHandler("annul-sale", (event, id) => {
-        requireAuthenticated(event, ['admin']);
-        const res = db.annulSale(id);
+        const actor = requireAuthenticated(event, ['admin']);
+        const res = db.annulSale(id, actor.id);
         try { if (mainWindow) {
           const s = cashRegister.getActiveSession();
           mainWindow.webContents.send('cash-data-updated', { type: 'sale_annulled', id, sessionId: s ? s.id : null });
@@ -804,8 +850,8 @@
       registerIpcHandler("export-purchase-order-pdf", (event, id) => exportPurchaseOrderPDF(id));
       registerIpcHandler("get-purchase-orders-count", () => db.getPurchaseOrders().length);
       registerIpcHandler("receive-purchase-order", (event, id) => {
-        requireAuthenticated(event);
-        return db.receivePurchaseOrder(id);
+        const actor = requireAuthenticated(event);
+        return db.receivePurchaseOrder(id, { userId: actor.id });
       });
       
       // --- GESTIÓN DE PAGOS A PROVEEDORES ---
@@ -1213,7 +1259,7 @@
           // Si no llegan fechas, usar mes actual por defecto
           const start = startDate || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
           const end = endDate || new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-          const today = now.toISOString().slice(0, 10);
+          const today = localDateKey(now);
           
           // 1. Ventas Hoy
           const salesToday = db.db.prepare("SELECT SUM(total_amount) as total FROM sales WHERE date(sale_date) = ?").get(today);
@@ -1221,7 +1267,7 @@
           // 2. Ventas Ayer (Para variación)
           const yesterday = new Date(now);
           yesterday.setDate(yesterday.getDate() - 1);
-          const salesYesterday = db.db.prepare("SELECT SUM(total_amount) as total FROM sales WHERE date(sale_date) = ?").get(yesterday.toISOString().slice(0, 10));
+          const salesYesterday = db.db.prepare("SELECT SUM(total_amount) as total FROM sales WHERE date(sale_date) = ?").get(localDateKey(yesterday));
 
           // 3. Top 5 Productos (Mes Actual)
           const topProducts = db.db.prepare(`
@@ -1311,6 +1357,7 @@
             financials: {
               income,
               expenses,
+              grossProfitToday: getDailyGrossProfit(db.db, { day: today, historicalCosts: db.bakery.enabled() }),
               netProfit: income - totalCost // Ahora muestra Utilidad Bruta (Ventas - Costos)
             },
             alerts: {

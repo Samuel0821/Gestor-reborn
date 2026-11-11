@@ -1,7 +1,7 @@
 {
   "name": "gestorfx",
   "productName": "GestorFX",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "GestorFX: Sistema Integral Para Gestionar Inventarios y Puntos De Ventas.",
   "authors": [
     "Grisalis Technologies"
@@ -12,7 +12,9 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "make:windows": "electron-forge make --platform win32",
-    "postinstall": "electron-rebuild"
+    "postinstall": "electron-rebuild",
+    "test:bakery": "node scripts/run-bakery-tests.cjs",
+    "test:bakery:ui": "node scripts/run-bakery-ui.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",

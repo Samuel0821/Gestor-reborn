@@ -66,6 +66,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const nameInput = document.getElementById('service-name');
   const itemsTable = document.getElementById('service-items-table');
   const descInput = document.getElementById('service-desc');
+  const userStorageKey = name => localStorage.getItem('business_industry') === 'PANADERIA' ? `${name}:${localStorage.getItem('user_id')}` : name;
   
   const productSearch = document.getElementById('product-search');
   const productDatalist = document.getElementById('products-list');
@@ -859,6 +860,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // 2. Los materiales
       service.products.forEach(p => {
         cartItems.push({
+          service_id: service.id,
           product_id: p.product_id,
           product_code: p.code,
           product_name: p.variant_name ? `${p.name} (${p.variant_name})` : p.name,
@@ -877,11 +879,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Recuperar carrito actual si existe para no sobreescribir? 
       // El usuario pidió "generar ese servicio como venta", asumimos venta nueva o añadir.
       // Vamos a AÑADIR al carrito existente.
-      const existingCart = JSON.parse(sessionStorage.getItem('shoppingCart') || "[]");
+      const existingCart = JSON.parse(sessionStorage.getItem(userStorageKey('shoppingCart')) || "[]");
       const newCart = existingCart.concat(cartItems);
       
-      sessionStorage.setItem('shoppingCart', JSON.stringify(newCart));
-      sessionStorage.setItem('serviceSaleContext', JSON.stringify({ client_id: service.client_id }));
+      sessionStorage.setItem(userStorageKey('shoppingCart'), JSON.stringify(newCart));
+      sessionStorage.setItem(userStorageKey('serviceSaleContext'), JSON.stringify({ client_id: service.client_id }));
       window.location.href = "sales.html";
     }));
 
@@ -895,6 +897,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // 2. Los materiales
       service.products.forEach(p => {
         cartItems.push({
+          service_id: service.id,
           product_id: p.product_id,
           product_code: p.code,
           product_name: p.variant_name ? `${p.name} (${p.variant_name})` : p.name,
@@ -910,11 +913,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       // AÑADIR al carrito de cotización existente en lugar de sobreescribir
-      const existingQuoteCart = JSON.parse(sessionStorage.getItem('quoteCart') || "[]");
+      const existingQuoteCart = JSON.parse(sessionStorage.getItem(userStorageKey('quoteCart')) || "[]");
       const newQuoteCart = existingQuoteCart.concat(cartItems);
       
-      sessionStorage.setItem('quoteCart', JSON.stringify(newQuoteCart));
-      sessionStorage.setItem('serviceQuoteContext', JSON.stringify({ client_id: service.client_id }));
+      sessionStorage.setItem(userStorageKey('quoteCart'), JSON.stringify(newQuoteCart));
+      sessionStorage.setItem(userStorageKey('serviceQuoteContext'), JSON.stringify({ client_id: service.client_id }));
       window.location.href = "quotes.html";
     }));
   }

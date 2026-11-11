@@ -203,6 +203,8 @@ GestorFX cuenta con un módulo de ayuda integrado.
 
 ## Preguntas Frecuentes (FAQ)
 
+Para la industria **Panadería**, consulta [Manual de Panadería](MANUAL_PANADERIA.md): activación, usuarios por área, materias primas, medidas, recetas, producción, lotes, ventas y resultados. El administrador general puede operar todo desde un solo computador; las estaciones utilizan el mismo servicio de la red local.
+
 **¿Cómo cierro la caja?**
 El sistema realiza el cierre lógico al generar el reporte del día. Asegúrese de que el "Total en Efectivo" del reporte coincida con el dinero físico en su cajón (Valor Inicial + Ventas en Efectivo - Gastos).
 

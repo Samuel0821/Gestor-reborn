@@ -7,7 +7,21 @@ const localOnlyChannels = new Set(["select-file", "get-printers", "preview-invoi
 try { remoteToken = sessionStorage.getItem("gestorfx_api_session"); } catch (_) {}
 
 async function invoke(channel, ...args) {
-  if (!apiUrl || localOnlyChannels.has(channel)) return ipcRenderer.invoke(channel, ...args);
+  let requestKey = null;
+  if (localStorage.getItem('business_industry') === 'PANADERIA' && ['create-sale', 'create-sale-from-quote'].includes(channel) && args[0]) {
+    requestKey = `bakery:sale-request:${apiUrl}:${localStorage.getItem('user_id')}:${channel}`;
+    const signature = JSON.stringify(args[0]);
+    let pending = null;
+    try { pending = JSON.parse(sessionStorage.getItem(requestKey)); } catch (_) {}
+    if (!pending || pending.signature !== signature) pending = { signature, id: crypto.randomUUID() };
+    sessionStorage.setItem(requestKey, JSON.stringify(pending));
+    args[0] = { ...args[0], request_id: pending.id };
+  }
+  if (!apiUrl || localOnlyChannels.has(channel)) {
+    const result = await ipcRenderer.invoke(channel, ...args);
+    if (requestKey && result?.success) sessionStorage.removeItem(requestKey);
+    return result;
+  }
   if (channel === "update-company-settings" && args[0] && args[0].logo_path && !/^data:image\//i.test(args[0].logo_path)) {
     const upload = await ipcRenderer.invoke("read-file-for-upload", args[0].logo_path);
     args[0] = { ...args[0], logo_upload: upload };
@@ -42,10 +56,17 @@ async function invoke(channel, ...args) {
     } catch (_) {}
     return payload.result;
   }
+  if (requestKey && payload.result?.success) sessionStorage.removeItem(requestKey);
+  if (channel === 'logout') {
+    remoteToken = null;
+    sessionStorage.removeItem('gestorfx_api_session');
+  }
   return payload.result;
 }
 
 contextBridge.exposeInMainWorld("api", {
+  bakery: (action, data = {}) => invoke('bakery', { action, data }),
+  logout: () => invoke('logout'),
   exportLowStockPDF: () => invoke("export-low-stock-pdf"),
   getLowStockProducts: () => invoke("get-low-stock-products"),
   approveQuote: (quoteId) => invoke("approve-quote", quoteId),

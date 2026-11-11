@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Recetas y producción - GestorFX</title>
+  <link rel="stylesheet" href="../../node_modules/bootstrap/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../production.css">
+  <script src="../../node_modules/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script defer src="../js/bakeryUnits.js"></script>
+  <script defer src="../js/production.js"></script>
+  <script src="../js/layout.js"></script>
+</head>
+<body>
+<main class="container production-page py-4">
+  <header class="production-heading">
+    <div><h1>Recetas y producción</h1><p class="text-muted mb-0">Guarda la preparación y registra las cantidades realmente fabricadas.</p></div>
+    <a href="products.html?new=raw" class="btn btn-outline-primary">Registrar materia prima en Productos</a>
+  </header>
+  <div id="production-message" class="alert d-none" role="status" aria-live="polite" tabindex="-1"></div>
+  <ul class="nav nav-tabs mb-4" role="tablist" aria-label="Recetas y producción">
+    <li class="nav-item" role="presentation"><button id="tab-recipe" type="button" role="tab" aria-controls="panel-recipe" aria-selected="true" class="nav-link active"><i class="fa fa-book-open me-2" aria-hidden="true"></i>Registrar receta</button></li>
+    <li class="nav-item" role="presentation"><button id="tab-batch" type="button" role="tab" aria-controls="panel-batch" aria-selected="false" tabindex="-1" class="nav-link"><i class="fa fa-bread-slice me-2" aria-hidden="true"></i>Crear producción</button></li>
+  </ul>
+
+  <section id="panel-recipe" role="tabpanel" aria-labelledby="tab-recipe">
+    <div class="sale-barcode-box production-explainer"><strong>La receta es tu fórmula de preparación.</strong><span>Guardarla crea el producto con existencia cero, si aún no existe. La materia prima se descuenta cuando confirmas una producción.</span></div>
+    <form id="recipe-form" class="card p-4 mb-4 sale-capture-card production-sheet">
+      <div class="sale-section-heading production-section-title"><div><h2>Registrar receta</h2><p>Guarda la preparación y las materias primas como referencia.</p></div><span id="recipe-edit-state" class="sale-shortcut">Nueva receta</span></div>
+      <div class="row g-3">
+        <div class="col-md-6"><label for="recipe-product" class="form-label">Producto del inventario</label><select id="recipe-product" class="form-select"><option value="">Crear un producto nuevo</option></select><div class="form-text">Selecciona uno existente para no duplicarlo.</div></div>
+        <div class="col-md-6"><label for="recipe-name" class="form-label">Nombre del producto / receta</label><input id="recipe-name" class="form-control" placeholder="Ej. PAN BOLA PIÑA" required></div>
+        <div class="col-12"><label for="recipe-description" class="form-label">Descripción y preparación</label><textarea id="recipe-description" class="form-control" rows="3" placeholder="Explica la mezcla, el amasado, el reposo y la cocción." required></textarea></div>
+        <div class="col-md-3"><label for="recipe-unit" class="form-label">Medida del producto</label><select id="recipe-unit" class="form-select"></select></div>
+        <div class="col-md-9 production-inline-help">Las cantidades consumidas y fabricadas las registra el responsable en Crear producción.</div>
+      </div>
+      <div class="sale-section-heading production-section-title mt-4"><div><h3>Materias primas de la receta</h3><p>Selecciona los ingredientes. Puedes anotar cantidades de referencia, si lo deseas.</p></div><button type="button" class="btn btn-outline-primary add-line" data-target="recipe-inputs">+ Agregar materia prima</button></div>
+      <table class="production-lines"><tbody id="recipe-inputs"></tbody></table>
+      <div class="production-form-actions"><span>Guardar la receta no mueve las existencias.</span><div><button id="new-recipe" type="button" class="btn btn-outline-secondary">Limpiar formulario</button><button id="save-recipe" type="submit" class="btn btn-primary sale-add-button">Guardar receta</button></div></div>
+    </form>
+    <section class="card p-4 mb-4 sale-items-card production-sheet" aria-labelledby="recipe-list-title">
+      <div class="sale-section-heading production-section-title"><div><h2 id="recipe-list-title">Recetas registradas</h2><p>Consulta una preparación o úsala para iniciar una producción.</p></div><label class="production-search">Buscar receta<input id="recipe-search" type="search" class="form-control" placeholder="Nombre del producto"></label></div>
+      <div id="recipe-list" class="table-responsive"></div>
+    </section>
+  </section>
+
+  <section id="panel-batch" role="tabpanel" aria-labelledby="tab-batch" hidden>
+    <div class="sale-barcode-box production-explainer"><strong>La producción registra lo que fabricaste de verdad.</strong><span>Indica las materias primas consumidas y las unidades buenas obtenidas. Solo estas últimas se suman al inventario.</span></div>
+    <section class="card p-4 mb-4 sale-capture-card production-sheet production-source">
+      <div><label for="recipe-select" class="form-label">Empezar desde una receta</label><select id="recipe-select" class="form-select"></select></div>
+      <button id="apply-recipe" type="button" class="btn btn-primary">Cargar receta</button>
+      <button id="new-production" type="button" class="btn btn-outline-secondary">Producción desde cero</button>
+    </section>
+    <details id="production-recipe-reference" class="sale-barcode-box production-explainer mt-3" hidden><summary>Ver preparación de la receta</summary><p id="production-recipe-instructions" style="white-space:pre-wrap"></p></details>
+    <form id="bakery-production-form" class="card p-4 mb-4 sale-items-card production-sheet">
+      <div class="sale-section-heading production-section-title"><div><h2>Crear producción</h2><p id="production-status">Sin movimientos de inventario hasta confirmar.</p></div><span class="sale-shortcut" id="production-source-label">Desde cero</span></div>
+      <div class="production-step"><span>1</span><div><h3>Identifica la producción</h3><p>Un nombre para reconocer la preparación o el turno.</p></div></div>
+      <div class="row g-3 mb-4"><div class="col-md-8"><label for="production-name" class="form-label">Nombre de la producción</label><input id="production-name" class="form-control" placeholder="Ej. PAN BOLA PIÑA · turno de la mañana" required></div><div class="col-md-4"><label for="production-date" class="form-label">Fecha</label><input id="production-date" type="date" class="form-control" required></div></div>
+      <div class="production-step"><span>2</span><div><h3>Materias primas utilizadas</h3><p>Registra lo que consumiste en esta producción: harina, leche, azúcar, rellenos o bolsas si las controlas en inventario.</p></div></div>
+      <table class="production-lines"><tbody id="production-inputs"></tbody></table>
+      <button type="button" class="btn btn-outline-primary add-line" data-target="production-inputs">+ Agregar materia prima</button>
+      <div class="production-step mt-4"><span>3</span><div><h3>Productos elaborados</h3><p>Las unidades buenas quedan disponibles para vender. El desperdicio se registra aparte y no aumenta las existencias.</p></div></div>
+      <table class="production-lines"><tbody id="production-outputs"></tbody></table>
+      <button type="button" class="btn btn-outline-primary add-line" data-target="production-outputs">+ Agregar producto elaborado</button>
+      <div class="mt-4"><label for="production-notes" class="form-label">Observaciones y motivo del desperdicio</label><textarea id="production-notes" class="form-control" rows="2" placeholder="Si hubo desperdicio, explica qué ocurrió."></textarea></div>
+      <div id="legacy-production-costs" class="production-legacy mt-3" hidden></div>
+      <div class="sale-checkout-panel production-review"><div><strong id="production-summary">Completa la producción</strong><span>Revisa las cantidades antes de confirmar. Los servicios públicos y la mano de obra se registran en Gastos.</span></div></div>
+      <div class="production-form-actions"><div><button type="submit" class="btn btn-outline-primary">Guardar borrador</button><button id="discard-production" type="button" class="btn btn-outline-secondary">Limpiar formulario</button></div><button id="confirm-production" type="button" class="btn btn-success px-4 sale-finalize-button">Confirmar producción</button></div>
+    </form>
+    <section class="card p-4 mb-4 sale-items-card production-sheet" aria-labelledby="production-history-title">
+      <div class="sale-section-heading production-section-title"><div><h2 id="production-history-title">Historial de producción</h2><p>Consulta lo fabricado o continúa un borrador pendiente.</p></div></div>
+      <form id="production-history-form" class="production-history-filter"><div><label for="production-history-start" class="form-label">Desde</label><input id="production-history-start" type="date" class="form-control" required></div><div><label for="production-history-end" class="form-label">Hasta</label><input id="production-history-end" type="date" class="form-control" required></div><button class="btn btn-outline-primary">Consultar historial</button><button id="production-history-more" type="button" class="btn btn-outline-secondary" hidden>Cargar más</button></form>
+      <div id="bakery-productions" class="table-responsive"></div><div id="bakery-production-detail" class="mt-3" aria-live="polite"></div>
+    </section>
+  </section>
+</main>
+</body>
+</html>

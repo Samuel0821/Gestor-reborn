@@ -264,6 +264,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     cancelButtonText: 'Cancelar'
                   });
                   if (result.isConfirmed) {
+                      try { await window.api.logout(); } catch (_) { /* Local sign-out must work without the server. */ }
+                      sessionStorage.removeItem('gestorfx_api_session');
                     ['user_id', 'user_role', 'user_name', 'logueado', 'valor_inicial_dia'].forEach(k => localStorage.removeItem(k));
                     window.location.href = 'login.html';
                   }

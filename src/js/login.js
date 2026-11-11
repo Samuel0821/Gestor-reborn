@@ -71,11 +71,16 @@ document.addEventListener('DOMContentLoaded', () => {
       localStorage.setItem('user_id', res.user.id);
       localStorage.setItem('user_role', res.user.role);
       localStorage.setItem('user_name', res.user.name || res.user.username);
+      localStorage.setItem('business_industry', res.user.industry || '');
       
       // Marcar como logueado y redirigir directamente al módulo de caja
       // El valor inicial ahora se gestiona exclusivamente en cash_register.html
       localStorage.setItem('logueado', 'true');
-      window.location.href = 'cash_register.html';
+      if (res.user.industry === 'PANADERIA') {
+        const access = await window.api.bakery('access');
+        const areas = access.permissions || [];
+        window.location.href = access.admin ? 'index.html' : areas.includes('production') ? 'production.html' : areas.includes('inventory') ? 'products.html' : areas.includes('sales') ? 'sales.html' : areas.includes('reports') ? 'reports.html' : 'support.html';
+      } else window.location.href = 'cash_register.html';
     } else {
       alertMsg.textContent = res.message || 'Usuario o contraseña incorrectos.';
       alertBox.classList.remove('d-none');

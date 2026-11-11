@@ -1,4 +1,6 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    const bakeryConfig=await window.api.getBusinessModuleConfig().catch(()=>({}));
+    const isBakery=bakeryConfig.businessType?.code==='PANADERIA';
     // Layout manejado por layout.js
     const role = localStorage.getItem('user_role');
 
@@ -25,6 +27,8 @@ document.addEventListener('DOMContentLoaded', () => {
         reportFormCard.parentNode.insertBefore(navDiv, reportFormCard);
     }
 
+    let btnBakery=null;
+    if(isBakery){btnBakery=document.createElement('button');btnBakery.className='btn btn-outline-primary';btnBakery.id='btn-rep-production';btnBakery.textContent='Producción y utilidad';navDiv.prepend(btnBakery);}
     let activeTab = 'sales'; // 'sales', 'expenses', 'audit', 'retentions'
 
     // Manejadores de eventos para las pestañas
@@ -35,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function setActiveTab(tab, btn) {
         activeTab = tab;
-        [btnSales, btnExpenses, btnAudit, btnRetentions].forEach(b => {
+        [btnSales, btnExpenses, btnAudit, btnRetentions, btnBakery].forEach(b => {
             if(b) {
                 b.classList.remove('btn-primary', 'active');
                 b.classList.add('btn-outline-primary');
@@ -45,12 +49,14 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.classList.add('btn-primary', 'active');
         
         // Ocultar selector de tipo de reporte si no es ventas (opcional, pero mejora UX)
-        if (tab === 'sales') {
+        if (tab === 'sales' || tab === 'production') {
             if(reportTypeSelect) reportTypeSelect.parentElement.style.display = 'block';
         } else {
             if(reportTypeSelect) reportTypeSelect.parentElement.style.display = 'none';
         }
         
+        reportTypeSelect.querySelector('option[value="fortnight"]')?.remove();
+        if(tab==='production')reportTypeSelect.insertAdjacentHTML('beforeend','<option value="fortnight">Quincenal</option>');
         // Limpiar contenedor
         container.innerHTML = '<div class="text-center text-muted mt-5">Seleccione un rango de fechas y haga clic en "Generar Reporte"</div>';
     }
@@ -60,6 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnRetentions.addEventListener('click', () => setActiveTab('retentions', btnRetentions));
     if(btnAudit) btnAudit.addEventListener('click', () => setActiveTab('audit', btnAudit));
 
+    if(btnBakery){btnBakery.onclick=()=>setActiveTab('production',btnBakery);setActiveTab('production',btnBakery);}
     let currentSalesReport = [];
 
     function formatCOP(value) {
@@ -72,7 +79,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function loadReport(startDate, endDate, reportType) {
-        if (activeTab === 'sales') {
+        if(activeTab==='production') {
+            try { const report=await window.api.bakery('report',{start:startDate,end:endDate,period:reportType});window.BakeryReports.show(report,startDate,endDate); }
+            catch(error){Swal.fire('Error',error.message,'error');}
+        } else if (activeTab === 'sales') {
             await loadSalesReport(startDate, endDate, reportType);
         } else if (activeTab === 'expenses') {
             await loadExpensesReport(startDate, endDate);

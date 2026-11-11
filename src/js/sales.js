@@ -8,9 +8,10 @@ let editingSaleId = null;
 let currentCreditOffset = 0;
 const CREDITS_LIMIT = 10;
 let loadMoreCreditsBtn;
+const saleCartKey = () => localStorage.getItem('business_industry') === 'PANADERIA' ? `shoppingCart:${localStorage.getItem('user_id')}` : 'shoppingCart';
 
 function saveCart() {
-  sessionStorage.setItem('shoppingCart', JSON.stringify(saleItems));
+  sessionStorage.setItem(saleCartKey(), JSON.stringify(saleItems));
 }
 
 function formatCOP(value) {
@@ -187,7 +188,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   // Cargar carrito desde sessionStorage DESPUÉS de cargar productos para poder enriquecer los datos
-  const savedCart = sessionStorage.getItem('shoppingCart');
+  const savedCart = sessionStorage.getItem(saleCartKey());
   if (savedCart) {
     try {
       const parsedCart = JSON.parse(savedCart);
@@ -202,11 +203,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
     } catch (e) {
       console.error("Error al cargar el carrito guardado:", e);
-      sessionStorage.removeItem('shoppingCart');
+      sessionStorage.removeItem(saleCartKey());
     }
   }
 
-  const serviceSaleContext = sessionStorage.getItem('serviceSaleContext');
+  const serviceContextKey = localStorage.getItem('business_industry') === 'PANADERIA' ? `serviceSaleContext:${localStorage.getItem('user_id')}` : 'serviceSaleContext';
+  const serviceSaleContext = sessionStorage.getItem(serviceContextKey);
   if (serviceSaleContext) {
     const context = JSON.parse(serviceSaleContext);
     if (context.client_id) {
@@ -215,7 +217,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       clientHiddenIdInput.value = context.client_id;
       clientInput.value = client ? `${client.name} (${client.id_card_or_nit})` : '';
     }
-    sessionStorage.removeItem('serviceSaleContext');
+    sessionStorage.removeItem(serviceContextKey);
     bootstrap.Tab.getOrCreateInstance(document.getElementById('quick-sale-tab')).show();
   }
 
@@ -261,6 +263,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   async function loadProducts() {
     allProducts = await window.api.getProducts();
+    allProducts = allProducts.filter(product => product.bakery_retail_allowed !== false);
     productFormConfig = await window.api.getProductFormConfig();
 
     productDatalist.innerHTML = "";

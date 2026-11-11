@@ -146,8 +146,8 @@ function renderKPIs(stats) {
         trendEl.innerHTML = `<i class="fa ${trendIcon} me-1"></i> ${Math.abs(trendPercent).toFixed(1)}% vs ayer`;
     }
 
-    // Utilidad Neta
-    updateKpi('kpi-net-profit', stats.financials.netProfit, true);
+    // Utilidad bruta del día, independiente del rango de los gráficos.
+    updateKpi('kpi-net-profit', stats.financials.grossProfitToday, true);
 
     // Alertas
     const totalAlerts = (stats.alerts.lowStock || 0) + (stats.alerts.pendingOrders || 0) + (stats.alerts.expiration || 0);

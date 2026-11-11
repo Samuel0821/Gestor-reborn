@@ -1,0 +1,57 @@
+/* Layout only: visual tokens, cards, buttons and tables come from styles.css, as in Sales. */
+.production-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:24px; }
+.production-heading > a { flex-shrink:0; }
+.production-explainer { display:flex; flex-direction:column; gap:4px; margin-bottom:24px; }
+details.production-explainer { display:block; }
+.production-explainer summary { cursor:pointer; }
+.production-section-title { align-items:center; }
+.production-section-title h2 { font-size:1.25rem; margin:0 0 .25rem; }
+.production-section-title h3, .production-step h3 { font-size:1.1rem; margin:0 0 .25rem; }
+.production-section-title p, .production-step p { color:var(--muted-text); margin:0; }
+.production-inline-help { display:flex; align-items:center; color:var(--muted-text); flex-wrap:wrap; }
+.production-step { display:flex; align-items:start; gap:12px; margin-bottom:16px; }
+.production-step > span { color:var(--primary-color); font-weight:700; font-size:1.1rem; }
+.production-step > span::after { content:'.'; }
+.production-lines, .production-lines tbody { display:block; width:100%; }
+.production-lines tbody { display:grid; gap:16px; margin-bottom:16px; }
+.production-lines tr { display:grid; grid-template-columns:minmax(180px,2fr) minmax(100px,.8fr) minmax(95px,.7fr) auto; gap:16px; align-items:start; }
+.production-lines tr.production-output-row { grid-template-columns:minmax(190px,2fr) minmax(110px,1fr) minmax(90px,.7fr) minmax(110px,1fr) auto; }
+.production-lines td { display:block; padding:0; min-width:0; }
+.production-lines label { display:block; margin-bottom:.5rem; }
+.production-lines .line-remove { padding-top:32px; }
+.production-lines .line-extra { grid-column:1/-1; border-top:1px solid #dee2e6; padding-top:12px; }
+.production-lines details summary { cursor:pointer; color:var(--muted-text); }
+.production-extra-grid { display:grid; grid-template-columns:repeat(3,minmax(140px,1fr)); gap:16px; margin-top:16px; }
+.production-line-help { font-size:.875em; color:var(--muted-text); margin:.25rem 0 0; }
+.production-new-product { margin-top:12px; }
+.production-form-actions { display:flex; align-items:center; justify-content:space-between; gap:16px; border-top:1px solid #dee2e6; margin-top:24px; padding-top:24px; }
+.production-form-actions > div { display:flex; gap:12px; flex-wrap:wrap; }
+.production-form-actions > span { color:var(--muted-text); }
+.production-source { display:grid; grid-template-columns:minmax(200px,1fr) auto auto; gap:16px; align-items:start; }
+.production-source > button { margin-top:32px; }
+.production-search { min-width:220px; }
+.production-search input { margin-top:.5rem; }
+.production-review { margin-top:24px; }
+.production-review strong, .production-review span { display:block; }
+.production-review span { color:var(--muted-text); margin-top:.5rem; }
+.production-history-filter { display:flex; gap:16px; align-items:end; flex-wrap:wrap; padding-bottom:24px; }
+.production-page .sale-items-table th { white-space:nowrap; }
+.production-empty { padding:32px; text-align:center; }
+.production-legacy { padding:16px; background:#fff3cd; border:1px solid #ffecb5; border-radius:.75rem; }
+.production-page [hidden] { display:none!important; }
+body.dark-mode .production-lines .line-extra, body.dark-mode .production-form-actions { border-color:var(--border-color); }
+body.dark-mode .production-step > span { color:#60a5fa; }
+@media (max-width:1100px) {
+  .production-heading { align-items:start; flex-direction:column; }
+  .production-source { grid-template-columns:1fr 1fr; }
+  .production-source > button { margin-top:0; }
+  .production-lines tr, .production-lines tr.production-output-row { grid-template-columns:1fr 1fr; }
+  .production-lines td:first-child { grid-column:1/-1; }
+  .production-lines .line-remove { padding-top:0; grid-column:1/-1; text-align:right; }
+  .production-extra-grid { grid-template-columns:1fr 1fr; }
+}
+@media (max-width:700px) {
+  .production-section-title, .production-form-actions { align-items:stretch; flex-direction:column; }
+  .production-source { grid-template-columns:1fr; }
+  .production-form-actions > div { flex-direction:column; }
+}

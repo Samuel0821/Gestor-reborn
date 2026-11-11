@@ -186,3 +186,26 @@ El sistema utiliza un modelo relacional robusto. Las tablas principales son:
 
 ---
 **Documentación generada para:** Grisalis Technologies
+
+## Industria Panadería: producción y costos históricos
+
+- Migración 16: registro `PANADERIA`, relaciones de catálogo y tablas `bakery_settings`, `bakery_permissions`, `bakery_items`, `bakery_recipes`, `bakery_documents`, `bakery_lots`, `bakery_lot_movements`, `bakery_audit`, `bakery_sale_events`, `bakery_sale_lines` y `bakery_sale_requests`. Agrega `sale_items.bakery_cost_total`. Las migraciones se respaldan mediante `VACUUM INTO`, incluyendo las páginas confirmadas en WAL.
+- Dominio: `src/bakery.js`, inicializado por `src/database.js`. Comprueba el perfil antes de cada operación. El inventario normalizado se mantiene en `products.stock`; las asignaciones a lotes y los costos reales se registran dentro de la misma transacción del movimiento existente. No se modifica la estrategia de inventario de otras industrias.
+- Transporte: canal `bakery`, expuesto en preload y registrado mediante el mismo registro de operaciones de IPC y API LAN. El servidor local conserva la base única. La comprobación de responsabilidades lee el usuario y sus permisos actuales; no confía en el rol ni en un identificador enviados por el cliente.
+- Responsabilidades: administrador con acceso completo; usuarios con una o varias áreas `inventory`, `production`, `sales`, `reports`. Menús y respuestas con costos se filtran según el acceso. Se invalida la sesión en logout. Los borradores de producción se separan por instalación/usuario y los de cotización/ventas por usuario para Panadería.
+- Producción: recetas versionadas; borradores con revisión optimista; confirmación atómica de ingredientes, otros costos y varios productos obtenidos. Las proporciones de costo son pesos relativos positivos. Los identificadores de operación evitan duplicar confirmaciones y recepciones al reintentar.
+- Costeo: consumo por vencimiento entre lotes vigentes; instantánea de costo por línea vendida y eventos de venta/reversión. La cantidad del reporte se normaliza con el factor original de la presentación. Una anulación usa el factor y los lotes históricos, aunque las presentaciones se modifiquen posteriormente.
+- Productos: la edición de existencias registra movimientos de corrección y conserva el balance con los lotes; la revalorización de costos actualiza solo lotes disponibles y no modifica asignaciones históricas de ventas.
+- Reportes: día, semana de lunes a domingo, quincenas civiles y mes. Las compras no se restan nuevamente de la utilidad. Las asignaciones de gastos se reclasifican al costo de producción y se revierten con trazabilidad; los costos sin gasto asociado son estimados. Se muestra resultado operativo según datos registrados, no una utilidad neta que suponga costos e impuestos desconocidos. La valorización de inventario es actual, no una reconstrucción al cierre del rango.
+- Migración 17: medidas, lote y vencimiento en líneas de compra; sincronización de atributos anteriores con el catálogo compartido. `bakery_items.attributes._ui` conserva la medida de captura y la del mínimo; el inventario continúa normalizado en gramos, mililitros o unidades.
+- Interfaz integrada: `production.html` y `production.js` contienen únicamente recetas y producción. `bakeryProducts.js` adapta Productos, `bakeryPurchases.js` adapta Órdenes de Compra y `bakeryModules.js` integra Gastos, Reportes y responsabilidades en Ajustes. Los accesos antiguos a `bakery.html` redirigen a producción. Las adaptaciones comprueban `PANADERIA`; las demás industrias mantienen sus formularios. El manual operativo está en `MANUAL_PANADERIA.md`.
+- Recetas y producción usa dos pestañas con formularios independientes: receta (descripción e insumos de referencia, con cantidades opcionales) y producción (consumo real, cantidades buenas, desperdicio e historial). `resolveOutputProducts` reutiliza elaborados por nombre normalizado o crea fichas con stock cero dentro de la transacción. Solo la confirmación suma cantidades y consume insumos. El permiso de producción permite esta creación interna de elaborados, sin otorgar acceso general a modificar inventario. Las nuevas producciones no capturan gastos adicionales; los borradores históricos conservan sus costos y los muestran explícitamente antes de confirmar.
+
+Pruebas sin modificar la base del negocio:
+
+```powershell
+npm run test:bakery
+npm run test:bakery:ui
+```
+
+El primer comando usa el SQLite nativo de Electron sobre bases temporales y verifica también regresiones de servicios y cotizaciones. El segundo ejecuta una ventana oculta de Electron con perfil temporal, verifica los formularios y el aislamiento entre usuarios. Los lanzadores pasan `ELECTRON_RUN_AS_NODE` solo al proceso de prueba que lo necesita y no dejan esa variable en la terminal.

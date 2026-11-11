@@ -1,5 +1,4 @@
-// Run with Electron's Node runtime (better-sqlite3 is built for Electron):
-// $env:ELECTRON_RUN_AS_NODE='1'; & .\node_modules\electron\dist\electron.exe scripts/test-service-items.cjs
+// Run with npm run test:bakery (uses Electron's native SQLite without changing the shell environment).
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -213,7 +212,7 @@ try {
     for (const legacyFlags of [null, '{"enabled":false}', '{"enabled":true}', 'invalid-json']) {
       setProfile.run(industry.id, legacyFlags, legacyFlags);
       const config = api.getBusinessModuleConfig();
-      assert.deepEqual(Object.keys(config.modules).sort(), [...moduleNames].sort());
+      assert.deepEqual(Object.keys(config.modules).sort(), [...moduleNames, ...(industry.code === 'PANADERIA' ? ['production'] : [])].sort());
       for (const moduleName of moduleNames) assert.equal(config.modules[moduleName], true, `${industry.code}: ${moduleName}`);
       assert.equal(config.workflows.inventory, true, industry.code);
       assert.equal(config.workflows.serviceMaterials, true, industry.code);

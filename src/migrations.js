@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { migrateBakery, migrateBakeryModules } = require('./bakerySchema');
 
 const BUSINESS_TYPES = [
   ["FERRETERIA", "Ferretería y materiales", "Herramientas y materiales de construcción"],
@@ -119,14 +120,15 @@ function addColumnIfMissing(db, tableName, columnName, definition) {
   }
 }
 
-function createBackup(dbPath, backupDirectory) {
+function createBackup(dbPath, backupDirectory, db) {
   if (!fs.existsSync(dbPath) || fs.statSync(dbPath).size === 0) return null;
 
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
   const destinationDirectory = backupDirectory || path.dirname(dbPath);
   fs.mkdirSync(destinationDirectory, { recursive: true });
-  const backupPath = path.join(destinationDirectory, `${path.basename(dbPath)}.backup-${stamp}`);
-  fs.copyFileSync(dbPath, backupPath);
+  const backupPath = path.join(destinationDirectory, `${path.basename(dbPath)}.backup-${stamp}-${require('node:crypto').randomUUID().slice(0, 8)}`);
+  // Include committed WAL pages in a consistent SQLite snapshot.
+  db.prepare('VACUUM INTO ?').run(backupPath);
   return backupPath;
 }
 
@@ -561,6 +563,8 @@ const MIGRATIONS = [
   { version: 13, name: "legacy-installation-baseline", run: migration013 },
   { version: 14, name: "service-labor-items", run: migration014 },
   { version: 15, name: "service-commercial-item-links", run: migration015 },
+  { version: 16, name: 'bakery-production-and-historical-costs', run: migrateBakery },
+  { version: 17, name: 'bakery-integrated-modules-and-purchase-measures', run: migrateBakeryModules },
 ];
 
 function runMigrations(db, dbPath, backupDirectory) {
@@ -572,7 +576,7 @@ function runMigrations(db, dbPath, backupDirectory) {
 
   if (pending.length === 0) return { applied: [], backupPath: null };
 
-  const backupPath = createBackup(dbPath, backupDirectory);
+  const backupPath = createBackup(dbPath, backupDirectory, db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
