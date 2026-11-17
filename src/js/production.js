@@ -1,4 +1,3 @@
-window.Swal ||= { fire: async options => ({ isConfirmed: window.confirm(typeof options === 'string' ? options : `${options.title}\n${options.text || ''}`) }) };
 document.addEventListener('DOMContentLoaded', async () => {
   const $ = id => document.getElementById(id), U = window.BakeryUnits;
   let state, key, recipeKey, ready = false, busy = false, serial = 0, offset = 0;
@@ -80,7 +79,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function showLegacyCosts() {
     const box = $('legacy-production-costs'); box.hidden = !legacyCosts.length;
     box.innerHTML = legacyCosts.length ? `<strong>Este borrador anterior incluye costos adicionales.</strong><p>Se conservarán al confirmar: ${legacyCosts.map(c => `${U.esc(c.name)}: ${U.money(c.amount)}`).join(' · ')}. Las nuevas producciones registran estos pagos en Gastos.</p><button type="button" id="remove-legacy-costs" class="btn btn-sm btn-outline-secondary">Quitar costos de este borrador</button>` : '';
-    if (legacyCosts.length) $('remove-legacy-costs').onclick = () => { if (confirm('¿Quitar estos costos de la producción? Los gastos registrados no se borrarán.')) { legacyCosts = []; showLegacyCosts(); save(); } };
+    if (legacyCosts.length) $('remove-legacy-costs').onclick = async () => { if (await GestorDialogs.confirm('¿Quitar estos costos de la producción? Los gastos registrados no se borrarán.')) { legacyCosts = []; showLegacyCosts(); save(); } };
   }
   function save() {
     summary(); if (!ready) return;
@@ -121,10 +120,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     for (const [target, data] of [['production-inputs', p.inputs], ['production-outputs', p.outputs]]) { $(target).replaceChildren(); (data || []).forEach(line => add(target, line)); }
     $('production-status').textContent = `Borrador #${doc.id} · versión ${doc.revision}`; showLegacyCosts(); tab('batch'); save();
   }
-  function applyRecipe(id) {
+  async function applyRecipe(id) {
     const recipe = state.recipes.find(r => r.id === Number(id));
     if (!recipe) throw new Error('Selecciona una receta.');
-    if ($('production-name').value && !confirm('¿Reemplazar el formulario de producción actual? Los borradores guardados permanecen en el historial.')) return;
+    if ($('production-name').value && !await GestorDialogs.confirm('¿Reemplazar el formulario de producción actual? Los borradores guardados permanecen en el historial.')) return;
     resetProduction(); meta.recipe_id = recipe.id; const p = JSON.parse(recipe.payload); $('production-name').value = recipe.name;
     for (const [target, data] of [['production-inputs', p.inputs], ['production-outputs', p.outputs]]) {
       $(target).replaceChildren(); for (const source of data || []) { const line = { ...source }; line.quantity = ''; delete line.expected_quantity; for (const k of ['lot_id', 'expiration_date', 'sale_price', 'sale_price_unit', 'cost_total', 'unit_cost', 'base_quantity']) delete line[k]; if (target === 'production-outputs') line.waste_quantity = 0; add(target, line); }
@@ -153,7 +152,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('.add-line').forEach(button => button.onclick = () => { add(button.dataset.target); save(); });
   $('recipe-product').onchange = () => { recipeMeasure($('recipe-product').value); save(); };
   $('recipe-search').oninput = renderRecipes;
-  $('new-recipe').onclick = () => { if (confirm('¿Limpiar el formulario de receta?')) resetRecipe(); };
+  $('new-recipe').onclick = async () => { if (await GestorDialogs.confirm('¿Limpiar el formulario de receta?')) resetRecipe(); };
   $('recipe-form').onsubmit = event => { event.preventDefault(); perform(async () => {
     if (!$('recipe-form').reportValidity()) return;
     const result = await api('saveRecipe', { name: $('recipe-name').value.trim(), notes: $('recipe-description').value.trim(), reference_only: true, inputs: rows('recipe-inputs').map(line => { if (line.quantity === '') delete line.quantity; return line; }), outputs: [{ product_id: Number($('recipe-product').value) || null, product_name: $('recipe-name').value.trim(), unit: $('recipe-unit').value, cost_share: 1 }], costs: [] });
@@ -165,16 +164,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   $('bakery-production-form').onsubmit = event => { event.preventDefault(); perform(async () => { await saveDraft(); message('Borrador guardado. Aún no se ha consumido materia prima ni aumentado las existencias.'); }); };
   $('confirm-production').onclick = () => perform(async () => {
-    if (!$('bakery-production-form').reportValidity() || !confirm('¿Confirmar la producción? Se descontará la materia prima y se sumarán las cantidades buenas al inventario.')) return;
+    if (!$('bakery-production-form').reportValidity() || !await GestorDialogs.confirm('¿Confirmar la producción? Se descontará la materia prima y se sumarán las cantidades buenas al inventario.')) return;
     await saveDraft(); const result = await api('confirm', { id: meta.id, revision: meta.revision });
     try { await refresh(); resetProduction(); message(`Producción #${result.id} confirmada. Materias primas descontadas y productos disponibles en inventario.`); }
     catch (_) { resetProduction(); message(`Producción #${result.id} confirmada. Recarga la vista para actualizar existencias e historial; no repitas el registro.`); }
   });
-  for (const id of ['new-production', 'discard-production']) $(id).onclick = () => { if (confirm('¿Limpiar el formulario de producción? Los borradores guardados se conservan.')) { resetProduction(); tab('batch'); } };
-  $('apply-recipe').onclick = () => { try { applyRecipe($('recipe-select').value); } catch (error) { message(error.message, true); } };
-  $('recipe-list').onclick = event => {
+  for (const id of ['new-production', 'discard-production']) $(id).onclick = async () => { if (await GestorDialogs.confirm('¿Limpiar el formulario de producción? Los borradores guardados se conservan.')) { resetProduction(); tab('batch'); } };
+  $('apply-recipe').onclick = async () => { try { await applyRecipe($('recipe-select').value); } catch (error) { message(error.message, true); } };
+  $('recipe-list').onclick = async event => {
     const use = event.target.closest('[data-recipe-use]'), view = event.target.closest('[data-recipe-view]');
-    if (use) { try { applyRecipe(use.dataset.recipeUse); } catch (error) { message(error.message, true); } }
+    if (use) { try { await applyRecipe(use.dataset.recipeUse); } catch (error) { message(error.message, true); } }
     if (view) {
       const recipe = state.recipes.find(r => r.id === Number(view.dataset.recipeView)), p = JSON.parse(recipe.payload);
       let detail = $('recipe-detail'); if (!detail) { detail = document.createElement('div'); detail.id = 'recipe-detail'; $('recipe-list').after(detail); }
@@ -186,7 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('bakery-productions').onclick = event => {
     const loadBtn = event.target.closest('[data-load]'), reverse = event.target.closest('[data-reverse]'), detail = event.target.closest('[data-detail]');
     if (loadBtn) { load(state.documents.find(d => d.id === Number(loadBtn.dataset.load))); $('production-name').focus(); }
-    if (reverse) perform(async () => { const reason = prompt('Motivo de anulación (solo si los productos permanecen completos):'); if (!reason) return; await api('reverse', { id: Number(reverse.dataset.reverse), reason }); await refresh(); message('Producción anulada con su historial.'); });
+    if (reverse) perform(async () => { const reason = await GestorDialogs.prompt('Motivo de anulación (solo si los productos permanecen completos):'); if (!reason) return; await api('reverse', { id: Number(reverse.dataset.reverse), reason }); await refresh(); message('Producción anulada con su historial.'); });
     if (detail) perform(async () => {
       const result = await api('document', { id: Number(detail.dataset.detail) }), d = result.document, p = JSON.parse(d.payload);
       $('bakery-production-detail').innerHTML = `<div class="production-explainer"><strong>#${d.id} · ${U.esc(p.name)} · ${status(d.status)}</strong><p style="white-space:pre-wrap">${U.esc(p.notes)}</p>${table(['Producto elaborado', 'Cantidad buena', 'Desperdicio', 'Costo asignado'], p.outputs.map(line => [U.esc(state.items.find(i => i.id === Number(line.product_id))?.name || line.product_name || `#${line.product_id}`), `${U.amount(line.quantity)} ${U.esc(U.measures[line.unit]?.label || line.unit)}`, U.amount(line.waste_quantity || 0), line.cost_total == null ? '—' : U.money(line.cost_total)]))}${table(['Materia prima utilizada', 'Cantidad', 'Lote'], (p.inputs || []).map(line => [U.esc(state.items.find(i => i.id === Number(line.product_id))?.name || `#${line.product_id}`), `${U.amount(line.quantity)} ${U.esc(U.measures[line.unit]?.label || line.unit)}`, line.lot_id ? `#${line.lot_id}` : 'Asignación automática']))}</div>`;

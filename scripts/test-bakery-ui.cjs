@@ -45,7 +45,7 @@ app.whenReady().then(async () => {
     const load=async(page='production')=>{
       let html=fs.readFileSync(path.join(__dirname,'../src/views',page+'.html'),'utf8');
       const base=pathToFileURL(path.join(__dirname,'../src/views/')).href;
-      html=html.replace('<head>','<head><base href="'+base+'">').replace(/<link[^>]+https:[^>]+>/g,'').replace(/<script src="https:[^"]+bootstrap[^"]*"><\/script>/g,'<script src="'+pathToFileURL(path.join(__dirname,'../node_modules/bootstrap/dist/js/bootstrap.bundle.min.js')).href+'"></script>').replace(/<script src="https:[^"]*"><\/script>/g,'');
+      html=html.replace('<head>','<head><base href="'+base+'">').replace(/<link[^>]+https:[^>]+>/g,'').replace(/<script src="https:[^"]+bootstrap[^"]*"><\/script>/g,'<script src="'+pathToFileURL(path.join(__dirname,'../node_modules/bootstrap/dist/js/bootstrap.bundle.min.js')).href+'"></script>').replace(/<script src="https:[^"]*"><\/script>/g,'').replace(/<script src="[^"]*sweetalert2[^"]*"><\/script>/g,'');
       html=html.replace('<head>','<head><script>window.Swal={fire:async(...args)=>{window.lastAlert=args;return {isConfirmed:true}},close(){}};window.confirm=()=>true;</script><link rel="stylesheet" href="'+pathToFileURL(path.join(__dirname,'../node_modules/bootstrap/dist/css/bootstrap.min.css')).href+'">');
       const file=path.join(directory,page+'.html');fs.writeFileSync(file,html);await win.loadFile(file);
     };
@@ -97,10 +97,17 @@ app.whenReady().then(async () => {
     await js('document.getElementById("tab-batch").click()');
     assert.equal(await js('Boolean(document.getElementById("bakery-tabs"))'),false);
     assert.ok((await js('document.querySelector("[data-module=production]").textContent')).includes('Recetas'));
+    await js('document.getElementById("production-name").focus()');
+    await win.webContents.insertText('Otra tarea sin reiniciar');
+    assert.equal(await js('document.getElementById("production-name").value'), 'Otra tarea sin reiniciar', 'Inputs must accept text immediately after saving a recipe');
     await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r(true))))');fs.writeFileSync(path.join(__dirname,'../.tools/bakery-production.png'),await capture());
     await fill({'production-name':'Producci?n de prueba'});
     await js(`const input=document.querySelector('#production-inputs tr');input.querySelector('[data-field=product_id]').value=${flour};input.querySelector('[data-field=product_id]').dispatchEvent(new Event('change',{bubbles:true}));input.querySelector('[data-field=quantity]').value='10';input.querySelector('[data-field=unit]').value='kg';const output=document.querySelector('#production-outputs tr');output.querySelector('[data-field=product_id]').value=${bread};output.querySelector('[data-field=product_id]').dispatchEvent(new Event('change',{bubbles:true}));output.querySelector('[data-field=quantity]').value='100';document.getElementById('confirm-production').click();`);
     await until(()=>api.getProductById(bread).stock===100);
+    await until(()=>js('!document.getElementById("confirm-production").disabled'));
+    await js('document.getElementById("production-name").focus()');
+    await win.webContents.insertText('Siguiente registro');
+    assert.equal(await js('document.getElementById("production-name").value'), 'Siguiente registro', 'Inputs must accept text after confirming production');
     await load('products');
     await until(()=>js(`Boolean(document.querySelector('#products-table .edit[data-id="${bread}"]'))`));
     await js(`document.querySelector('#products-table .edit[data-id="${bread}"]').click()`);

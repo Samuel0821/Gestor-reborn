@@ -20,7 +20,7 @@ window.BakeryPurchases=(()=>{
   result.same=(a,b)=>a.product_id===b.product_id&&a.bakery_unit===b.bakery_unit&&a.price===b.price&&a.bakery_lot_number===b.bakery_lot_number&&a.bakery_expiration_date===b.bakery_expiration_date;
   result.quantity=item=>result.active?`${U.amount(item.quantity)} ${U.measures[item.bakery_unit]?.label||'medida base'}`:item.quantity;
   result.cancel=async id=>{
-    const reason=prompt('Motivo para anular la recepción. Solo procede sin pagos y con los lotes completos:');if(!reason)return;
+    const reason=await GestorDialogs.prompt('Motivo para anular la recepción. Solo procede sin pagos y con los lotes completos:');if(!reason)return;
     const response=await window.api.bakery('reversePurchase',{id,reason});
     await Swal.fire(response.success?'Recepción anulada':'No se pudo anular',response.message||'Inventario y deuda revertidos con historial.',response.success?'success':'error');
     if(response.success)loadOrders();

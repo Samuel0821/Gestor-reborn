@@ -14,14 +14,19 @@
     "make:windows": "electron-forge make --platform win32",
     "postinstall": "electron-rebuild",
     "test:bakery": "node scripts/run-bakery-tests.cjs",
-    "test:bakery:ui": "node scripts/run-bakery-ui.cjs"
+    "test:bakery:ui": "node scripts/run-bakery-ui.cjs",
+    "test:ui-focus": "node scripts/run-dialog-focus-tests.cjs",
+    "start:fresh": "node scripts/start-fresh.cjs",
+    "test:installation": "node scripts/run-installation-tests.cjs",
+    "test:station": "node scripts/run-station-tests.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",
     "bootstrap": "^5.3.2",
     "electron-squirrel-startup": "^1.0.1",
     "exceljs": "^4.4.0",
-    "pdfkit": "^0.13.0"
+    "pdfkit": "^0.13.0",
+    "sweetalert2": "11.26.25"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.9.0",

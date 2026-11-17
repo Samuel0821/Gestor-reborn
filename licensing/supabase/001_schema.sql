@@ -26,7 +26,7 @@ create table if not exists public.customers (
 create table if not exists public.activation_codes (
   id uuid primary key default gen_random_uuid(),
   code_hash text not null unique,
-  kind text not null check (kind in ('server', 'station')),
+  kind text not null check (kind in ('standalone', 'server', 'station')),
   vendor_id uuid not null references public.vendors(id),
   -- Obligatorio en estaciones; opcional en servidor (reinstalación de un cliente existente).
   customer_id uuid references public.customers(id),
@@ -42,7 +42,7 @@ create table if not exists public.activations (
   code_id uuid not null unique references public.activation_codes(id),
   vendor_id uuid not null references public.vendors(id),
   customer_id uuid references public.customers(id),
-  kind text not null check (kind in ('server', 'station')),
+  kind text not null check (kind in ('standalone', 'server', 'station')),
   machine_id text not null,
   app_version text,
   token_hash text not null,
@@ -96,8 +96,12 @@ declare
   i int;
   n int;
 begin
-  if p_kind not in ('server', 'station') then raise exception 'kind inválido'; end if;
+  if p_qty is null or p_qty < 1 or p_qty > 100 then raise exception 'Cantidad inválida'; end if;
+  if p_kind not in ('standalone', 'server', 'station') then raise exception 'kind inválido'; end if;
   if p_kind = 'station' and p_customer is null then raise exception 'Un código de estación requiere customer_id'; end if;
+  if p_kind = 'station' and not exists (select 1 from activations where customer_id = p_customer and kind = 'server' and status = 'active') then
+    raise exception 'Una estación requiere un cliente con servidor LAN activo';
+  end if;
   if not exists (select 1 from vendors where id = p_vendor and active) then raise exception 'Vendedor inexistente o inactivo'; end if;
 
   for n in 1..p_qty loop
@@ -175,7 +179,7 @@ declare
   cust_id uuid;
 begin
   select * into a from activations
-  where id = p_activation_id and token_hash = p_token_hash and status = 'active' and kind = 'server';
+  where id = p_activation_id and token_hash = p_token_hash and status = 'active' and kind in ('standalone', 'server');
   if a.id is null then raise exception 'invalid_activation'; end if;
 
   if a.customer_id is null then
@@ -216,3 +220,34 @@ revoke all on function public.register_customer(uuid, text, jsonb) from public, 
 revoke all on function public.release_activation(uuid) from public, anon, authenticated;
 grant execute on function public.redeem_code(text, text, text, text) to service_role;
 grant execute on function public.register_customer(uuid, text, jsonb) to service_role;
+
+
+-- El bloqueo y la comprobación ocurren en la misma transacción que el canje.
+-- La RPC anterior se conserva para compatibilidad con despliegues existentes.
+create or replace function public.redeem_code_for_installation(
+  p_code text, p_machine_id text, p_app_version text, p_token_hash text,
+  p_expected_kind text default null
+) returns jsonb
+language plpgsql security definer
+set search_path = public, extensions
+as $$
+declare
+  normalized text := upper(regexp_replace(coalesce(p_code, ''), '[^A-Za-z0-9]', '', 'g'));
+  code_kind text;
+begin
+  if p_expected_kind is not null and p_expected_kind not in ('standalone', 'server', 'station') then
+    raise exception 'invalid_kind';
+  end if;
+  if left(normalized, 3) = 'GFX' then normalized := substr(normalized, 4); end if;
+  select kind into code_kind from public.activation_codes
+  where code_hash = encode(digest(normalized, 'sha256'), 'hex') and status = 'available'
+  for update;
+  if code_kind is null then raise exception 'invalid_code'; end if;
+  if p_expected_kind is not null and code_kind <> p_expected_kind then
+    raise exception 'wrong_license_kind';
+  end if;
+  return public.redeem_code(p_code, p_machine_id, p_app_version, p_token_hash);
+end;
+$$;
+revoke all on function public.redeem_code_for_installation(text, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.redeem_code_for_installation(text, text, text, text, text) to service_role;

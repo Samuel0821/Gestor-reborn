@@ -1,31 +1,49 @@
   // ---------- DEPENDENCIAS PRINCIPALES ----------
-  const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+  const { app, BrowserWindow, ipcMain, dialog, shell, net } = require("electron");
   const path = require("node:path");
   const http = require("node:http");
   const https = require("node:https");
   const crypto = require("node:crypto");
   const fs = require("fs");
+  // A fresh development run has its own data, license and browser profile.
+  // Packaged installations always use their normal persistent configuration.
+  const isFreshInstallation = !app.isPackaged && process.env.GESTORFX_FRESH_INSTALL === "1";
+  if (isFreshInstallation) {
+    const directory = fs.mkdtempSync(path.join(app.getPath("temp"), "gestorfx-dev-install-"));
+    const profile = path.join(directory, "profile");
+    fs.mkdirSync(profile, { recursive: true });
+    process.env.GESTORFX_DATABASE_PATH = path.join(directory, "database.sqlite");
+    delete process.env.GESTORFX_SERVER_MODE;
+    delete process.env.GESTORFX_API_URL;
+    app.setPath("userData", profile);
+    console.log("Instalación de prueba de GestorFX: " + directory);
+  }
   const isServerMode = process.env.GESTORFX_SERVER_MODE === "1";
-  if (!isServerMode && !process.env.GESTORFX_API_URL) {
+  if (!isServerMode && !process.env.GESTORFX_API_URL && !isFreshInstallation) {
     try {
       const appData = process.env.APPDATA || path.join(require("node:os").homedir(), "AppData", "Roaming");
-      const configPath = path.join(appData, "GestorFX", "gestorfx-network.json");
+      const profileConfig = path.join(app.getPath("userData"), "gestorfx-network.json");
+      const configPath = fs.existsSync(profileConfig) ? profileConfig : path.join(appData, "GestorFX", "gestorfx-network.json");
       const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
       if (typeof config.apiUrl === "string") process.env.GESTORFX_API_URL = config.apiUrl;
     } catch (_) {}
   }
-  const isRemoteStation = Boolean(process.env.GESTORFX_API_URL) && !isServerMode;
+  let isRemoteStation = Boolean(process.env.GESTORFX_API_URL) && !isServerMode;
+  let setupTarget = isRemoteStation ? "station" : "local";
+  let stationReady = false;
   const appIcon = path.join(__dirname, "logo", "gestorfx_logof.ico");
   
   // Handle creating/removing shortcuts on Windows when installing/uninstalling.
   if (require('electron-squirrel-startup')) app.quit();
-  const db = isRemoteStation ? null : require("./database");
+  let db = isRemoteStation ? null : require("./database");
   const { localDateKey, getDailyGrossProfit } = require('./dashboardFinancials');
   const licensing = require("./licensing");
+  const station = require("./station");
+  const stationRequest = (url, options) => net.fetch(url, options);
   const licenseDirectory = () => process.env.GESTORFX_DATABASE_PATH ? path.dirname(process.env.GESTORFX_DATABASE_PATH) : app.getPath("userData");
   const PDFDocument = require("pdfkit");
   const ExcelJS = require("exceljs");
-  const cashRegister = isRemoteStation ? {} : require("./cashRegister");
+  let cashRegister = isRemoteStation ? {} : require("./cashRegister");
 
 
   // Deshabilitar la caché de disco para prevenir errores de "Acceso denegado"
@@ -35,15 +53,16 @@
   let mainWindow;
 
   async function createWindow() {
-    let installationCompleted = isRemoteStation;
+    let installationCompleted = false;
     if (isRemoteStation) {
       try {
-        const response = await fetch(`${process.env.GESTORFX_API_URL.replace(/\/$/, "")}/health`);
-        const health = await response.json();
-        installationCompleted = Boolean(health.installationCompleted);
+        const { health } = await station.readHealth(process.env.GESTORFX_API_URL, stationRequest);
+        setupTarget = health.installationCompleted ? "station" : "server";
+        stationReady = station.matchesServer(licensing.getLicenseState(licenseDirectory(), "station"), health);
+        installationCompleted = stationReady;
       } catch (_) {}
     } else {
-      installationCompleted = Boolean(db.getInstallationState().completed);
+      installationCompleted = Boolean(db.getInstallationState().completed && licensing.getLicenseState(licenseDirectory()).payload?.kind !== "station");
     }
     mainWindow = new BrowserWindow({
 
@@ -278,9 +297,14 @@
       };
       const send = (status, data) => { res.writeHead(status, headers); res.end(JSON.stringify(data)); };
       if (req.method === "OPTIONS") { res.writeHead(204, headers); return res.end(); }
-      if (req.method === "GET" && req.url === "/health") return send(200, {
-        status: "ok", service: "GestorFX", installationCompleted: Boolean(db.getInstallationState().completed),
-      });
+      if (req.method === "GET" && req.url === "/health") {
+        const license = licensing.getLicenseState(licenseDirectory(), "server");
+        return send(200, {
+          status: "ok", service: "GestorFX", installationCompleted: Boolean(db.getInstallationState().completed && license.valid),
+          serverKind: license.valid ? "server" : null,
+          customerId: license.valid ? license.stored?.customerId || license.payload?.cid || null : null,
+        });
+      }
       if (req.method !== "POST" || req.url !== "/rpc") return send(404, { error: "Ruta no encontrada" });
       let raw = "";
       let oversized = false;
@@ -304,6 +328,9 @@
           if (!handler) return send(404, { error: "Operación no disponible" });
           if (channel === "login" && !db.getInstallationState().completed) {
             return send(200, { result: { success: false, message: "Complete primero la configuración inicial." } });
+          }
+          if (channel === "login" && !licensing.getLicenseState(licenseDirectory(), "server").valid) {
+            return send(200, { result: { success: false, message: "Active una licencia de servidor LAN para conectar estaciones." } });
           }
 
           const publicChannels = new Set(["login", "get-installation-state", "get-business-types", "get-product-form-config", "save-initial-setup", "get-license-state", "activate-license"]);
@@ -443,6 +470,24 @@
   }
 
   function registerIpcHandlers() {
+      ipcMain.on("station-connection-info", event => {
+        event.returnValue = { apiUrl: isRemoteStation ? process.env.GESTORFX_API_URL : "", setupTarget };
+      });
+      ipcMain.handle("server-setup-complete", () => { setupTarget = "station"; stationReady = false; });
+      ipcMain.handle("connect-station", async (event, data) => {
+        if (isServerMode) return { success: false, message: "Este equipo está ejecutando el servidor LAN." };
+        try {
+          const result = await station.connect(data || {}, { request: stationRequest, licensing, directory: licenseDirectory(), version: app.getVersion() });
+          if (!result.success) return result;
+          const configDirectory = app.getPath("userData");
+          fs.mkdirSync(configDirectory, { recursive: true });
+          fs.writeFileSync(path.join(configDirectory, "gestorfx-network.json"), JSON.stringify({ apiUrl: result.apiUrl }), "utf8");
+          process.env.GESTORFX_API_URL = result.apiUrl;
+          isRemoteStation = true; setupTarget = "station"; stationReady = true;
+          db = null; cashRegister = {};
+          return result;
+        } catch (error) { return { success: false, message: error.message }; }
+      });
       // Autenticación
       registerIpcHandler('bakery', (event, { action, data = {} }) => {
         const actor = requireAuthenticated(event);
@@ -1211,14 +1256,28 @@
       
       // Configuración y Dashboard
       registerIpcHandler("get-company-settings", (event) => { requireAuthenticated(event); return db.getCompanySettings(); });
-      registerIpcHandler("get-business-types", () => db.getBusinessTypes());
-      registerIpcHandler("get-installation-state", () => db.getInstallationState());
+      registerIpcHandler("get-business-types", () => db ? db.getBusinessTypes() : []);
+      registerIpcHandler("get-installation-state", () => {
+        if (isRemoteStation) return { completed: stationReady };
+        const state = db.getInstallationState();
+        if (licensing.getLicenseState(licenseDirectory()).payload?.kind === "station") return { ...state, completed: false };
+        return isServerMode && !licensing.getLicenseState(licenseDirectory(), "server").valid
+          ? { ...state, completed: false } : state;
+      });
       registerIpcHandler("get-product-form-config", () => db.getProductFormConfig());
       registerIpcHandler("get-business-module-config", (event) => { requireAuthenticated(event); return db.getBusinessModuleConfig(); });
-      registerIpcHandler("get-license-state", () => ({ activated: licensing.getLicenseState(licenseDirectory()).valid }));
-      registerIpcHandler("activate-license", (event, data) => licensing.activate(licenseDirectory(), data && data.code, app.getVersion()));
+      registerIpcHandler("get-license-state", () => {
+        const requiredKind = isServerMode ? "server" : isRemoteStation ? "station" : null;
+        const state = licensing.getLicenseState(licenseDirectory(), requiredKind);
+        return { activated: state.valid, kind: state.payload?.kind || null, requiredKind, serverUrl: process.env.GESTORFX_API_URL || "" };
+      });
+      registerIpcHandler("activate-license", (event, data) => {
+        if (data?.kind === "station") return { success: false, message: "Indique el servidor y use Activar y conectar para esta estación." };
+        return licensing.activate(licenseDirectory(), data && data.code, app.getVersion(), isServerMode ? "server" : data?.kind || "standalone");
+      });
       registerIpcHandler("save-initial-setup", async (event, data) => {
-        if (!licensing.getLicenseState(licenseDirectory()).valid) {
+        const license = licensing.getLicenseState(licenseDirectory(), isServerMode ? "server" : null);
+        if (!db || !license.valid || license.payload.kind === "station") {
           return { success: false, message: "Active esta instalación con un código válido antes de continuar." };
         }
         const result = db.saveInitialSetup(data);

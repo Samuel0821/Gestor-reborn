@@ -3,6 +3,9 @@ const { contextBridge, ipcRenderer } = require("electron");
 let remoteToken = null;
 const apiUrlArgument = process.argv.find(argument => argument.startsWith("--gestorfx-api-url="));
 let apiUrl = process.env.GESTORFX_API_URL || (apiUrlArgument ? apiUrlArgument.slice("--gestorfx-api-url=".length) : "");
+const connection = ipcRenderer.sendSync("station-connection-info") || {};
+apiUrl = connection.apiUrl || apiUrl;
+let setupTarget = connection.setupTarget || "local";
 const localOnlyChannels = new Set(["select-file", "get-printers", "preview-invoice", "print-invoice"]);
 try { remoteToken = sessionStorage.getItem("gestorfx_api_session"); } catch (_) {}
 
@@ -17,7 +20,8 @@ async function invoke(channel, ...args) {
     sessionStorage.setItem(requestKey, JSON.stringify(pending));
     args[0] = { ...args[0], request_id: pending.id };
   }
-  if (!apiUrl || localOnlyChannels.has(channel)) {
+  const stationSetupChannel = setupTarget === "station" && ["get-license-state", "activate-license", "get-installation-state", "get-business-types"].includes(channel);
+  if (!apiUrl || localOnlyChannels.has(channel) || stationSetupChannel) {
     const result = await ipcRenderer.invoke(channel, ...args);
     if (requestKey && result?.success) sessionStorage.removeItem(requestKey);
     return result;
@@ -55,6 +59,11 @@ async function invoke(channel, ...args) {
       else sessionStorage.removeItem("gestorfx_api_session");
     } catch (_) {}
     return payload.result;
+  }
+  if (channel === "save-initial-setup" && setupTarget === "server" && payload.result?.success) {
+    await ipcRenderer.invoke("server-setup-complete");
+    setupTarget = "station";
+    return { ...payload.result, stationActivationRequired: true };
   }
   if (requestKey && payload.result?.success) sessionStorage.removeItem(requestKey);
   if (channel === 'logout') {
@@ -197,6 +206,14 @@ contextBridge.exposeInMainWorld("api", {
   saveInitialSetup: (data) => invoke("save-initial-setup", data),
   getLicenseState: () => invoke("get-license-state"),
   activateLicense: (data) => invoke("activate-license", data),
+  connectStation: async data => {
+    const result = await ipcRenderer.invoke("connect-station", data);
+    if (result.success) {
+      apiUrl = result.apiUrl; setupTarget = "station"; remoteToken = null;
+      sessionStorage.removeItem("gestorfx_api_session");
+    }
+    return result;
+  },
   updateCompanySettings: (data) => invoke("update-company-settings", data),
 
   // dashboard
