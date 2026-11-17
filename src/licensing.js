@@ -64,7 +64,7 @@ function getLicenseState(baseDirectory, requiredKind = null) {
   const stored = readStored(baseDirectory);
   const payload = stored && verifyLicense(stored.license, getMachineId());
   const supported = payload && ["standalone", "server", "station"].includes(payload.kind);
-  return { valid: Boolean(supported && (!requiredKind || payload.kind === requiredKind)), stored, payload };
+  return { valid: Boolean(supported && stored.remoteStatus !== "released" && (!requiredKind || payload.kind === requiredKind)), stored, payload };
 }
 
 async function callFunction(name, body) {
@@ -134,25 +134,55 @@ async function activate(baseDirectory, code, appVersion, expectedKind = "standal
   return { success: true, kind: payload.kind, message: "Activación correcta." };
 }
 
-// Envía los datos del cliente al terminar la configuración. Si falla, se reintenta luego.
+// Persistir antes de enviar: cerrar la aplicación o perder Internet no pierde el registro.
+const registrations = new Map();
 async function registerCustomer(baseDirectory, customer) {
-  const stored = readStored(baseDirectory);
-  if (!stored || (stored.customerRegistered && stored.customerId)) return;
+  let stored = readStored(baseDirectory);
   const state = getLicenseState(baseDirectory);
-  if (!state.valid || state.payload.kind === "station") return;
-  const pending = customer || stored.pendingCustomer || (stored.customerRegistered ? {} : null);
-  if (!pending) return;
-  try {
-    const result = await callFunction("register-customer", {
-      activationId: stored.activationId,
-      activationToken: stored.activationToken,
-      customer: pending,
-    });
-    if (result.ok) writeStored(baseDirectory, { ...stored, customerRegistered: true, customerId: result.data.customerId, pendingCustomer: null });
-    else writeStored(baseDirectory, { ...stored, pendingCustomer: pending });
-  } catch (_) {
-    writeStored(baseDirectory, { ...stored, pendingCustomer: pending });
+  if (!stored || !state.valid || state.payload.kind === "station") return;
+  if (customer) {
+    stored = { ...stored, pendingCustomer: customer };
+    writeStored(baseDirectory, stored);
   }
+  if (registrations.has(baseDirectory)) return registrations.get(baseDirectory);
+  const pending = stored.pendingCustomer || (stored.customerRegistered && !stored.customerId ? {} : null);
+  if (!pending) return;
+  const operation = (async () => {
+    try {
+      const result = await callFunction("register-customer", {
+        activationId: stored.activationId, activationToken: stored.activationToken, customer: pending,
+      });
+      const latest = readStored(baseDirectory);
+      if (result.ok && typeof result.data.customerId === "string" && latest?.activationId === stored.activationId) {
+        const unchanged = JSON.stringify(latest.pendingCustomer) === JSON.stringify(stored.pendingCustomer);
+        writeStored(baseDirectory, { ...latest, customerRegistered: true, customerId: result.data.customerId,
+          pendingCustomer: unchanged ? null : latest.pendingCustomer });
+      }
+    } catch (_) { /* El registro ya está guardado; se reintenta sin duplicar clientes. */ }
+  })();
+  registrations.set(baseDirectory, operation);
+  try { await operation; } finally { registrations.delete(baseDirectory); }
 }
 
-module.exports = { activate, getLicenseState, registerCustomer };
+const statusRequests = new Map();
+async function checkStatus(baseDirectory) {
+  if (statusRequests.has(baseDirectory)) return statusRequests.get(baseDirectory);
+  const stored = readStored(baseDirectory);
+  if (!stored || !verifyLicense(stored.license, getMachineId())) return;
+  const operation = (async () => {
+    try {
+      const result = await callFunction("license-status", {
+        activationId: stored.activationId, activationToken: stored.activationToken, machineId: getMachineId(),
+      });
+      const latest = readStored(baseDirectory);
+      if (result.ok && ["active", "released"].includes(result.data.status) && latest?.activationId === stored.activationId) {
+        writeStored(baseDirectory, { ...latest, remoteStatus: latest.remoteStatus === "released" ? "released" : result.data.status,
+          statusCheckedAt: new Date().toISOString(), ...(result.data.customerId ? { customerId: result.data.customerId } : {}) });
+      }
+    } catch (_) { /* Sin Internet se conserva la licencia para trabajar localmente. */ }
+  })();
+  statusRequests.set(baseDirectory, operation);
+  try { await operation; } finally { statusRequests.delete(baseDirectory); }
+}
+
+module.exports = { activate, getLicenseState, registerCustomer, checkStatus };

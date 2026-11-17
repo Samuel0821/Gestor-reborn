@@ -34,6 +34,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     kindLocked = Boolean(licenseState.requiredKind);
     installationKind.value = licenseState.requiredKind || licenseState.kind || 'standalone';
     stationServerUrl.value = licenseState.serverUrl || '';
+    if (licenseState.deactivated) {
+      licenseAlert.textContent = 'Esta licencia fue desactivada. Solicite un nuevo código para volver a activar el equipo. Sus datos se conservan.';
+      licenseAlert.classList.remove('d-none');
+    }
     installationKind.disabled = licenseActivated || Boolean(licenseState.requiredKind);
     if (licenseActivated) {
       installationKindHelp.textContent = 'El tipo corresponde a la licencia guardada en este equipo y queda fijo después de activar.';
@@ -178,6 +182,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           licenseAlert.classList.remove('d-none');
           return;
         }
+        if ((await window.api.getInstallationState()).completed) {
+          window.location.href = 'login.html'; return;
+        }
         licenseActivated = true;
         installationKindHelp.textContent = 'El tipo corresponde a la licencia guardada en este equipo y queda fijo después de activar.';
         installationKind.value = activation.kind || installationKind.value;
@@ -206,6 +213,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!result.success) {
       showError(result.message || 'No se pudo guardar la configuración.');
       return;
+    }
+    if (result.customerRegistrationPending) {
+      showError('La configuración se guardó. El registro del cliente en la web está pendiente y se reintentará con conexión a Internet.');
     }
     stationActivationRequired = Boolean(result.stationActivationRequired);
     currentStep = 7;

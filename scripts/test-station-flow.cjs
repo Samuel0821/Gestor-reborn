@@ -14,7 +14,7 @@ const customerId='11111111-1111-4111-8111-111111111111';
 const fakeLicensing={
  getLicenseState:(dir,kind)=>({valid:activated&&(!kind||kind==='station'),payload:activated?{kind:'station',cid:customerId}:null}),
  activate:async(dir,code,version,kind,context)=>{assert.equal(kind,'station');assert.equal(context.expectedCustomerId,customerId);assert.equal(code,'GFX-AAAA-BBBB-CCCC-DDDD');localActivations++;activated=true;return{success:true,kind:'station'};},
- registerCustomer:async()=>{},
+ registerCustomer:async()=>{}, checkStatus:async()=>{},
 };
 class HiddenWindow extends electron.BrowserWindow{constructor(options){super({...options,show:false,webPreferences:{...options.webPreferences,offscreen:true,backgroundThrottling:false}});win=this;}}
 const load=Module._load;
@@ -80,5 +80,5 @@ electron.app.whenReady().then(async()=>{
   await until(()=>js('document.getElementById("login-alert-msg").textContent.includes("Respuesta remota de prueba")'));
   console.log(`OK estación ${resume?'reconexión':bootstrap?'configuración inicial del servidor':'nueva'}: tres opciones, licencia local, conexión persistida y login remoto.`);
  }catch(e){console.error(e);if(win)console.error(await win.webContents.executeJavaScript('document.getElementById("license-alert")?.textContent'));process.exitCode=1;}
- finally{electron.app.exit(process.exitCode||0);}
+ finally{const code=process.exitCode||0;electron.session.defaultSession.protocol.unhandle('https');setTimeout(()=>{electron.app.exit(code);setTimeout(()=>process.exit(code),1000).unref();},100);}
 });

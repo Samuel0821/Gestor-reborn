@@ -18,7 +18,9 @@
     "test:ui-focus": "node scripts/run-dialog-focus-tests.cjs",
     "start:fresh": "node scripts/start-fresh.cjs",
     "test:installation": "node scripts/run-installation-tests.cjs",
-    "test:station": "node scripts/run-station-tests.cjs"
+    "test:station": "node scripts/run-station-tests.cjs",
+    "test:licensing": "node scripts/test-licensing.cjs",
+    "test:licensing:ui": "node scripts/run-licensing-ui-tests.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",

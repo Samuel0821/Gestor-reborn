@@ -62,7 +62,7 @@
         installationCompleted = stationReady;
       } catch (_) {}
     } else {
-      installationCompleted = Boolean(db.getInstallationState().completed && licensing.getLicenseState(licenseDirectory()).payload?.kind !== "station");
+      installationCompleted = Boolean(db.getInstallationState().completed && licensing.getLicenseState(licenseDirectory()).payload?.kind !== "station" && licensing.getLicenseState(licenseDirectory()).stored?.remoteStatus !== "released");
     }
     mainWindow = new BrowserWindow({
 
@@ -106,9 +106,37 @@
     });
   }
 
-  app.whenReady().then(() => {
+  function retryCustomerRegistration() {
+    if (isRemoteStation || !db) return;
+    const state = licensing.getLicenseState(licenseDirectory());
+    if (!state.valid || state.payload.kind === "station" || !db.getInstallationState().completed) return;
+    const settings = db.getCompanySettings();
+    const type = db.getBusinessTypes().find(item => item.id === settings.business_type_id);
+    const customer = !state.stored?.customerRegistered || !state.stored?.customerId ? {
+      business_name: settings.company_name, nit: settings.company_id_card_or_nit,
+      phone: settings.company_phone, email: settings.company_email,
+      city: settings.company_address, business_type: type?.name || "",
+    } : undefined;
+    return licensing.registerCustomer(licenseDirectory(), customer);
+  }
+
+  async function synchronizeLicense() {
+    await licensing.checkStatus(licenseDirectory());
+    const state = licensing.getLicenseState(licenseDirectory());
+    if (state.stored?.remoteStatus === "released") {
+      authenticatedRenderers.clear(); apiSessions.clear(); stationReady = false;
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.getURL().endsWith("/setup.html")) {
+        mainWindow.loadFile(path.join(__dirname, "views", "setup.html"));
+      }
+    }
+    retryCustomerRegistration()?.catch(console.error);
+  }
+
+  app.whenReady().then(async () => {
       registerIpcHandlers();
-      if (!isRemoteStation) licensing.registerCustomer(licenseDirectory());
+      await synchronizeLicense();
+      const licenseTimer = setInterval(() => { synchronizeLicense().catch(console.error); }, 5 * 60 * 1000);
+      licenseTimer.unref();
       if (isServerMode) startLanApi();
       else createWindow();
   });
@@ -251,6 +279,11 @@
   // through Electron IPC locally and through the LAN API on the host machine.
   function registerIpcHandler(channel, handler) {
     const guarded = async (event, ...args) => {
+      const license = licensing.getLicenseState(licenseDirectory());
+      const activationChannels = ["get-license-state", "activate-license", "get-installation-state", "get-business-types", "get-product-form-config", "logout"];
+      if (license.stored?.remoteStatus === "released" && !activationChannels.includes(channel)) {
+        throw new Error("Esta licencia fue desactivada. Solicite un nuevo código de activación.");
+      }
       const actor = authenticatedRenderers.get(event.sender.id);
       db?.bakery.authorizeChannel(channel, actor);
       if (db?.bakery.enabled() && actor && ['add-product','update-product'].includes(channel)) {
@@ -1260,6 +1293,7 @@
       registerIpcHandler("get-installation-state", () => {
         if (isRemoteStation) return { completed: stationReady };
         const state = db.getInstallationState();
+        if (licensing.getLicenseState(licenseDirectory()).stored?.remoteStatus === "released") return { ...state, completed: false };
         if (licensing.getLicenseState(licenseDirectory()).payload?.kind === "station") return { ...state, completed: false };
         return isServerMode && !licensing.getLicenseState(licenseDirectory(), "server").valid
           ? { ...state, completed: false } : state;
@@ -1269,11 +1303,14 @@
       registerIpcHandler("get-license-state", () => {
         const requiredKind = isServerMode ? "server" : isRemoteStation ? "station" : null;
         const state = licensing.getLicenseState(licenseDirectory(), requiredKind);
-        return { activated: state.valid, kind: state.payload?.kind || null, requiredKind, serverUrl: process.env.GESTORFX_API_URL || "" };
+        return { activated: state.valid, kind: state.payload?.kind || null, requiredKind, serverUrl: process.env.GESTORFX_API_URL || "", deactivated: state.stored?.remoteStatus === "released" };
       });
       registerIpcHandler("activate-license", (event, data) => {
         if (data?.kind === "station") return { success: false, message: "Indique el servidor y use Activar y conectar para esta estación." };
-        return licensing.activate(licenseDirectory(), data && data.code, app.getVersion(), isServerMode ? "server" : data?.kind || "standalone");
+        return licensing.activate(licenseDirectory(), data && data.code, app.getVersion(), isServerMode ? "server" : data?.kind || "standalone").then(async result => {
+          if (result.success) await retryCustomerRegistration();
+          return result;
+        });
       });
       registerIpcHandler("save-initial-setup", async (event, data) => {
         const license = licensing.getLicenseState(licenseDirectory(), isServerMode ? "server" : null);
@@ -1284,7 +1321,7 @@
         if (result.success) {
           const setup = data || {};
           const businessType = db.getBusinessTypes().find(type => type.id === setup.business_type_id);
-          licensing.registerCustomer(licenseDirectory(), {
+          await licensing.registerCustomer(licenseDirectory(), {
             business_name: setup.company_name,
             nit: setup.company_id_card_or_nit,
             phone: setup.company_phone,
@@ -1293,6 +1330,7 @@
             business_type: businessType ? businessType.name : "",
           });
         }
+        if (result.success) result.customerRegistrationPending = !licensing.getLicenseState(licenseDirectory()).stored?.customerRegistered;
         return result;
       });
 
